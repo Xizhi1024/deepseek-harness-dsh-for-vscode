@@ -3,27 +3,41 @@
  * DeepSeek Harness Sidebar — VS Code extension entry point.
  *
  * Wiring layer only:
- *  - reads the dsh.* configuration (host/port/autoStart)
- *  - ensures a local DSH web server exists (reuses a running instance,
- *    spawns one when allowed) via ServerManager
+ *  - reads the dsh.* configuration (host/port/autoStart/closePolicy)
+ *  - ensures one window-owned local DSH web server exists (or, when
+ *    autoStart is disabled, reuses a user-managed configured endpoint)
  *  - renders the DSH web UI inside the auxiliary-bar webview via an iframe
- *  - provides the openInBrowser / restartServer / focusSidebar commands
+ *  - provides the openInBrowser / restartServer / stopServer / focusSidebar commands
+ *  - starts the server at VS Code startup (onStartupFinished) when autoStart
+ *    is on, even if the sidebar view is never opened
+ *  - honors a configurable close policy (onVscodeExit / onViewClose / never)
+ *    and a single serialized reconciler for config/workspace changes
  *
  * Zero npm dependencies. CommonJS.
  */
 const vscode = require("vscode");
-const { ServerManager } = require("./serverManager");
+const {
+  ServerManager,
+  CLOSE_POLICIES,
+  normalizeClosePolicy,
+  shouldStopOnViewClose,
+  reconcileConfigChange,
+} = require("./serverManager");
 const { framePage, statusPage } = require("./webviewHtml");
+const { startTextDocumentBridge } = require("./textDocumentBridge");
 const { DEFAULT_HOST, DEFAULT_PORT, VIEW_ID, CONTAINER_ID } = require("./types");
 
 let manager = null; // ServerManager instance (created in activate)
 let currentServer = null; // RunningServer | null
+let currentExternalUrl = null; // client-reachable URL (forwarded in remote workspaces)
 let currentView = null; // vscode.WebviewView | null
 let statusBar = null; // vscode.StatusBarItem | null
-let connecting = false; // guards against concurrent connect() runs
-let connectPromise = null; // in-flight connect() so workspace rebinds can await it
 let boundCwd = null; // workspace root the current server is bound to (null = none)
-let rebindChain = Promise.resolve(); // serializes workspace-change rebinds
+let lastConfig = null; // last config snapshot used for change detection (reconciler)
+let lifecycleChain = Promise.resolve(); // the one queue for every lifecycle transition
+let viewGeneration = 0; // invalidates delayed connects for disposed/replaced views
+let deactivating = false; // prevents new work after extension shutdown begins
+let textDocumentBridge = null; // per-window authenticated DSH -> vscode.window bridge
 
 /** Read the user's dsh.* settings. */
 function config() {
@@ -32,7 +46,17 @@ function config() {
     host: c.get("host", DEFAULT_HOST),
     port: c.get("port", DEFAULT_PORT),
     autoStart: c.get("autoStart", true),
+    closePolicy: normalizeClosePolicy(c.get("closePolicy")),
   };
+}
+
+/**
+ * Localize a template with params. Templates are English by default and are
+ * translated through the l10n bundle (l10n/bundle.l10n.*.json) according to
+ * the VS Code display language — one source of truth, no mixed languages.
+ */
+function loc(template, params) {
+  return vscode.l10n.t(template, params || {});
 }
 
 /**
@@ -58,15 +82,12 @@ function workspaceCwd() {
 }
 
 /**
- * Shared instances-registry location. All VS Code windows of this extension
- * read/write the same file, so a window can tell which workspace root a
- * running instance was started for (and only reuse matching ones).
+ * Shared instances-registry location. All VS Code windows record their owned
+ * children for stale-entry cleanup and diagnostics; default autoStart mode
+ * never adopts an entry written by another window.
  */
 function registryFilePath(context) {
-  if (context.storageUri) {
-    return vscode.Uri.joinPath(context.storageUri, "dsh-instances.json").fsPath;
-  }
-  return null;
+  return vscode.Uri.joinPath(context.globalStorageUri, "dsh-instances.json").fsPath;
 }
 
 /**
@@ -100,65 +121,129 @@ function render(page) {
 }
 
 /**
- * Main flow: make sure a DSH web server exists, then show it in the sidebar.
- * Returns the in-flight promise so callers (retry, openInBrowser, workspace
- * rebinds) can await the same connect instead of racing it. The cwd the
- * server ends up bound to is recorded in boundCwd.
+ * Stop the manager-owned child, if any, so a reused external instance is
+ * NEVER killed — mirroring the exact rule the
+ * `dsh.stopServer` command and the close policy rely on. Safe no-op when
+ * there is nothing owned.
+ * @returns {Promise<boolean>} true when an owned server was stopped.
  */
-function connect(context) {
-  if (connectPromise) return connectPromise; // one connect at a time
-  connectPromise = (async () => {
-    connecting = true;
-    try {
-      const cfg = config();
-      const cwd = workspaceCwd();
-      setStatusBar("$(radio-tower) DSH: connecting...");
-      render(statusPage({ title: "正在连接 DeepSeek Harness…", detail: "" }));
-      const server = await manager.ensureServer({
+async function stopOwnedServer() {
+  if (!manager || !manager.hasOwnedChild()) return false;
+  await manager.stop();
+  return true;
+}
+
+/**
+ * Append one operation to the single lifecycle queue. Every caller re-reads
+ * workspace/config state inside its operation, so rapid changes are latest-wins.
+ * The queue stays usable after a failed operation while the caller still sees
+ * the original rejection.
+ */
+function enqueueLifecycle(label, operation) {
+  if (deactivating) return Promise.resolve(undefined);
+  const next = lifecycleChain.then(async () => {
+    if (deactivating) return undefined;
+    return operation();
+  });
+  lifecycleChain = next.catch((err) => {
+    console.error(`dsh-vs-sidebar: ${label} failed:`, err);
+  });
+  return next;
+}
+
+/**
+ * Main flow: make sure a DSH web server exists, then show it in the sidebar.
+ * Must be called from enqueueLifecycle(); the cwd the server ends up bound to
+ * is recorded in boundCwd.
+ *
+ * Null-safe: when no WebviewView has been resolved yet (e.g. activated via
+ * onStartupFinished), the server is still ensured; render() simply has nothing
+ * to paint and the view — resolved later — schedules another ensure to show it.
+ */
+async function connectNow(context) {
+  try {
+    const cfg = config();
+    const cwd = workspaceCwd();
+    setStatusBar("$(radio-tower) " + loc("DSH: connecting…"));
+    render(statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail: "", lang: vscode.env.language }));
+    const server = await manager.ensureServer({
         host: cfg.host,
         port: cfg.port,
         autoStart: cfg.autoStart,
         cwd,
         registryFile: registryFilePath(context),
-      });
-      currentServer = server;
-      boundCwd = cwd;
-      const url = await externalize(server.url);
-      const owned = server.owned ? "managed" : "reused";
-      setStatusBar(
-        "$(radio-tower) DSH:" + server.port + " (" + owned + ")",
-        server.url + (cwd ? " | cwd: " + cwd : "")
-      );
-      render(framePage({ url }));
-    } catch (err) {
+    });
+    currentServer = server;
+    boundCwd = cwd;
+    const url = await externalize(server.url);
+    currentExternalUrl = url;
+    const mode = loc(server.owned ? "managed" : "reused");
+    setStatusBar(
+        "$(radio-tower) " + loc("DSH: {port} ({mode})", { port: String(server.port), mode }),
+        loc("DSH server: {url}", { url: server.url }) + (cwd ? " | " + loc("workspace: {cwd}", { cwd }) : "")
+    );
+    render(framePage({
+        url,
+        lang: vscode.env.language,
+        failText: loc("Failed to load: DSH service unreachable"),
+        openBrowserLabel: loc("Open in browser"),
+        retryLabel: loc("Retry"),
+    }));
+  } catch (err) {
       currentServer = null;
-      setStatusBar("$(error) DSH: unavailable");
+      boundCwd = null;
+      if (deactivating) return;
+      setStatusBar("$(error) " + loc("DSH: unavailable"));
       const cfg = config();
       const url = "http://" + cfg.host + ":" + cfg.port;
+      currentExternalUrl = await externalize(url);
       try {
         render(statusPage({
-          title: "DeepSeek Harness 不可用",
-          detail: String(err && err.message ? err.message : err),
+          title: loc("DeepSeek Harness unavailable"),
+          detail: err && err.template ? loc(err.template, err.params) : String(err && err.message ? err.message : err),
           url,
           showOpenBrowser: true,
           showRetry: true,
+          openBrowserLabel: loc("Open in browser"),
+          retryLabel: loc("Retry"),
+          lang: vscode.env.language,
         }));
       } catch (_) { /* never throw out of connect() */ }
-    } finally {
-      connecting = false;
-      connectPromise = null;
+  }
+}
+
+/** Queue an ensure operation, optionally tied to one resolved view instance. */
+function scheduleConnect(context, expectedViewGeneration = null) {
+  return enqueueLifecycle("connect", async () => {
+    if (
+      expectedViewGeneration !== null
+      && (expectedViewGeneration !== viewGeneration || !currentView)
+    ) {
+      return;
     }
-  })();
-  return connectPromise;
+    await connectNow(context);
+  });
 }
 
 /** Re-connect: stops only servers this extension spawned, never a reused one. */
-async function reconnect(context) {
-  if (currentServer && currentServer.owned) {
-    await manager.stop();
+async function reconnectNow(context) {
+  const cfg = config();
+  // Validate before stopping a working instance. ensureServer performs the
+  // authoritative validation; these checks preserve it on invalid settings.
+  if (cfg.host !== DEFAULT_HOST || !Number.isInteger(cfg.port) || cfg.port < 1 || cfg.port > 65535) {
+    await manager.ensureServer({
+      host: cfg.host,
+      port: cfg.port,
+      autoStart: false,
+      cwd: workspaceCwd(),
+      registryFile: registryFilePath(context),
+    });
+    return;
   }
+  await stopOwnedServer();
   currentServer = null;
-  await connect(context);
+  currentExternalUrl = null;
+  await connectNow(context);
 }
 
 /**
@@ -187,23 +272,16 @@ async function rebindToWorkspace(context) {
   const cwd = workspaceCwd();
   if (sameRoot(cwd, boundCwd)) return; // no effective workspace change
 
-  // Let an in-flight connect settle first so its result is never clobbered
-  // by the stop below (the stop kills whatever the running connect spawned).
-  if (connectPromise) {
-    try { await connectPromise; } catch (_) { /* errors are handled inside connect */ }
-    if (sameRoot(cwd, boundCwd)) return; // it already bound to the new root
-  }
-
-  if (currentServer && currentServer.owned) {
-    try { await manager.stop(); } catch (_) { /* never break the rebind */ }
-  }
+  await stopOwnedServer();
   currentServer = null;
+  currentExternalUrl = null;
   boundCwd = cwd;
   render(statusPage({
-    title: "正在连接 DeepSeek Harness…",
-    detail: "工作区已变更，正在为新工作区匹配 DSH 实例…",
+    title: loc("Connecting to DeepSeek Harness…"),
+    detail: loc("Workspace changed — rebinding to the new workspace…"),
+    lang: vscode.env.language,
   }));
-  await connect(context);
+  await connectNow(context);
 }
 
 /**
@@ -211,9 +289,41 @@ async function rebindToWorkspace(context) {
  * processed one after another instead of racing each other.
  */
 function scheduleRebind(context) {
-  rebindChain = rebindChain
-    .then(() => rebindToWorkspace(context))
-    .catch((err) => console.error("dsh-vs-sidebar: workspace rebind failed:", err));
+  return enqueueLifecycle("workspace rebind", () => rebindToWorkspace(context));
+}
+
+/**
+ * React to a `dsh.*` configuration change (host / port / autoStart / closePolicy).
+ *
+ * All reactions are funneled through a single `lifecycleChain` (a chained
+ * promise) so burst setting changes coalesce: a config change arriving during
+ * an in-flight restart is queued behind it, never spawning parallel servers,
+ * and the queued reconcile re-reads the LATEST config when it runs — so the
+ * final state always matches the current settings.
+ *
+ * The decision of whether to restart is delegated to the pure, self-tested
+ * `reconcileConfigChange()` in serverManager.js. A closePolicy-only change
+ * does NOT restart (it only affects the dispose handler).
+ */
+function scheduleConfigReconcile(context) {
+  return enqueueLifecycle("config reconcile", async () => {
+    const prev = lastConfig || config();
+    const next = config();
+      // Record the incoming snapshot regardless, so rapid toggles coalesce
+      // onto the latest value before the next queued reconcile runs.
+    lastConfig = next;
+
+    const decision = reconcileConfigChange(
+        prev,
+        next,
+        Boolean(currentServer),
+        Boolean(manager && manager.hasOwnedChild())
+    );
+
+    if (decision.shouldReconnect) {
+      await reconnectNow(context);
+    }
+  });
 }
 
 /**
@@ -259,30 +369,53 @@ function ensureDshOnPath() {
   }
 }
 
-function activate(context) {
+async function activate(context) {
   ensureDshOnPath();
+  textDocumentBridge = await startTextDocumentBridge({
+    openTextDocument: async (absolutePath) => {
+      const document = await vscode.workspace.openTextDocument(vscode.Uri.file(absolutePath));
+      await vscode.window.showTextDocument(document, { preview: false, preserveFocus: false });
+    },
+  });
+  context.subscriptions.push({
+    dispose() {
+      textDocumentBridge?.close().catch(() => {});
+    },
+  });
   manager = new ServerManager({
+    spawnEnv: textDocumentBridge.env,
     onStatus: (s) => {
       // Surface each lifecycle stage inside the sidebar so the user can see
       // whether we reused an instance or started a new one (multi-instance
       // transparency).
       const stage = {
-        probing: "探测 DSH 服务…",
-        reusing: "发现运行中的实例，正在复用…",
-        starting: "未发现本工作区的实例，正在启动 dsh web…",
-        ready: "服务就绪",
-        stopping: "正在停止…",
-        stopped: "已停止",
+        probing: loc("Probing DSH service…"),
+        reusing: loc("Reusing a running instance…"),
+        starting: loc("Starting dsh web…"),
       }[s.state];
-      if (stage && s.state !== "ready" && s.state !== "stopped" && s.state !== "stopping") {
+      if (stage) {
         try {
-          render(statusPage({ title: "正在连接 DeepSeek Harness…", detail: stage + (s.message ? " (" + s.message + ")" : "") }));
+          const detail = stage + (s.message ? " — " + loc(s.message, s.params) : "");
+          render(statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail, lang: vscode.env.language }));
         } catch (_) { /* non-fatal */ }
       }
       if (s.state === "error" && s.message) {
-        setStatusBar("$(error) DSH: " + s.message);
+        setStatusBar("$(error) " + loc(s.message, s.params));
+      } else if (s.state === "stopped") {
+        // Command-visible result of dsh.stopServer (and of a close-policy
+        // stop): update the status bar and, when the view is still open,
+        // show a stopped page with a Retry action.
+        setStatusBar("$(circle-slash) " + loc("DSH: stopped"));
+        render(statusPage({
+          title: loc("DeepSeek Harness stopped"),
+          detail: "",
+          showRetry: true,
+          retryLabel: loc("Retry"),
+          lang: vscode.env.language,
+        }));
       } else if (s.state === "ready") {
-        setStatusBar("$(radio-tower) DSH:" + (s.server ? s.server.port : "?"));
+        const mode = loc(s.server && s.server.owned ? "managed" : "reused");
+        setStatusBar("$(radio-tower) " + loc("DSH: {port} ({mode})", { port: String(s.server ? s.server.port : "?"), mode }));
       }
     },
   });
@@ -298,23 +431,39 @@ function activate(context) {
       // VS Code shows "Error restoring view: <id>" whenever this function
       // throws or rejects, so it must never propagate an exception.
       try {
+        const resolvedViewGeneration = ++viewGeneration;
         currentView = view;
         view.webview.options = { enableScripts: true };
         // Synchronous first paint: the webview always has content, even if
         // the async connect below fails later.
-        view.webview.html = statusPage({ title: "正在连接 DeepSeek Harness…", detail: "" });
+        view.webview.html = statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail: "", lang: vscode.env.language });
         // NOTE: onDidReceiveMessage lives on the Webview, not the WebviewView.
         view.webview.onDidReceiveMessage((msg) => {
-          if (msg && msg.type === "openBrowser" && currentServer) {
-            vscode.env.openExternal(vscode.Uri.parse(currentServer.url));
+          if (msg && msg.type === "openBrowser" && currentExternalUrl) {
+            vscode.env.openExternal(vscode.Uri.parse(currentExternalUrl));
           } else if (msg && msg.type === "retry") {
-            connect(context).catch(() => {});
+            scheduleConnect(context, resolvedViewGeneration).catch(() => {});
           }
         });
-        view.onDidDispose(() => { currentView = null; });
-        // Run the (async) attach outside the resolve call; connect() handles
+        view.onDidDispose(() => {
+          if (currentView !== view) return;
+          currentView = null;
+          viewGeneration += 1; // cancel a delayed connect tied to this view
+          enqueueLifecycle("view-close policy", async () => {
+              if (currentView) return; // view re-resolved: never stop under the reopened view
+              if (!shouldStopOnViewClose(config().closePolicy)) return;
+              if (await stopOwnedServer()) {
+                currentServer = null;
+                currentExternalUrl = null;
+                boundCwd = null;
+              }
+            }).catch(() => {});
+        });
+        // Run the asynchronous ensure outside the synchronous resolve call.
         // its own errors and only mutates view.webview.html via render().
-        setImmediate(() => { connect(context).catch(() => {}); });
+        setImmediate(() => {
+          scheduleConnect(context, resolvedViewGeneration).catch(() => {});
+        });
       } catch (err) {
         console.error("dsh-vs-sidebar: resolveWebviewView failed:", err);
       }
@@ -329,16 +478,34 @@ function activate(context) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("dsh.openInBrowser", async () => {
-      if (currentServer) {
-        await vscode.env.openExternal(vscode.Uri.parse(currentServer.url));
-      } else {
-        await connect(context);
-        if (currentServer) {
-          await vscode.env.openExternal(vscode.Uri.parse(currentServer.url));
+      return enqueueLifecycle("open in browser", async () => {
+        if (!currentServer) await connectNow(context);
+        if (currentExternalUrl) {
+          await vscode.env.openExternal(vscode.Uri.parse(currentExternalUrl));
         }
-      }
+      });
     }),
-    vscode.commands.registerCommand("dsh.restartServer", () => reconnect(context)),
+    vscode.commands.registerCommand("dsh.restartServer", () => enqueueLifecycle("restart server", async () => {
+      if (currentServer && !manager.hasOwnedChild()) {
+        vscode.window.showInformationMessage(loc("The running DSH server is reused and cannot be restarted by this extension"));
+        return;
+      }
+      await reconnectNow(context);
+    })),
+    vscode.commands.registerCommand("dsh.stopServer", () => enqueueLifecycle("stop server", async () => {
+      // Stops ONLY a process this extension instance spawned and owns. A
+      // reused external server (found already running and adopted) is never
+      // killed — the pure decision function is self-tested in serverManager.js.
+        if (!manager.hasOwnedChild()) {
+          vscode.window.showInformationMessage(loc("No DSH server is owned by this extension"));
+          return;
+        }
+        await stopOwnedServer();
+        currentServer = null;
+        currentExternalUrl = null;
+        boundCwd = null;
+        vscode.window.showInformationMessage(loc("DSH server stopped"));
+      })),
     vscode.commands.registerCommand("dsh.focusSidebar", async () => {
       await vscode.commands.executeCommand("workbench.view.extension." + CONTAINER_ID);
       await vscode.commands.executeCommand(VIEW_ID + ".focus");
@@ -351,15 +518,63 @@ function activate(context) {
   // editor switches (same folder) a no-op.
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => scheduleRebind(context)),
-    vscode.window.onDidChangeActiveTextEditor(() => scheduleRebind(context))
+    vscode.window.onDidChangeActiveTextEditor(() => scheduleRebind(context)),
+    // React to dsh.* settings changes (host / port / autoStart / closePolicy)
+    // through the serialized reconciler so burst changes never race a restart.
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (
+        e.affectsConfiguration("dsh.host") ||
+        e.affectsConfiguration("dsh.port") ||
+        e.affectsConfiguration("dsh.autoStart") ||
+        e.affectsConfiguration("dsh.closePolicy")
+      ) {
+        scheduleConfigReconcile(context);
+      }
+    })
   );
+
+  // autoStart at VS Code startup: activate even when the sidebar view is never
+  // opened. connectNow() is null-safe — no WebviewView resolved yet is fine, the
+  // server is still ensured and the view (resolved later) shows it via a fresh
+  // queued ensure. Default autoStart gives this extension host its own child;
+  // reuse is available only when autoStart is explicitly disabled.
+  lastConfig = config();
+  if (lastConfig.autoStart) {
+    setImmediate(() => {
+      scheduleConnect(context).catch(() => {});
+    });
+  }
 }
 
-function deactivate() {
-  if (manager) {
-    return manager.stop();
+async function deactivate() {
+  // On VS Code exit, stop only an owned process — and honor the close policy:
+  // `never` intentionally leaves even an owned process running for explicit
+  // user-managed operation. Other policies stop our child.
+  deactivating = true;
+  viewGeneration += 1;
+  try {
+    if (!manager) return undefined;
+    if (normalizeClosePolicy(config().closePolicy) === CLOSE_POLICIES.NEVER) {
+      await lifecycleChain.catch(() => {});
+      return undefined;
+    }
+
+    // Prevent probe/port-scan work from spawning after shutdown begins. If a
+    // child already exists, stopping it also makes an in-flight health wait
+    // settle promptly instead of delaying deactivation for the full timeout.
+    manager.cancelPending();
+    if (manager.hasOwnedChild()) {
+      await manager.stop();
+    }
+    await lifecycleChain.catch(() => {});
+    if (manager.hasOwnedChild()) {
+      await manager.stop();
+    }
+    return undefined;
+  } finally {
+    await textDocumentBridge?.close().catch(() => {});
+    textDocumentBridge = null;
   }
-  return undefined;
 }
 
 module.exports = { activate, deactivate };

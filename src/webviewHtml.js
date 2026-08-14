@@ -17,6 +17,24 @@ function escapeHtml(value) {
 }
 
 /**
+ * Adds the DSH compact-layout marker to an iframe URL while preserving any
+ * existing query parameters and fragment. Invalid URLs are returned as-is so
+ * the webview's normal fallback UI remains responsible for the failure.
+ *
+ * @param {string} url - Externalized DSH URL.
+ * @returns {string} URL carrying the VS Code embed marker.
+ */
+function withVscodeEmbedMode(url) {
+  try {
+    const parsed = new URL(String(url || ""));
+    parsed.searchParams.set("dsh_embed", "vscode");
+    return parsed.toString();
+  } catch {
+    return String(url || "");
+  }
+}
+
+/**
  * Renders a full HTML document that shows a centered status card
  * (loading / error / retry states) inside the DSH sidebar webview.
  *
@@ -28,27 +46,39 @@ function escapeHtml(value) {
  *   - { type: "retry" }        -> ask the extension to retry connecting
  *
  * @param {object} options
- * @param {string} options.title - Heading shown on the card (e.g. "正在加载 DSH…").
+ * @param {string} options.title - Heading shown on the card.
  * @param {string} options.detail - Secondary detail text under the heading.
  * @param {string} [options.url] - DSH URL to display on the card (optional).
  * @param {boolean} [options.showOpenBrowser] - Render the "open in browser" button.
  * @param {boolean} [options.showRetry] - Render the "retry" button.
+ * @param {string} [options.openBrowserLabel] - Label of the open-in-browser button.
+ * @param {string} [options.retryLabel] - Label of the retry button.
+ * @param {string} [options.lang] - HTML lang attribute (default "en").
  * @returns {string} Complete standalone HTML document.
  */
-function statusPage({ title, detail, url, showOpenBrowser = false, showRetry = false } = {}) {
+function statusPage({
+  title,
+  detail,
+  url,
+  showOpenBrowser = false,
+  showRetry = false,
+  openBrowserLabel = "Open in browser",
+  retryLabel = "Retry",
+  lang = "en",
+} = {}) {
   const buttons = [];
   if (showOpenBrowser) {
-    buttons.push('<button type="button" class="btn" id="btn-open-browser">在浏览器打开</button>');
+    buttons.push('<button type="button" class="btn" id="btn-open-browser">' + escapeHtml(openBrowserLabel) + "</button>");
   }
   if (showRetry) {
-    buttons.push('<button type="button" class="btn" id="btn-retry">重试</button>');
+    buttons.push('<button type="button" class="btn" id="btn-retry">' + escapeHtml(retryLabel) + "</button>");
   }
   const urlLine = url
     ? '<code class="url">' + escapeHtml(url) + "</code>"
     : "";
 
   return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${escapeHtml(lang)}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -120,12 +150,23 @@ function statusPage({ title, detail, url, showOpenBrowser = false, showRetry = f
  *
  * @param {object} options
  * @param {string} options.url - DSH web URL to embed in the iframe.
+ * @param {string} [options.failText] - Fallback heading when the iframe cannot load.
+ * @param {string} [options.openBrowserLabel] - Label of the open-in-browser link.
+ * @param {string} [options.retryLabel] - Label of the retry button.
+ * @param {string} [options.lang] - HTML lang attribute (default "en").
  * @returns {string} Complete standalone HTML document.
  */
-function framePage({ url } = {}) {
-  const safeUrl = escapeHtml(url || "");
+function framePage({
+  url,
+  failText = "Failed to load: DSH service unreachable",
+  openBrowserLabel = "Open in browser",
+  retryLabel = "Retry",
+  lang = "en",
+} = {}) {
+  const safeFrameUrl = escapeHtml(withVscodeEmbedMode(url));
+  const safeBrowserUrl = escapeHtml(url || "");
   return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${escapeHtml(lang)}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -155,12 +196,12 @@ function framePage({ url } = {}) {
 </style>
 </head>
 <body>
-  <iframe id="frame" src="${safeUrl}" style="position:fixed;inset:0;width:100%;height:100%;border:none"></iframe>
+  <iframe id="frame" src="${safeFrameUrl}" style="position:fixed;inset:0;width:100%;height:100%;border:none"></iframe>
   <div id="fallback">
-    <p>加载失败：DSH 服务不可达</p>
+    <p>${escapeHtml(failText)}</p>
     <div>
-      <a id="fallback-link" href="${safeUrl}" target="_blank" rel="noopener">在浏览器打开</a>
-      <button id="fallback-retry" type="button">重试</button>
+      <a id="fallback-link" href="${safeBrowserUrl}" target="_blank" rel="noopener">${escapeHtml(openBrowserLabel)}</a>
+      <button id="fallback-retry" type="button">${escapeHtml(retryLabel)}</button>
     </div>
   </div>
   <script>
@@ -187,4 +228,4 @@ function framePage({ url } = {}) {
 </html>`;
 }
 
-module.exports = { statusPage, framePage };
+module.exports = { statusPage, framePage, withVscodeEmbedMode };

@@ -22,9 +22,9 @@ const BOOT_MARKER = "__DSH_BOOT__";
 /**
  * Id of the webview view registered in package.json. @type {string}
  *
- * ⚠️ 持久化契约 / persistent contract: these ids are how VS Code persists
- * the user's sidebar layout and extension state across upgrades. Changing
- * them on a released version makes the old view "disappear" (VS Code logs
+ * ⚠️ Persistent contract: these ids are how VS Code persists the user's
+ * sidebar layout and extension state across upgrades. Changing them on a
+ * released version makes the old view "disappear" (VS Code logs
  * UNKNOWN_VIEW_CONTAINER / unknown view and the user's layout is reset).
  * Only change them together with a new container id in package.json's
  * contributes.viewsContainers + contributes.views, and never in a patch

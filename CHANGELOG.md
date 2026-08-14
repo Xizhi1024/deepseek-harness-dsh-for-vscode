@@ -3,6 +3,62 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.3.1] - 2026-08-15
+
+### Added / 新增
+
+- **VS Code 嵌入约定**：iframe 增加 `dsh_embed=vscode`，兼容版本的 DSH 会隐藏内部左右栏；每窗口回环桥接以随机 token 鉴权，把 DSH 配置路径交回所属扩展宿主并由 VS Code API 在准确窗口打开。`DSH_TEXT_EDITOR=vscode` 仅作为旧版 CLI 回退；浏览器入口和被复用的外部实例保持原行为。
+  VS Code embed contract: the iframe adds `dsh_embed=vscode` so compatible DSH builds hide their internal side columns; a random-token loopback bridge returns DSH configuration paths to the owning extension host, whose VS Code API opens the exact window. `DSH_TEXT_EDITOR=vscode` remains only as an older CLI fallback; browser entry points and reused external instances keep their original behavior.
+
+- **VS Code 启动即拉取**：新增 `onStartupFinished` 激活事件；`dsh.autoStart` 开启时扩展在 VS Code 启动阶段即确保 DSH 服务存在（未打开侧边栏视图时同样安全，视图稍后打开再接管渲染）。
+  Start DSH at VS Code startup: `onStartupFinished` activation ensures the server exists when `dsh.autoStart` is on, even if the sidebar view is never opened (null-safe; a later-resolved view takes over rendering).
+
+- **新增命令 `dsh.stopServer`**：只停止本扩展实例自管（spawn）的进程；被复用的外部实例绝不终止。
+  New `dsh.stopServer` command: stops only a process this extension instance owns; a reused external instance is never killed.
+
+- **关闭策略 `dsh.closePolicy`**：新增配置键，取值 `onVscodeExit`（默认）/ `onViewClose` / `never`；默认保守——关闭视图不停止服务，除非用户显式选择 `onViewClose`。
+  New `dsh.closePolicy` setting: `onVscodeExit` (default) / `onViewClose` / `never`; conservative default keeps the server alive across view close unless the user opts into `onViewClose`.
+
+### Changed / 变更
+
+- **每窗口独占进程**：默认 `dsh.autoStart=true` 不再接管其他 VS Code 窗口或手动启动的 DSH；每个扩展宿主在独立端口启动自己的子进程，并由默认 `onVscodeExit` 在该窗口关闭时清理。`autoStart=false` 仍提供显式的用户自管端点复用模式。
+  One process per window: default `dsh.autoStart=true` no longer adopts DSH from another VS Code window or a manual launch; every extension host starts its own child on an independent port and default `onVscodeExit` cleans it up with that window. `autoStart=false` remains the explicit user-managed endpoint reuse mode.
+
+- **进程所有权与取消修复**：同端点重新确保时保留自管所有权；视图销毁与扩展停用会取消尚未 spawn 的连接，并在队列结算后再次清理可能刚拉起的子进程；重启命令不再对被复用实例给出误导性成功反馈。
+  Process ownership and cancellation fixes: re-ensuring the same endpoint preserves managed ownership; view disposal and extension deactivation invalidate pending pre-spawn connections and re-check for a just-created child after the lifecycle queue settles; restart no longer reports misleading success for a reused instance.
+
+- **生命周期串行化**：连接 / 停止 / 工作区重绑 / 配置协调统一走一条串行队列，连接期间到达的视图销毁不会误杀重绑刚拉起的进程（反之亦然）；`dsh.host` / `dsh.port` / `dsh.autoStart` / `dsh.closePolicy` 变更经单一协调器合并，杜绝并发重启。
+  Serialized lifecycle: connect / stop / workspace rebind / config reconcile share one queue so a dispose during connect can never kill a process a rebind just started; host/port/autoStart/closePolicy changes are coalesced by a single reconciler (no parallel restarts).
+
+- **决策函数独立可测**：关闭策略判定、所有权/停止判定、配置协调判定抽为 `serverManager.js` 内的纯函数并导出，`node src/serverManager.js` 自测覆盖命令可见行为（“仅自管才停止”）。
+  Decision logic extracted into pure, exported functions in `serverManager.js` (close-policy gate, ownership/stop check, config reconcile) covered by the standalone self-test, including command-visible behavior ("stop only when owned").
+
+- **文档同步**：README / README.zh-CN / CHANGELOG / package.nls.* / l10n 打包同步新命令、新配置与策略语义；明确 Windows 侧 `taskkill /T /F` 为强制终止（非优雅停止）。
+  Docs synced across README / README.zh-CN / CHANGELOG / package.nls.* / l10n bundles; the Windows `taskkill /T /F` force-terminate (not graceful) behavior is stated explicitly.
+
+## [0.3.0] - 2026-08-14
+
+### Fixed / 修复
+
+- 修复同工作区 DSH 位于顺延端口时无法复用、连接失败页“在浏览器打开”无响应，以及 Remote-SSH / WSL 浏览器命令未使用转发 URL 的问题；实例注册表改用扩展全局存储。
+  Reuse workspace-matched DSH instances on scanned-forward ports, make the unavailable-page browser action functional, use forwarded URLs for Remote-SSH / WSL browser commands, and store the instance registry in extension-global storage.
+
+- 发布流水线移入 `.github/workflows/`；VSIX 排除 `.agents`、旧 `ci` 目录和已有 `.vsix` 产物；侧栏与命令分类字符串全部接入本地化。
+  Move the release workflow under `.github/workflows/`, exclude `.agents`, legacy `ci`, and existing `.vsix` artifacts from packages, and route view/category strings through localization.
+
+### Changed / 变更
+
+- **界面语言跟随 VS Code**：manifest（含 `displayName`、`configuration.title`、设置项/命令/capabilities 描述）全部走 `package.nls.json` + `package.nls.zh-cn.json`；运行期文案走 `vscode.l10n`（`l10n/bundle.l10n.*.json`）；中英随 VS Code 显示语言自动切换，不再中英混写。
+  UI language follows VS Code: every manifest string (incl. `displayName`, `configuration.title`, and all setting/command/capability descriptions) now lives in `package.nls.json` + `package.nls.zh-cn.json`; runtime copy goes through `vscode.l10n` (`l10n/bundle.l10n.*.json`); switches with the VS Code display language, no more mixed zh/en.
+
+- **文案精简**：所有用户可见描述压成一句话（如不受信任工作区提示、`dsh.host` 说明）；`serverManager` 状态消息改为「英文模板 + 参数」，由扩展侧按当前语言渲染。
+  Concise copy: every user-facing description is one short line (e.g. untrusted-workspace notice, `dsh.host` hint); `serverManager` status messages are "English template + params", rendered by the extension in the current UI language.
+
+- **README 双语拆分**：原中英对照堆叠的单文件改为 `README.md`（英文）+ `README.zh-CN.md`（中文），顶部互链切换；各节表格化、去冗余补注。
+  README split into two single-language files: `README.md` (en) + `README.zh-CN.md` (zh) with a top-of-file language toggle, replacing the old interleaved zh/en blob; sections are table-driven with padding trimmed.
+
 ## [0.2.1] - 2026-08-14
 
 ### Changed / 变更
@@ -32,6 +88,8 @@ All notable changes to this project are documented here, following [Keep a Chang
   README slimmed down to install requirements, key usage/config and the implementation notes (transparency for AI bug-hunting).
 
 [Unreleased]: https://github.com/Xizhi1024/dsh-vs-sidebar
+[0.3.1]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.3.1
+[0.3.0]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.1.0
 

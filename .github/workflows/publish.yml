@@ -1,0 +1,60 @@
+name: Publish Extension
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Self-test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run server manager self-test
+        run: node src/serverManager.js
+
+  publish:
+    name: Publish to marketplaces
+    runs-on: ubuntu-latest
+    needs: test
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OPEN_VSX_TOKEN: ${{ secrets.OPEN_VSX_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install publishers
+        run: npm install --global @vscode/vsce ovsx
+
+      - name: Inspect package contents
+        run: vsce ls --no-dependencies
+
+      - name: Publish to VS Code Marketplace
+        run: vsce publish --pat "$VSCE_PAT" --skip-duplicate
+
+      - name: Publish to Open VSX
+        if: ${{ env.OPEN_VSX_TOKEN != '' }}
+        continue-on-error: true
+        run: ovsx publish --pat "$OPEN_VSX_TOKEN" --skip-duplicate

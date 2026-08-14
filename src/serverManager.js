@@ -7,11 +7,11 @@
  * Responsibilities:
  *   - probe a host:port to detect whether the DSH web UI is running there
  *     (its index.html body contains the BOOT_MARKER symbol).
- *   - reuse an already-running DSH instance, or start one via the globally
- *     installed `dsh` CLI on a free port (scanning forward from the
- *     configured port).
- *   - keep a JSON instance registry (per-workspace DSH instances) so each
- *     VS Code window binds to its own workspace's instance.
+ *   - start one window-owned DSH instance via the globally installed `dsh`
+ *     CLI on a free port (scanning forward from the configured port), or
+ *     reuse a user-managed instance only when autoStart is disabled.
+ *   - keep a JSON instance registry for stale-entry cleanup and diagnostics;
+ *     live entries from other VS Code windows are never adopted by default.
  *   - report lifecycle transitions through an `onStatus` callback.
  *
  * Zero external dependencies: only Node built-ins are used.
@@ -22,10 +22,8 @@ const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-// Shared contract constants normally come from ./types (written in parallel
-// by another agent). If that module is not ready yet, fall back to local
-// defaults so this file stays independently testable. A half-written module
-// (missing file, syntax error, undefined export) all resolve to the fallback.
+// Shared contract constants normally come from ./types. Fall back to local
+// defaults so this file stays independently testable when copied in isolation.
 let typesModule = null;
 try {
   typesModule = require('./types');
@@ -42,21 +40,232 @@ const HEALTH_POLL_MS = 700;      // interval between health checks after spawn
 const HEALTH_TIMEOUT_MS = 30000; // overall wait for the spawned service to become ready
 const MAX_BODY_BYTES = 5 * 1024 * 1024; // bound on the probe response body we buffer
 
+/**
+ * Substitute {name} placeholders in a template with the given params.
+ * Unknown placeholders are left intact so a missing param is never silent.
+ * @param {string} template
+ * @param {object} [params]
+ * @returns {string}
+ */
+function fillTemplate(template, params) {
+  return String(template).replace(/\{(\w+)\}/g, (_, key) =>
+    params && params[key] !== undefined && params[key] !== null ? String(params[key]) : "{" + key + "}"
+  );
+}
+
+/**
+ * Error whose message is the placeholder-filled English template, while
+ * template/params stay available so the extension host can re-render it
+ * through vscode.l10n in the user's UI language. The filled English message
+ * keeps standalone/CLI consumers readable.
+ */
+class ServerError extends Error {
+  /**
+   * @param {string} template - English l10n template with {name} placeholders.
+   * @param {object} [params] - placeholder values.
+   */
+  constructor(template, params) {
+    super(fillTemplate(template, params));
+    this.name = "ServerError";
+    this.template = template;
+    this.params = params || {};
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle decision functions.
+//
+// These are pure (no I/O, no vscode import): the same inputs always produce
+// the same output. They live here — not in extension.js — so both the
+// extension host and the standalone Node self-test exercise the exact same
+// decision code, and so `node src/serverManager.js` stays meaningful.
+// ---------------------------------------------------------------------------
+
+/**
+ * Allowed values of the `dsh.closePolicy` setting.
+ *   - `onVscodeExit` — stop the owned server only when VS Code exits (default);
+ *     closing the sidebar view keeps it running.
+ *   - `onViewClose`  — also stop the owned server when the sidebar view is disposed.
+ *   - `never`        — never stop the server automatically; the user stops it
+ *     explicitly via `dsh.stopServer`. The process intentionally survives the
+ *     extension host and can be adopted again through the instance registry.
+ *
+ * Note: only an OWNED process (spawned by this extension) is ever stopped. A
+ * reused external instance is never touched, whatever the policy says.
+ * @type {Object<string, string>}
+ */
+const CLOSE_POLICIES = Object.freeze({
+  ON_VSCODE_EXIT: 'onVscodeExit',
+  ON_VIEW_CLOSE: 'onViewClose',
+  NEVER: 'never',
+});
+
+const DEFAULT_CLOSE_POLICY = CLOSE_POLICIES.ON_VSCODE_EXIT;
+
+/**
+ * Normalize a raw closePolicy setting to a known value.
+ * Anything unknown falls back to the conservative default (onVscodeExit).
+ * @param {*} raw - the value read from the config (may be undefined).
+ * @returns {string} one of CLOSE_POLICIES.
+ */
+function normalizeClosePolicy(raw) {
+  if (raw === CLOSE_POLICIES.ON_VIEW_CLOSE) return CLOSE_POLICIES.ON_VIEW_CLOSE;
+  if (raw === CLOSE_POLICIES.NEVER) return CLOSE_POLICIES.NEVER;
+  return CLOSE_POLICIES.ON_VSCODE_EXIT; // default, and fallback for unknown values
+}
+
+/**
+ * Whether closing the sidebar view should stop the owned server under the
+ * given policy. Only `onViewClose` does; the conservative default and `never`
+ * both leave a running server alone on view close.
+ * @param {*} closePolicy - raw policy value (normalized internally).
+ * @returns {boolean}
+ */
+function shouldStopOnViewClose(closePolicy) {
+  return normalizeClosePolicy(closePolicy) === CLOSE_POLICIES.ON_VIEW_CLOSE;
+}
+
+/**
+ * Whether the `dsh.stopServer` command should stop the server described by
+ * `server`. The rule is: only a process THIS extension instance spawned and
+ * owns is ever stopped. A reused external instance (found already running and
+ * adopted, e.g. from another workspace/VS Code window) must never be killed.
+ *
+ * @param {object|null|undefined} server - a RunningServer handle, or null when none.
+ * @returns {boolean} true only when `server` exists and server.owned === true.
+ */
+function shouldStopOwnedServer(server) {
+  return Boolean(server && server.owned === true);
+}
+
+/**
+ * Two `dsh.*` endpoint configs are effectively equal when host and port match.
+ * Used to decide whether a config change actually requires a reconnect.
+ * @param {{host: string, port: number}} a
+ * @param {{host: string, port: number}} b
+ * @returns {boolean}
+ */
+function sameEndpoint(a, b) {
+  return Boolean(a && b && a.host === b.host && Number(a.port) === Number(b.port));
+}
+
+/**
+ * React to a `dsh.*` configuration change: decide what each changed key means
+ * for the running server, and whether a reconnect+restart is required.
+ *
+ * Pure and deterministic: the same inputs yield the same action. The caller
+ * (extension.js) feeds the reconciled action into a single serialized queue so
+ * burst changes coalesce instead of spawning parallel servers.
+ *
+ * Inputs:
+ *   @param {object} prev - previous config { host, port, autoStart, closePolicy }.
+ *   @param {object} next - new config      { host, port, autoStart, closePolicy }.
+ *   @param {boolean} connected - whether a server is currently bound/connected.
+ *   @param {boolean} owned - whether the current server is owned by this extension.
+ *
+ * Returns an action object:
+ *   { shouldReconnect: boolean, reason: string|null }
+ *   - shouldReconnect is true when the endpoint changed OR (autoStart went from
+ *     false→true and the last ensureServer failed because it was disabled) —
+ *     i.e. when a restart is needed to bring the server in line with config.
+ *   - reason names the first semantic change, or null when none.
+ */
+function reconcileConfigChange(prev, next, connected, owned) {
+  const p = prev || {};
+  const n = next || {};
+
+  const endpointChanged = !sameEndpoint(
+    { host: p.host, port: p.port },
+    { host: n.host, port: n.port }
+  );
+
+  if (endpointChanged) {
+    return {
+      shouldReconnect: true,
+      reason: sameEndpoint({ host: p.host, port: p.port }, { host: p.host, port: n.port })
+        ? 'host' : 'port',
+      endpointChanged: true,
+      autoStartEnabled: null,
+      closePolicyChanged: (normalizeClosePolicy(p.closePolicy) !== normalizeClosePolicy(n.closePolicy)),
+    };
+  }
+
+  // autoStart false→true while nothing is running: a fresh start is now allowed.
+  const autoStartEnabled = p.autoStart === false && n.autoStart === true && !connected;
+
+  return {
+    shouldReconnect: autoStartEnabled,
+    reason: autoStartEnabled ? 'autoStart' : null,
+    endpointChanged: false,
+    autoStartEnabled,
+    closePolicyChanged: (normalizeClosePolicy(p.closePolicy) !== normalizeClosePolicy(n.closePolicy)),
+  };
+}
+
 class ServerManager {
-  constructor({ onStatus } = {}) {
+  constructor({ onStatus, spawnEnv } = {}) {
     this.onStatus = typeof onStatus === 'function' ? onStatus : () => {};
+    this.spawnEnv = spawnEnv && typeof spawnEnv === 'object' ? { ...spawnEnv } : {};
     this._child = null;   // ChildProcess spawned by THIS instance (owned)
     this._registryFile = null; // registry merged on ready (own entry removed on stop)
     this._stopping = false; // true while a deliberate stop() is in progress
+    this._ownedServer = null; // last ready endpoint backed by this._child
+    this._cancelGeneration = 0; // invalidates an in-flight ensure/spawn operation
+  }
+
+  /** True while this manager still owns a spawned child, including startup. */
+  hasOwnedChild() {
+    return Boolean(this._child);
+  }
+
+  /** Invalidate the current ensure/spawn operation without affecting later ones. */
+  cancelPending() {
+    this._cancelGeneration += 1;
+  }
+
+  /** Environment inherited by this window's managed DSH child. */
+  _buildSpawnEnv() {
+    return {
+      ...process.env,
+      ...this.spawnEnv,
+      DSH_TEXT_EDITOR: 'vscode',
+    };
+  }
+
+  _throwIfCancelled(generation) {
+    if (generation !== this._cancelGeneration) {
+      throw new ServerError('DSH lifecycle operation was cancelled');
+    }
+  }
+
+  /** Build a reuse handle without losing ownership of our own ready child. */
+  _reuseHandle(host, port) {
+    const owned = Boolean(
+      this._child
+      && this._ownedServer
+      && this._ownedServer.pid === this._child.pid
+      && this._ownedServer.host === host
+      && this._ownedServer.port === port
+    );
+    return {
+      url: `http://${host}:${port}`,
+      host,
+      port,
+      pid: owned ? this._child.pid : null,
+      owned,
+    };
   }
 
   /**
-   * Report a lifecycle transition. Callback errors are swallowed so a broken
-   * UI listener can never break the manager.
+   * Report a lifecycle transition. template is an English l10n template with
+   * {name} placeholders and params its values; the listener localizes it
+   * (e.g. through vscode.l10n). An optional running-server handle is attached
+   * for states that carry one (ready). Callback errors are swallowed so a
+   * broken UI listener can never break the manager.
    */
-  _emit(state, message, server) {
+  _emit(state, template, params, server) {
     try {
-      const payload = { state, message };
+      const payload = { state, message: template, params: params || {} };
       if (server) payload.server = server;
       this.onStatus(payload);
     } catch {
@@ -157,22 +366,19 @@ class ServerManager {
   }
 
   /**
-   * Ensure a DSH web service is available at host:port, matched to the
-   * calling VS Code window's workspace via the instance registry.
-   *  - Read the registry first (dead entries filtered; nothing is killed).
-   *  - If DSH is already running on host:port:
-   *      a) autoStart === false → always reuse (the user manages instances);
-   *      b) cwd is null/undefined/empty (this window has no workspace) → reuse;
-   *      c) otherwise reuse ONLY when the registry has a port-matching entry
-   *         whose cwd is non-empty and samePath(entry.cwd, cwd). A mismatch
-   *         or a missing entry (e.g. manually started instance, cwd unknown)
-   *         → do NOT reuse: spawn on the next free port (scan from port + 1).
-   *  - Non-DSH occupant → spawn (scan from port + 1); unreachable → spawn
-   *    (scan from port itself).
+   * Ensure a DSH web service is available for this VS Code window.
+   *  - autoStart === true (default) is window-owned mode: reuse only this
+   *    manager's own healthy child. Any service already occupying the
+   *    configured port belongs to somebody else, so scan forward and spawn a
+   *    dedicated child. This gives each VS Code extension host one process.
+   *  - autoStart === false is user-managed mode: reuse a DSH already running
+   *    on the configured port and never stop it.
+   *  - A non-DSH occupant scans from port + 1; an unreachable port scans from
+   *    the configured port itself.
    *  - autoStart === false when reuse is impossible (non-DSH occupant or
    *    unreachable) → throw the original error message.
    *  - On spawn success the { pid, port, host, cwd, at } entry is merged into
-   *    the registry (same-port entry replaced, others kept).
+   *    the registry for cleanup/diagnostics (never for cross-window adoption).
    *  - cwd: DSH workspace root directory (used as the spawn cwd); null /
    *    undefined / empty string = not specified — the child inherits the
    *    parent process's cwd (no fallback to the user home directory).
@@ -180,41 +386,52 @@ class ServerManager {
    *  - Returns a RunningServer: { url, host, port, pid, owned }.
    */
   async ensureServer({ host = DEFAULT_HOST, port = DEFAULT_PORT, autoStart = true, cwd, registryFile } = {}) {
-    this._emit('probing', `正在探测 DSH 服务: http://${host}:${port} …`);
+    const generation = this._cancelGeneration;
+    if (host !== DEFAULT_HOST) {
+      throw new ServerError('Unsupported dsh.host "{host}"; this extension requires {expected}', {
+        host,
+        expected: DEFAULT_HOST,
+      });
+    }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new ServerError('Invalid dsh.port "{port}"; expected an integer from 1 to 65535', { port });
+    }
+    // Step 1: a repeated ensure in this extension host keeps ownership of its
+    // own child, including when that child lives on a scanned-forward port.
+    if (autoStart && this._child && this._ownedServer && this._ownedServer.host === host) {
+      const own = this._ownedServer;
+      this._emit('probing', 'Probing DSH service: http://{host}:{port}…', { host, port: own.port });
+      const ownProbe = await this.probeWithRetry(host, own.port);
+      this._throwIfCancelled(generation);
+      if (ownProbe.isDsh) return this._reuseHandle(host, own.port);
+      // A child that no longer serves DSH must not be left behind while a
+      // replacement starts. stop() is ownership-gated and removes only ours.
+      await this.stop();
+      this._throwIfCancelled(generation);
+    }
 
-    // Step 1: read the registry (dead entries filtered in memory, no kills).
-    const registry = registryFile ? ServerManager._readRegistry(registryFile) : [];
+    this._emit('probing', 'Probing DSH service: http://{host}:{port}…', { host, port });
 
     // Step 2: probe the configured port (with retries against transient busyness).
     const r = await this.probeWithRetry(host, port);
+    this._throwIfCancelled(generation);
 
-    // Step 3: decide reuse vs spawn.
-    if (r.reachable && r.isDsh) {
-      const noWorkspace = cwd === null || cwd === undefined || cwd === '';
-      if (!autoStart || noWorkspace) {
-        // (a) user-managed instance, or (b) this window has no workspace.
-        this._emit('reusing', `检测到本地 DSH web 服务: http://${host}:${port}，直接复用`);
-        return { url: `http://${host}:${port}`, host, port, pid: null, owned: false };
-      }
-      // (c) reuse only when the registry proves this port belongs to our cwd.
-      const entry = registry.find((e) => e && e.port === port);
-      if (entry && typeof entry.cwd === 'string' && entry.cwd !== '' && ServerManager.samePath(entry.cwd, cwd)) {
-        this._emit('reusing', `检测到匹配工作区的 DSH 实例: http://${host}:${port}，复用`);
-        return { url: `http://${host}:${port}`, host, port, pid: null, owned: false };
-      }
-      // No matching entry (e.g. manually started DSH whose cwd is unknown) →
-      // treat it as NOT ours and spawn a dedicated instance below.
-    }
-
+    // Step 3: reuse is an explicit user-managed mode only. Default autoStart
+    // never adopts another window's child or a manually started service.
     if (!autoStart) {
-      throw new Error('DSH 服务未运行且 dsh.autoStart 已关闭');
+      if (r.reachable && r.isDsh) {
+        this._emit('reusing', 'Found a running DSH instance at http://{host}:{port}, reusing', { host, port });
+        return this._reuseHandle(host, port);
+      }
+      throw new ServerError('DSH is not running and dsh.autoStart is disabled');
     }
 
-    // Occupied port (DSH-with-wrong-workspace or a non-DSH service) must not
-    // be reused → scan from port + 1; a dead port → scan from port itself.
+    // Step 4: any occupied port belongs to another owner and must not be
+    // reused; a dead port can host this window's new child.
     const scanStart = r.reachable ? port + 1 : port;
     const freePort = await this._findFreePort(host, scanStart);
-    return this._spawnAndWait(host, freePort, cwd, registryFile);
+    this._throwIfCancelled(generation);
+    return this._spawnAndWait(host, freePort, cwd, registryFile, generation);
   }
 
   /**
@@ -227,7 +444,10 @@ class ServerManager {
       const probeResult = await this.probe(host, candidate);
       if (!probeResult.reachable) return candidate;
     }
-    throw new Error(`在 ${startPort} 起向后 ${PORT_SCAN_LIMIT} 个端口内未找到空闲端口`);
+    throw new ServerError('No free port found within {limit} ports starting from {start}', {
+      limit: PORT_SCAN_LIMIT,
+      start: startPort,
+    });
   }
 
   /**
@@ -347,7 +567,8 @@ class ServerManager {
    * follows the ensureServer contract: only an explicitly provided cwd is
    * used; otherwise the child inherits the extension host's current directory.
    */
-  _spawnAndWait(host, port, cwd, registryFile) {
+  _spawnAndWait(host, port, cwd, registryFile, generation = this._cancelGeneration) {
+    this._throwIfCancelled(generation);
     const isWindows = process.platform === 'win32';
     const spawnCwd = this._resolveSpawnCwd(cwd);
     // On Windows `dsh` is a cmd shim, so it must go through cmd.exe /c.
@@ -356,6 +577,10 @@ class ServerManager {
     // (no fallback to the user home directory).
     const opts = {
       stdio: 'ignore',
+      // Tell a DSH instance managed by this extension to route text-file
+      // gestures back into the current VS Code window. Ordinary standalone
+      // DSH processes keep their platform-default editor behavior.
+      env: this._buildSpawnEnv(),
       ...(spawnCwd !== undefined ? { cwd: spawnCwd } : {}),
     };
     const child = isWindows
@@ -363,17 +588,16 @@ class ServerManager {
           ...opts,
           windowsHide: true,
         })
-      : // POSIX: detached puts the child in its own process group so the whole
-        // tree (dsh web and any workers it spawns) can be SIGTERMed via
-        // kill(-pid) in _killChild. The child keeps running if the extension
-        // host dies, exactly like the Windows taskkill-tree behavior.
+      : // POSIX: detached creates a dedicated process group solely so normal
+        // extension deactivation can SIGTERM the whole DSH tree via kill(-pid)
+        // in _killChild instead of leaving worker descendants behind.
         spawn('dsh', ['web', '--host', host, '--port', String(port)], {
           ...opts,
           detached: true,
         });
 
     this._child = child;
-    this._emit('starting', `正在启动 DSH web 服务 (pid=${child.pid}, port=${port}) …`);
+    this._emit('starting', 'Starting DSH web (pid={pid}, port={port})…', { pid: child.pid, port });
 
     return new Promise((resolve, reject) => {
       const deadline = Date.now() + HEALTH_TIMEOUT_MS;
@@ -385,26 +609,43 @@ class ServerManager {
         if (this._stopping) return;        // deliberate stop()
         if (this._child !== child) return; // already detached (timeout cleanup)
         this._child = null;
-        this._emit('error', `DSH 进程意外退出 (pid=${child.pid}, code=${code}, signal=${signal})`);
+        this._ownedServer = null;
+        this._emit('error', 'DSH process exited unexpectedly (pid={pid}, code={code}, signal={signal})', {
+          pid: child.pid,
+          code,
+          signal,
+        });
       };
       child.on('exit', onUnexpectedExit);
 
       child.once('error', (err) => {
         if (settled) return;
         settled = true;
-        this._emit('error', `启动 dsh 失败: ${err.message}`);
-        reject(new Error(`启动 dsh 失败: ${err.message}`));
+        if (this._child === child) this._child = null;
+        this._ownedServer = null;
+        this._emit('error', 'Failed to start dsh: {error}', { error: err.message });
+        reject(new Error('Failed to start dsh: ' + err.message));
       });
 
       child.once('exit', (code, signal) => {
         if (settled) return;
         settled = true;
-        const reason = this._stopping ? '已被手动停止' : `提前退出 (code=${code}, signal=${signal})`;
-        reject(new Error(`DSH 进程${reason}`));
+        const template = this._stopping
+          ? 'DSH process was stopped'
+          : 'DSH process exited early (code={code}, signal={signal})';
+        reject(new ServerError(template, this._stopping ? {} : { code, signal }));
       });
 
       const poll = async () => {
         if (settled) return;
+        if (generation !== this._cancelGeneration) {
+          settled = true;
+          if (this._child === child) this._child = null;
+          child.removeListener('exit', onUnexpectedExit);
+          await this._killChild(child);
+          reject(new ServerError('DSH lifecycle operation was cancelled'));
+          return;
+        }
         const probeResult = await this.probe(host, port);
         if (settled) return;
 
@@ -417,10 +658,13 @@ class ServerManager {
         if (Date.now() >= deadline) {
           settled = true;
           this._child = null;
+          this._ownedServer = null;
           child.removeListener('exit', onUnexpectedExit);
           await this._killChild(child); // best-effort cleanup of the hung process
-          const exitInfo = child.exitCode !== null ? `, exit code=${child.exitCode}` : '';
-          reject(new Error(`DSH 服务启动超时（${HEALTH_TIMEOUT_MS / 1000}s 内未就绪），已终止进程 (pid=${child.pid}${exitInfo})`));
+          reject(new ServerError(
+            'DSH service did not become ready within {seconds}s; process terminated (pid={pid})',
+            { seconds: HEALTH_TIMEOUT_MS / 1000, pid: child.pid }
+          ));
           return;
         }
 
@@ -443,7 +687,8 @@ class ServerManager {
       ServerManager._mergeRegistry(registryFile, { pid, port, host, cwd: entryCwd, at: Date.now() });
     }
     const server = { url: `http://${host}:${port}`, host, port, pid, owned: true };
-    this._emit('ready', `DSH web 服务已就绪: http://${host}:${port} (pid=${pid})`, server);
+    this._ownedServer = server;
+    this._emit('ready', 'DSH web ready: http://{host}:{port} (pid={pid})', { host, port, pid }, server);
     return server;
   }
 
@@ -480,7 +725,7 @@ class ServerManager {
    * clear internal records. Safe to call when nothing was spawned.
    */
   async stop() {
-    this._emit('stopping', '正在停止 DSH 进程 …');
+    this._emit('stopping', 'Stopping DSH process…');
     this._stopping = true;
 
     const child = this._child;
@@ -500,10 +745,11 @@ class ServerManager {
     }
 
     this._child = null;
+    this._ownedServer = null;
     this._registryFile = null;
     this._stopping = false;
 
-    this._emit('stopped', child ? 'DSH 进程已停止' : '没有由本实例启动的进程');
+    this._emit('stopped', child ? 'DSH process stopped' : 'No process was started by this instance');
   }
 
   /**
@@ -539,7 +785,17 @@ class ServerManager {
   }
 }
 
-module.exports = { ServerManager };
+module.exports = {
+  ServerManager,
+  ServerError,
+  CLOSE_POLICIES,
+  DEFAULT_CLOSE_POLICY,
+  normalizeClosePolicy,
+  shouldStopOnViewClose,
+  shouldStopOwnedServer,
+  sameEndpoint,
+  reconcileConfigChange,
+};
 
 // ---------------------------------------------------------------------------
 // Self-test (only runs when this file is executed directly):
@@ -580,6 +836,17 @@ if (require.main === module) {
     await new Promise((resolve) => temp.close(resolve));
 
     const mgr = new ServerManager();
+
+    // 0. Endpoint validation rejects values the current DSH Web profile cannot
+    //    serve, before any socket probe or cmd.exe argument construction.
+    await assert.rejects(
+      mgr.ensureServer({ host: '0.0.0.0', port: 3080 }),
+      /requires 127\.0\.0\.1/
+    );
+    await assert.rejects(
+      mgr.ensureServer({ host: '127.0.0.1', port: 0 }),
+      /integer from 1 to 65535/
+    );
 
     // 1. probe: DSH, non-DSH, closed port.
     const pDsh = await mgr.probe('127.0.0.1', dshPort);
@@ -693,9 +960,9 @@ if (require.main === module) {
       assert.strictEqual(ServerManager.samePath('/home/u/ws', '/home/u/other'), false);
     }
 
-    // 12. Registry-based workspace matching (fixture DSH + pre-seeded registry):
-    //     matching cwd -> reuse; different cwd -> spawn branch (NoSpawnMgr
-    //     proves the branch is entered WITHOUT spawning); no cwd -> reuse.
+    // 12. Per-window ownership: registry entries from another extension host
+    //     are never adopted in autoStart mode, even for the same cwd or no cwd.
+    //     Reuse remains available only through explicit autoStart:false.
     const regFile = path.join(os.tmpdir(), `dsh-registry-${process.pid}-${Date.now()}.json`);
     fs.writeFileSync(regFile, JSON.stringify([
       { pid: process.pid, port: dshPort, host: '127.0.0.1', cwd: 'D:\\A', at: Date.now() },
@@ -711,18 +978,60 @@ if (require.main === module) {
       }
     }
     const noSpawn = new NoSpawnMgr();
-    const reusedMatch = await noSpawn.ensureServer({ host: '127.0.0.1', port: dshPort, cwd: 'D:\\A', registryFile: regFile });
-    assert.deepStrictEqual(reusedMatch, { url: `http://127.0.0.1:${dshPort}`, host: '127.0.0.1', port: dshPort, pid: null, owned: false });
-    assert.strictEqual(noSpawn.spawnBranch, false, 'matching workspace must reuse, not spawn');
     await assert.rejects(
-      noSpawn.ensureServer({ host: '127.0.0.1', port: dshPort, cwd: 'D:\\B', registryFile: regFile }),
+      noSpawn.ensureServer({ host: '127.0.0.1', port: dshPort, cwd: 'D:\\A', registryFile: regFile }),
       /spawn-branch-reached/
     );
-    assert.strictEqual(noSpawn.spawnBranch, true, 'cwd mismatch must enter the spawn branch');
-    noSpawn.spawnBranch = false; // reset the sticky flag before the reuse-only call
-    const reusedNull = await noSpawn.ensureServer({ host: '127.0.0.1', port: dshPort, cwd: null, registryFile: regFile });
-    assert.deepStrictEqual(reusedNull, { url: `http://127.0.0.1:${dshPort}`, host: '127.0.0.1', port: dshPort, pid: null, owned: false });
-    assert.strictEqual(noSpawn.spawnBranch, false, 'no workspace must reuse unconditionally');
+    assert.strictEqual(noSpawn.spawnBranch, true, 'autoStart must not adopt another window for the same workspace');
+
+    const manualReuseMgr = new NoSpawnMgr();
+    const reusedManual = await manualReuseMgr.ensureServer({
+      host: '127.0.0.1', port: dshPort, cwd: 'D:\\A', registryFile: regFile, autoStart: false,
+    });
+    assert.deepStrictEqual(reusedManual, {
+      url: `http://127.0.0.1:${dshPort}`,
+      host: '127.0.0.1', port: dshPort, pid: null, owned: false,
+    });
+    assert.strictEqual(manualReuseMgr.spawnBranch, false, 'autoStart:false explicitly reuses a user-managed instance');
+
+    //     Re-ensuring the endpoint this same manager spawned must preserve
+    //     ownership; otherwise a later view resolve would turn the child into
+    //     a reused instance and stop/deactivate would leak it.
+    const ownedAgainMgr = new NoSpawnMgr();
+    ownedAgainMgr._child = { pid: process.pid };
+    ownedAgainMgr._ownedServer = {
+      url: `http://127.0.0.1:${dshPort}`,
+      host: '127.0.0.1',
+      port: dshPort,
+      pid: process.pid,
+      owned: true,
+    };
+    const ownedAgain = await ownedAgainMgr.ensureServer({
+      host: '127.0.0.1',
+      port: dshPort,
+      cwd: 'D:\\A',
+      registryFile: regFile,
+    });
+    assert.deepStrictEqual(ownedAgain, {
+      url: `http://127.0.0.1:${dshPort}`,
+      host: '127.0.0.1',
+      port: dshPort,
+      pid: process.pid,
+      owned: true,
+    });
+    assert.strictEqual(ownedAgainMgr.hasOwnedChild(), true);
+    const forwardIgnored = new NoSpawnMgr();
+    await assert.rejects(
+      forwardIgnored.ensureServer({ host: '127.0.0.1', port: plainPort, cwd: 'D:\\A', registryFile: regFile }),
+      /spawn-branch-reached/
+    );
+    assert.strictEqual(forwardIgnored.spawnBranch, true, 'a scanned-forward registry entry from another window must be ignored');
+    const noWorkspaceMgr = new NoSpawnMgr();
+    await assert.rejects(
+      noWorkspaceMgr.ensureServer({ host: '127.0.0.1', port: dshPort, cwd: null, registryFile: regFile }),
+      /spawn-branch-reached/
+    );
+    assert.strictEqual(noWorkspaceMgr.spawnBranch, true, 'a window without a workspace still gets its own child');
 
     // 13. Dead-entry filtering + cleanupStaleRegistry (never kills anything).
     const deadPid = 99999999; // (almost certainly) not running
@@ -768,6 +1077,99 @@ if (require.main === module) {
       "stop() must keep other windows' entries"
     );
 
+    // 15. Lifecycle decision functions (pure, no I/O).
+    //     closePolicy normalization: known values pass through, unknown values
+    //     fall back to the conservative default onVscodeExit.
+    assert.strictEqual(normalizeClosePolicy(undefined), CLOSE_POLICIES.ON_VSCODE_EXIT);
+    assert.strictEqual(normalizeClosePolicy('onVscodeExit'), CLOSE_POLICIES.ON_VSCODE_EXIT);
+    assert.strictEqual(normalizeClosePolicy('onViewClose'), CLOSE_POLICIES.ON_VIEW_CLOSE);
+    assert.strictEqual(normalizeClosePolicy('never'), CLOSE_POLICIES.NEVER);
+    assert.strictEqual(normalizeClosePolicy('garbage'), CLOSE_POLICIES.ON_VSCODE_EXIT, 'unknown policy falls back to the conservative default');
+
+    //     shouldStopOnViewClose: only onViewClose stops on view disposal.
+    assert.strictEqual(shouldStopOnViewClose('onViewClose'), true);
+    assert.strictEqual(shouldStopOnViewClose('onVscodeExit'), false);
+    assert.strictEqual(shouldStopOnViewClose('never'), false);
+    assert.strictEqual(shouldStopOnViewClose(undefined), false, 'default policy must survive a view close');
+
+    //     shouldStopOwnedServer: only an owned server is ever stopped.
+    assert.strictEqual(shouldStopOwnedServer({ pid: 123, owned: true }), true);
+    assert.strictEqual(shouldStopOwnedServer({ pid: null, owned: false }), false, 'reused external instance must never be stopped');
+    assert.strictEqual(shouldStopOwnedServer(null), false);
+    assert.strictEqual(shouldStopOwnedServer(undefined), false);
+
+    //     sameEndpoint: host/port equality (port compared numerically).
+    assert.strictEqual(sameEndpoint({ host: '127.0.0.1', port: 3080 }, { host: '127.0.0.1', port: 3080 }), true);
+    assert.strictEqual(sameEndpoint({ host: '127.0.0.1', port: 3080 }, { host: '127.0.0.1', port: 3081 }), false);
+    assert.strictEqual(sameEndpoint({ host: '127.0.0.1', port: 3080 }, { host: 'localhost', port: 3080 }), false);
+    assert.strictEqual(sameEndpoint({ host: '127.0.0.1', port: '3080' }, { host: '127.0.0.1', port: 3080 }), true);
+
+    //     reconcileConfigChange: endpoint/autoStart/closePolicy reactions.
+    const base = { host: '127.0.0.1', port: 3080, autoStart: true, closePolicy: 'onVscodeExit' };
+    assert.deepStrictEqual(
+      reconcileConfigChange(base, { ...base }, true, true),
+      { shouldReconnect: false, reason: null, endpointChanged: false, autoStartEnabled: false, closePolicyChanged: false },
+      'no change -> no reconnect'
+    );
+    const portChanged = reconcileConfigChange(base, { ...base, port: 3081 }, true, true);
+    assert.strictEqual(portChanged.shouldReconnect, true);
+    assert.strictEqual(portChanged.reason, 'port');
+    const hostChanged = reconcileConfigChange(base, { ...base, host: 'localhost' }, true, true);
+    assert.strictEqual(hostChanged.shouldReconnect, true);
+    assert.strictEqual(hostChanged.reason, 'host');
+    const autoStartOff = reconcileConfigChange(base, { ...base, autoStart: false }, true, true);
+    assert.strictEqual(autoStartOff.shouldReconnect, false, 'autoStart true->false must not restart');
+    assert.strictEqual(autoStartOff.closePolicyChanged, false);
+    const autoStartOn = reconcileConfigChange(
+      { ...base, autoStart: false }, { ...base, autoStart: true }, false, false
+    );
+    assert.strictEqual(autoStartOn.shouldReconnect, true, 'autoStart false->true when idle re-enables startup');
+    assert.strictEqual(autoStartOn.reason, 'autoStart');
+    const autoStartOnConnected = reconcileConfigChange(
+      { ...base, autoStart: false }, { ...base, autoStart: true }, true, true
+    );
+    assert.strictEqual(autoStartOnConnected.shouldReconnect, false, 'autoStart false->true while connected is a no-op');
+
+    //     Managed children receive a per-window file bridge plus the legacy
+    //     CLI marker; constructor input is copied so later mutation cannot
+    //     redirect an already-created manager.
+    const bridgeInput = {
+      DSH_VSCODE_OPEN_URL: 'http://127.0.0.1:43123/open-text-document',
+      DSH_VSCODE_OPEN_TOKEN: 'window-token',
+      DSH_TEXT_EDITOR: 'wrong-value',
+    };
+    const bridgeMgr = new ServerManager({ spawnEnv: bridgeInput });
+    bridgeInput.DSH_VSCODE_OPEN_TOKEN = 'mutated';
+    const childEnv = bridgeMgr._buildSpawnEnv();
+    assert.strictEqual(childEnv.DSH_VSCODE_OPEN_URL, 'http://127.0.0.1:43123/open-text-document');
+    assert.strictEqual(childEnv.DSH_VSCODE_OPEN_TOKEN, 'window-token');
+    assert.strictEqual(childEnv.DSH_TEXT_EDITOR, 'vscode', 'the compatibility marker cannot be overridden');
+    const policyChanged = reconcileConfigChange(base, { ...base, closePolicy: 'onViewClose' }, true, true);
+    assert.strictEqual(policyChanged.shouldReconnect, false, 'closePolicy change alone must not restart');
+    assert.strictEqual(policyChanged.closePolicyChanged, true);
+
+    //     Cancellation invalidates an in-flight ensure before it can spawn.
+    class CancelledEnsureMgr extends ServerManager {
+      constructor() {
+        super();
+        this.spawnAttempted = false;
+      }
+      async probeWithRetry() {
+        this.cancelPending();
+        return { reachable: false };
+      }
+      async _spawnAndWait() {
+        this.spawnAttempted = true;
+        throw new Error('must-not-spawn');
+      }
+    }
+    const cancelledEnsure = new CancelledEnsureMgr();
+    await assert.rejects(
+      cancelledEnsure.ensureServer({ host: '127.0.0.1', port: 3080, autoStart: true }),
+      /cancelled/
+    );
+    assert.strictEqual(cancelledEnsure.spawnAttempted, false, 'cancelled ensure must not spawn');
+
     // --- Cleanup: close fixture servers, stop the helper child, drop temp files.
     await new Promise((resolve) => plainServer.close(resolve));
     await new Promise((resolve) => dshServer.close(resolve));
@@ -783,6 +1185,7 @@ if (require.main === module) {
     }
 
     console.log('All self-tests passed.');
+    console.log('  endpoint validation: non-loopback host and invalid port rejected');
     console.log(`  probe DSH    (port ${dshPort}) = ${JSON.stringify(pDsh)}`);
     console.log(`  probe plain  (port ${plainPort}) = ${JSON.stringify(pPlain)}`);
     console.log(`  probe closed (port ${closedPort}) = ${JSON.stringify(pClosed)}`);
@@ -796,9 +1199,14 @@ if (require.main === module) {
     console.log(`  probeWithRetry retry loop: ${flaky.calls} probe() calls, first two unreachable -> ${JSON.stringify(flakyResult)}`);
     console.log('  _resolveSpawnCwd: null/undefined/"" -> undefined (inherit), paths pass through (5 cases OK)');
     console.log('  samePath: win32 case/trailing-slash-insensitive, other platforms resolve-equal (cases OK)');
-    console.log('  registry matching: cwd match -> reuse, mismatch -> spawn branch, no cwd -> reuse');
+    console.log('  per-window ownership: autoStart ignores other registry entries; self re-ensure preserves owned=true; autoStart:false reuses');
     console.log('  dead-entry filtering: dead pid dropped, live pid kept & never killed; cleanupStaleRegistry rewrites');
     console.log('  stop() removed only its own registry entry, kept others');
+    console.log('  closePolicy: normalize + onViewClose gating; unknown -> onVscodeExit (conservative default)');
+    console.log('  ownership: shouldStopOwnedServer only stops owned=true (reused instance never killed)');
+    console.log('  config reconcile: endpoint/autoStart trigger reconnect; closePolicy alone does not restart');
+    console.log('  file bridge env: per-window URL/token copied; legacy vscode marker forced');
+    console.log('  cancellation: invalidated ensure exits before spawn');
   })().catch((err) => {
     console.error('Self-test FAILED:', err);
     process.exitCode = 1;

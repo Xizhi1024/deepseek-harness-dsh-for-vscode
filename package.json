@@ -1,8 +1,8 @@
 {
   "name": "dsh-vs-sidebar",
-  "displayName": "DeepSeek Harness Sidebar (DSH)",
-  "description": "Embeds the local DeepSeek Harness (DSH) web UI into the VS Code auxiliary sidebar (the right-hand bar alongside Copilot Chat).",
-  "version": "0.2.1",
+  "displayName": "%dsh.displayName%",
+  "description": "%dsh.ext.description%",
+  "version": "0.3.1",
   "publisher": "Xizhi1024",
   "license": "MIT",
   "pricing": "Free",
@@ -35,10 +35,13 @@
     "vscode": "^1.90.0"
   },
   "main": "src/extension.js",
+  "l10n": "./l10n",
   "activationEvents": [
+    "onStartupFinished",
     "onView:dsh.webview",
     "onCommand:dsh.openInBrowser",
     "onCommand:dsh.restartServer",
+    "onCommand:dsh.stopServer",
     "onCommand:dsh.focusSidebar"
   ],
   "extensionKind": [
@@ -47,11 +50,11 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
-      "description": "本扩展会启动本地 dsh web 进程并以工作区为 cwd 操作文件，不受信任的工作区中禁用"
+      "description": "%dsh.cap.untrusted%"
     },
     "virtualWorkspaces": {
       "supported": false,
-      "description": "需要 dsh CLI 与真实文件系统，虚拟工作区不可用"
+      "description": "%dsh.cap.virtual%"
     }
   },
   "devDependencies": {
@@ -62,7 +65,7 @@
       "secondarySidebar": [
         {
           "id": "dsh-sidebar",
-          "title": "DeepSeek Harness (DSH)",
+          "title": "%dsh.view.title%",
           "icon": "media/dsh.svg"
         }
       ]
@@ -72,44 +75,64 @@
         {
           "type": "webview",
           "id": "dsh.webview",
-          "name": "DeepSeek Harness (DSH)"
+          "name": "%dsh.view.name%"
         }
       ]
     },
     "commands": [
       {
         "command": "dsh.openInBrowser",
-        "title": "Open DSH in Browser",
-        "category": "DeepSeek Harness"
+        "title": "%dsh.cmd.openInBrowser%",
+        "category": "%dsh.cmd.category%"
       },
       {
         "command": "dsh.restartServer",
-        "title": "Restart DSH Server",
-        "category": "DeepSeek Harness"
+        "title": "%dsh.cmd.restartServer%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.stopServer",
+        "title": "%dsh.cmd.stopServer%",
+        "category": "%dsh.cmd.category%"
       },
       {
         "command": "dsh.focusSidebar",
-        "title": "Focus DSH Sidebar",
-        "category": "DeepSeek Harness"
+        "title": "%dsh.cmd.focusSidebar%",
+        "category": "%dsh.cmd.category%"
       }
     ],
     "configuration": {
-      "title": "DeepSeek Harness Sidebar (DSH)",
+      "title": "%dsh.cfg.title%",
       "properties": {
         "dsh.port": {
           "type": "number",
+          "minimum": 1,
+          "maximum": 65535,
           "default": 3080,
-          "description": "DSH web 服务端口"
+          "description": "%dsh.cfg.port%"
         },
         "dsh.host": {
           "type": "string",
+          "enum": [
+            "127.0.0.1"
+          ],
           "default": "127.0.0.1",
-          "description": "DSH web 服务主机"
+          "description": "%dsh.cfg.host%"
         },
         "dsh.autoStart": {
           "type": "boolean",
           "default": true,
-          "description": "无运行实例时自动启动 dsh web"
+          "description": "%dsh.cfg.autoStart%"
+        },
+        "dsh.closePolicy": {
+          "type": "string",
+          "enum": [
+            "onVscodeExit",
+            "onViewClose",
+            "never"
+          ],
+          "default": "onVscodeExit",
+          "description": "%dsh.cfg.closePolicy%"
         }
       }
     }
