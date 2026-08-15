@@ -40,17 +40,27 @@ function renderEmbedOverlay() {
  *   injectable fs operations for tests.
  * @returns {string} absolute path of the written overlay file.
  */
-function writeEmbedOverlay(directory, options = {}) {
-  if (typeof directory !== 'string' || directory.length === 0 || !path.isAbsolute(directory)) {
-    throw new Error('embed overlay directory must be a non-empty absolute path');
+function writeEmbedOverlay(dshHome, options = {}) {
+  if (typeof dshHome !== 'string' || dshHome.length === 0 || !path.isAbsolute(dshHome)) {
+    throw new Error('DSH home must be a non-empty absolute path');
   }
   const {
     writeFileSync = fs.writeFileSync,
     mkdirSync = fs.mkdirSync,
+    renameSync = fs.renameSync,
+    chmodSync = fs.chmodSync,
   } = options || {};
+  const directory = path.join(dshHome, '.integrations', 'vscode-sidebar');
   mkdirSync(directory, { recursive: true });
   const overlayPath = path.join(directory, 'vscode-embed.overlay.yml');
-  writeFileSync(overlayPath, renderEmbedOverlay(), 'utf8');
+  const temporaryPath = path.join(directory, `.vscode-embed.overlay.${process.pid}.tmp`);
+  writeFileSync(temporaryPath, renderEmbedOverlay(), { encoding: 'utf8', mode: 0o600 });
+  renameSync(temporaryPath, overlayPath);
+  try {
+    chmodSync(overlayPath, 0o600);
+  } catch {
+    // Windows ACLs and some remote file systems do not expose POSIX modes.
+  }
   return overlayPath;
 }
 

@@ -24,6 +24,7 @@ function createFakeVscode(configOverrides = {}) {
     port: 3080,
     autoStart: false,
     closePolicy: 'onVscodeExit',
+    'home.mode': 'isolated',
     ...configOverrides,
   };
   const api = {
@@ -363,7 +364,12 @@ test('autoStart resolves the configured runtime before spawn and hands it to Ser
 
   await waitFor(() => ensureServerCalls === 1);
   assert.strictEqual(ensureRuntimeCalls, 1);
-  assert.deepStrictEqual(setResolvedRuntimeArgs, [runtime]);
+  assert.deepStrictEqual(setResolvedRuntimeArgs, [{
+    ...runtime,
+    dshHome: path.join(context.globalStorageUri.fsPath, '.dsh'),
+    profileHome: path.join(context.globalStorageUri.fsPath, '.dsh', 'profiles', 'web'),
+    profileName: 'web',
+  }]);
   assert.deepStrictEqual(ensureServerOptions, {
     host: '127.0.0.1',
     port: 3080,

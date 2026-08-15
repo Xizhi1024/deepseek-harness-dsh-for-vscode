@@ -3,6 +3,33 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-08-16
+
+### Changed / 变更
+
+- **扩展与仓库品牌统一**：Marketplace/VS Code 显示名改为 **DeepSeek Harness(dsh) for VS Code**，GitHub 仓库改名为 `deepseek-harness-dsh-for-vscode`。为保证现有安装能原位升级，内部扩展标识仍保持 `Xizhi1024.dsh-vs-sidebar`，视图/命令 ID 也保持不变。
+  Unify extension and repository branding: the Marketplace/VS Code display name is now **DeepSeek Harness(dsh) for VS Code**, and the GitHub repository is renamed to `deepseek-harness-dsh-for-vscode`. The internal extension identity remains `Xizhi1024.dsh-vs-sidebar`, with stable view/command IDs, so existing installations upgrade in place.
+
+- **确认当前文件夹工作区语义**：对照 `liumin1128/deepseek-harness-for-vscode` 的实现，继续以 VS Code 当前工作区目录作为 `dsh web` 的进程 cwd；本扩展还会在多根工作区中优先取活动编辑器所在目录，并在工作区变化时串行重绑服务与 DSH 会话。
+  Confirm current-folder workspace semantics: after comparison with `liumin1128/deepseek-harness-for-vscode`, `dsh web` continues to receive the current VS Code workspace as its process cwd. This extension additionally prefers the active editor's folder in multi-root workspaces and serially rebinds the service and DSH session when that root changes.
+
+- **默认共享官方 DSH_HOME**：新增机器级 `dsh.home.mode`（`shared` / `isolated`）与 `dsh.home.path`。全新安装默认 `shared`，按显式路径、环境变量 `DSH_HOME`、`~/.dsh` 的顺序解析，因此独立 DSH 原有模块、skills、providers、凭据、预设和会话直接可见；只有需要单独模块配置时才启用 `isolated`。
+  Share the official DSH_HOME by default: add machine-scoped `dsh.home.mode` (`shared` / `isolated`) and `dsh.home.path`. Fresh installs default to `shared`, resolving an explicit path, inherited `DSH_HOME`, then `~/.dsh`, so standalone modules, skills, providers, credentials, presets, and sessions remain visible. Use `isolated` only for a separate module configuration.
+
+- **runtime 与用户配置目录解耦**：本机官方 npm DSH 和 manifest/SHA-256 校验的托管 runtime 现在都绑定到同一套所选 DSH_HOME；下载或切换 runtime 不再隐式切换模块目录。
+  Decouple runtime binaries from user configuration: both the local official npm DSH and manifest/SHA-256-verified managed runtimes bind to the selected DSH_HOME, so changing or downloading a runtime no longer silently changes module storage.
+
+- **嵌入配置归入 DSH 内部命名空间**：生成的 VS Code 专用 overlay 移至 `DSH_HOME/.integrations/vscode-sidebar/vscode-embed.overlay.yml`，使用临时文件加 rename 原子更新并尽可能限制权限；它仍只通过 `--patch` 生效，不修改用户 `cordis.patch.yml`。
+  Move the embed configuration into a DSH-internal namespace: the generated VS Code-only overlay now lives at `DSH_HOME/.integrations/vscode-sidebar/vscode-embed.overlay.yml`, is atomically replaced with restrictive permissions where supported, and remains a launch-only `--patch` without editing the user's `cordis.patch.yml`.
+
+### Fixed / 修复
+
+- **0.4.x 升级保护**：首次升级时，若旧扩展隔离目录非空且用户尚未明确选择模式，自动保留 `isolated` 并提示；已有 Junction/符号链接若实际指向共享目录则直接进入 `shared`。扩展从不复制、合并或删除两个目录中的数据。
+  Protect 0.4.x upgrades: a non-empty legacy isolated home is preserved with a one-time notice when no mode was explicitly selected; a Junction/symlink already resolving to the shared home upgrades directly to `shared`. The extension never copies, merges, or deletes either home's data.
+
+- **诊断显示实际配置根**：`DSH: Diagnose` 现在报告生效的 shared/isolated 模式与绝对 DSH_HOME，便于定位“模块看似消失”问题。
+  Diagnose the effective configuration root: `DSH: Diagnose` now reports the effective shared/isolated mode and absolute DSH_HOME to identify apparent module disappearance.
+
 ## [0.4.3] - 2026-08-15
 
 ### Changed / 变更
@@ -224,13 +251,13 @@ All notable changes to this project are documented here, following [Keep a Chang
 - **README 精简**：只保留安装需求、使用/配置要点与实现说明（实现透明，便于其他 AI 发现 bug）。
   README slimmed down to install requirements, key usage/config and the implementation notes (transparency for AI bug-hunting).
 
-[0.4.2]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.4.2
-[0.4.1]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.4.1
-[0.4.0]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.4.0
-[0.3.1]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.3.1
-[0.3.0]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.3.0
-[0.2.0]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.2.0
-[0.1.0]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.1.0
+[0.4.2]: https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/releases/tag/v0.4.2
+[0.4.1]: https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/releases/tag/v0.4.1
+[0.4.0]: https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/releases/tag/v0.4.0
+[0.3.1]: https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/releases/tag/v0.3.1
+[0.3.0]: https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/releases/tag/v0.3.0
+[0.2.0]: https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/releases/tag/v0.2.0
+[0.1.0]: https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/releases/tag/v0.1.0
 
 ### Added / 新增
 

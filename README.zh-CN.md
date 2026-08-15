@@ -1,13 +1,19 @@
-# DeepSeek Harness Sidebar (DSH)
+# DeepSeek Harness(dsh) for VS Code
 
 [简体中文](README.zh-CN.md) · [English](README.md)
 
 把本地 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）Web 界面嵌入 VS Code 辅助侧边栏（右侧栏，与 Copilot Chat 同排）。默认情况下，每个 VS Code 窗口都会以当前工作区为 cwd 单独启动并持有一个 `dsh web` 子进程，再以紧凑的全屏 iframe 渲染。
 
+## 🚨 **重要警告：隔离模式会让原有模块看起来全部“消失”**
+
 > [!IMPORTANT]
-> **升级后原有模块可能会突然全部“消失”。模块通常没有被删除，这是两套 DSH_HOME 导致的配置隔离。** 独立运行的 DSH 默认使用 `%USERPROFILE%\.dsh`；本扩展默认使用 `%APPDATA%\Code\User\globalStorage\Xizhi1024.dsh-vs-sidebar\.dsh`。新目录首次只生成官方 `web` profile，因此旧目录中的第三方 bundles、skills、agent presets、providers、凭据和会话不会自动出现。继续安装/修改前，请先检查旧 `%USERPROFILE%\.dsh`；可迁移所需内容，或在停止 DSH 并备份新目录后，将扩展 `.dsh` 建成指向旧目录的 Windows Junction。不要把“空的新 profile”误判为模块已被卸载或数据已丢失。
+> **0.5.0 默认使用 `dsh.home.mode: shared`，直接采用 DSH 官方用户目录（优先 `DSH_HOME`，否则 `~/.dsh`）。独立 DSH 原有的模块、skills、providers、凭据、预设和会话会直接共享到 VS Code 侧栏。**
 >
-> `dsh.autoStart=true` 时 VS Code 自动拉起 `dsh web` 是次要的预期行为，不是 bug。若尚未安装 DSH，扩展仍会先创建自己的 `.dsh`，随后提示运行 `npm install -g @deepseek-ai/dsh`。若本机 npm/Node 安装在非标准位置，请设置 `dsh.local.packageRoot` / `dsh.local.nodePath`。
+> 只有需要为本扩展单独维护一套模块配置时，才应设置 `dsh.home.mode: isolated`。隔离模式使用扩展私有的 `globalStorage/.dsh`，首次只有官方 `web` profile。切换模式后，所有模块可能看起来突然消失，但数据没有被删除，只是仍在另一套 DSH_HOME 中；扩展绝不会自动复制或合并两个目录。
+>
+> 首次从 0.4.x 升级时，如果旧隔离目录非空且用户尚未明确选择模式，0.5.0 会自动保留旧隔离模式以保护模块与会话。执行 **DSH：诊断** 可查看当前实际模式和路径，确认后再显式切换为 `shared`。
+
+`dsh.autoStart=true` 时 VS Code 自动拉起 `dsh web` 是预期行为。runtime 程序与 DSH 用户数据已经解耦：无论使用本机官方 npm 包，还是 manifest/SHA-256 校验的托管 runtime，都会使用选定的共享或隔离目录。
 
 ## 安装需求
 
@@ -16,14 +22,14 @@
 | VS Code | ≥ 1.106，仅桌面版 |
 | DSH（默认自动启动） | `npm install -g @deepseek-ai/dsh`；扩展自动发现官方包 |
 | Node.js | 可被自动发现；非标准位置可设置 `dsh.local.nodePath` |
-| DSH 配置 | 无需预建；扩展自动创建专属 `.dsh` 与官方 `web` profile |
+| DSH 配置 | 无需预建；共享模式创建/复用官方 `~/.dsh`，隔离模式创建扩展私有目录 |
 
 ## 安装
 
 - 开发调试：打开本仓库 → `F5` → **Run Extension**
 - 验证：`npm ci` → `npm run check:w0` → `npm run test:extension-host`
 - 密钥扫描：`npm run test:secrets` 扫描将进入 VSIX 的源码/文档（不扫 `node_modules`、`.git`、`.vscode-test`），命中硬编码桥接 token、`Authorization: Bearer` 凭据、API key、私钥或密码字面量时以 1 退出；示例/测试 fixture 使用显式 `// allow-secret-scan` 注释放行。
-- 打包安装：`npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension dsh-vs-sidebar-0.4.3.vsix`
+- 打包安装：`npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.5.0.vsix`
 
 ## 使用
 
@@ -64,7 +70,9 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 |---|---|---|
 | `dsh.port` | 3080 | 探测/启动 DSH Web 服务的端口 |
 | `dsh.host` | 127.0.0.1 | 当前 DSH Web profile 要求使用的固定回环地址 |
-| `dsh.autoStart` | true | VS Code 启动时用扩展专属 `.dsh` / `web` profile 拉起本机官方 DSH；找不到本机包但配置端点已有 DSH 时复用该实例（false = 仅复用） |
+| `dsh.autoStart` | true | VS Code 启动时以选定目录和 `web` profile 拉起官方 DSH；runtime 解析失败时可复用配置端点（false = 仅复用） |
+| `dsh.home.mode` | `shared` | `shared` 使用官方 DSH_HOME；`isolated` 使用扩展私有 `globalStorage/.dsh`，单独维护模块配置 |
+| `dsh.home.path` | （空） | shared 模式下的机器级绝对路径覆盖；留空依次使用 `DSH_HOME`、`~/.dsh` |
 | `dsh.closePolicy` | `onVscodeExit` | 何时停止扩展自己拉起的服务（见下表） |
 | `dsh.local.packageRoot` | （空） | 官方 `@deepseek-ai/dsh` 包根目录的可选绝对路径；留空时自动探测 npm 全局安装 |
 | `dsh.local.nodePath` | （空） | Node.js 可执行文件的可选绝对路径；留空时自动探测 |
@@ -87,7 +95,7 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 - Windows / macOS / Linux
 - 每个扩展自管 DSH 子进程都会收到经鉴权的回环桥接 URL/token；支持此约定的 DSH 版本会把配置路径 POST 回所属扩展宿主，再由 `vscode.window.showTextDocument` 在该扇窗口内打开。`DSH_TEXT_EDITOR=vscode` 仅保留为旧版 DSH 的 CLI 回退；被复用的外部服务仍遵循自身编辑器策略
 - iframe 会收到 `dsh_embed=vscode`；支持此约定的 DSH 版本会隐藏内部侧边栏、详情栏和拖动手柄，而「在浏览器中打开」仍保持普通完整布局
-- 自管子进程还会收到扩展在 VS Code global storage 下动态生成的 `--patch` overlay，用于禁用已知会在嵌入模式重复叠加侧边栏/右面板的第三方插件（`better-sidebar`、`ui-dsh-aionui-panel`）。未安装这些插件时 overlay 不产生效果；该补丁不修改 DSH 源码、profile 或 `cordis.patch.yml`
+- 自管子进程会收到位于 `DSH_HOME/.integrations/vscode-sidebar/vscode-embed.overlay.yml` 的动态 `--patch` overlay，用于禁用会重复嵌入界面的插件（`better-sidebar`、`ui-dsh-aionui-panel`），且不修改 DSH 源码、profile 或用户的 `cordis.patch.yml`
 - 默认 autoStart 只接受身份为 `@deepseek-ai/dsh` 的本机 npm 包，并解析真实 package/entrypoint/Node 绝对路径；不会执行 PATH 中身份不明的 `dsh` shim。显式配置 manifest URL 时，托管 runtime 仍执行指针、manifest 与 payload SHA-256 校验。两条路径失败都会先尝试复用配置端点已有的 DSH，再在状态页显示错误
 - 进程清理：`taskkill /T /F` 树杀（Windows——强制终止，非优雅停止）；detached 启动 + `kill(-pid)` 进程组 SIGTERM（POSIX）
 - 不受信任 / 虚拟工作区**不支持**（会启动本地进程并操作工作区文件）——已通过 `capabilities` 声明
@@ -113,8 +121,9 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 | `src/textDocumentBridge.js` | 每窗口 token 回环桥，用于打开 DSH 拥有的文本文件 |
 | `src/bridgeWorkspace.js` | 桥接工作区身份与信任分类 |
 | `src/embedOverlay.js` | 为自管 DSH 子进程动态生成 `--patch` overlay |
+| `src/dshHome.js` | 共享/隔离目录解析、0.4.x 升级保护、runtime 与 home 绑定 |
 | `src/lifecycle.js` | 生命周期串行队列与停用门禁 |
-| `src/localRuntimeResolver.js` | 自动发现并验证本机官方 npm DSH，创建扩展专属 `.dsh` |
+| `src/localRuntimeResolver.js` | 自动发现并验证本机官方 npm DSH，准备选定的 DSH home |
 | `src/managedRuntimeLaunch.js` | 已验证托管运行时启动规格、profile/路径归一化、`--patch` 透传 |
 | `src/runtimeResolver.js` | 托管运行时解析与 current/last-good 指针校验 |
 | `src/runtimeProvisioner.js` | 发布清单解析、artifact 选择、解析或安装编排 |
@@ -133,7 +142,7 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 关键行为：
 
 - 探测 `GET /` 响应中的 `__DSH_BOOT__` 标记（3s 超时、3 次重试——DSH 忙时不会误判为不存在而重复拉起）
-- 每次 autoStart spawn 前，`connectNow` 默认重新定位并验证本机官方 `@deepseek-ai/dsh`，创建/复用 global storage 下的 `.dsh`，再以 `--profile web` 启动；只有显式配置 `dsh.runtime.manifestUrl` 时才走带 SHA-256 校验的托管 runtime 安装路径
+- 每次 autoStart spawn 前，`connectNow` 先独立解析共享/隔离目录，再定位并验证本机官方 `@deepseek-ai/dsh`，以 `--profile web` 启动；只有显式配置 `dsh.runtime.manifestUrl` 时才走带 SHA-256 校验的托管 runtime，且同样绑定到所选目录
 - 默认 `autoStart` 模式不接管其他窗口的进程：端口被占用时最多顺延扫描 50 个端口，每个扩展宿主持有自己的子进程；只有本机 DSH 解析失败时才尝试复用配置端点已有的实例
 - cwd = 当前工作区（多根取活动编辑器所在目录；无工作区则继承父进程目录，不回退用户主目录）
 - 远程（WSL / Remote-SSH）：`vscode.env.asExternalUri` 端口转发

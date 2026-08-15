@@ -2,17 +2,17 @@
   "name": "dsh-vs-sidebar",
   "displayName": "%dsh.displayName%",
   "description": "%dsh.ext.description%",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "publisher": "Xizhi1024",
   "license": "MIT",
   "pricing": "Free",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Xizhi1024/dsh-vs-sidebar.git"
+    "url": "https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode.git"
   },
-  "homepage": "https://github.com/Xizhi1024/dsh-vs-sidebar#readme",
+  "homepage": "https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode#readme",
   "bugs": {
-    "url": "https://github.com/Xizhi1024/dsh-vs-sidebar/issues"
+    "url": "https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/issues"
   },
   "keywords": [
     "deepseek",
@@ -185,6 +185,22 @@
           "type": "boolean",
           "default": true,
           "description": "%dsh.cfg.autoStart%"
+        },
+        "dsh.home.mode": {
+          "type": "string",
+          "enum": [
+            "shared",
+            "isolated"
+          ],
+          "default": "shared",
+          "scope": "machine",
+          "description": "%dsh.cfg.home.mode%"
+        },
+        "dsh.home.path": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "%dsh.cfg.home.path%"
         },
         "dsh.closePolicy": {
           "type": "string",

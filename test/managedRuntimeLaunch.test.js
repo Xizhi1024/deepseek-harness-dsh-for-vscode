@@ -167,7 +167,12 @@ test('embed overlay renders and writes only the frozen disabled plugin ids', (t)
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const overlayPath = writeEmbedOverlay(directory);
   assert.strictEqual(path.isAbsolute(overlayPath), true);
-  assert.strictEqual(overlayPath, path.join(directory, 'vscode-embed.overlay.yml'));
+  assert.strictEqual(overlayPath, path.join(
+    directory,
+    '.integrations',
+    'vscode-sidebar',
+    'vscode-embed.overlay.yml'
+  ));
 
   const written = fs.readFileSync(overlayPath, 'utf8');
   assert.strictEqual(written, rendered);
@@ -189,17 +194,21 @@ test('writeEmbedOverlay accepts injected fs operations', () => {
     mkdirSync: (dir, options) => {
       calls.push(['mkdir', dir, options]);
     },
-    writeFileSync: (file, content, encoding) => {
-      calls.push(['write', file, encoding]);
+    writeFileSync: (file, content, options) => {
+      calls.push(['write', file, options]);
       assert.strictEqual(content, renderEmbedOverlay());
     },
+    renameSync: (source, destination) => calls.push(['rename', source, destination]),
+    chmodSync: (file, mode) => calls.push(['chmod', file, mode]),
   });
-  assert.strictEqual(returned, path.join(directory, 'vscode-embed.overlay.yml'));
+  assert.strictEqual(returned, path.join(directory, '.integrations', 'vscode-sidebar', 'vscode-embed.overlay.yml'));
   assert.strictEqual(calls[0][0], 'mkdir');
   assert.deepStrictEqual(calls[0][2], { recursive: true });
   assert.strictEqual(calls[1][0], 'write');
-  assert.strictEqual(calls[1][1], returned);
-  assert.strictEqual(calls[1][2], 'utf8');
+  assert.match(calls[1][1], /\.vscode-embed\.overlay\.\d+\.tmp$/);
+  assert.deepStrictEqual(calls[1][2], { encoding: 'utf8', mode: 0o600 });
+  assert.deepStrictEqual(calls[2], ['rename', calls[1][1], returned]);
+  assert.deepStrictEqual(calls[3], ['chmod', returned, 0o600]);
 });
 
 test('ServerManager fails closed when auto-start has no resolved runtime', async () => {

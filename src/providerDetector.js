@@ -195,6 +195,7 @@ function diagnosticSnapshot({
   config = {},
   server = null,
   bridge = null,
+  home = null,
   catalog = catalogSnapshot(),
   now = () => new Date().toISOString(),
 } = {}) {
@@ -210,6 +211,13 @@ function diagnosticSnapshot({
       port: cfg.port === undefined ? null : cfg.port,
       autoStart: cfg.autoStart === undefined ? null : cfg.autoStart,
       closePolicy: cfg.closePolicy === undefined ? null : cfg.closePolicy,
+      homeMode: cfg.homeMode === undefined ? null : cfg.homeMode,
+      homePath: cfg.homePath === undefined ? null : cfg.homePath,
+    },
+    home: {
+      mode: home && typeof home.mode === 'string' ? home.mode : null,
+      path: home && typeof home.path === 'string' ? home.path : null,
+      source: home && typeof home.source === 'string' ? home.source : null,
     },
     server: {
       available: Boolean(server),

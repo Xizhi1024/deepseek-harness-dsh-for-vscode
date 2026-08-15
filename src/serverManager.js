@@ -236,6 +236,12 @@ class ServerManager {
     return this.resolvedRuntime;
   }
 
+  /** Replace the generated embed overlay used by future owned spawns. */
+  setEmbedPatchPath(embedPatchPath) {
+    this.embedPatchPath = embedPatchPath === undefined ? null : embedPatchPath;
+    return this.embedPatchPath;
+  }
+
   /** True while this manager still owns a spawned child, including startup. */
   hasOwnedChild() {
     return Boolean(this._child);

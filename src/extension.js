@@ -52,6 +52,12 @@ const {
   diagnosticSnapshot,
 } = require("./providerDetector");
 const { writeEmbedOverlay } = require("./embedOverlay");
+const {
+  HOME_MODES,
+  bindRuntimeHome,
+  migrateLegacyHomeMode,
+  resolveDshHome,
+} = require('./dshHome');
 const { LifecycleQueue } = require("./lifecycle");
 
 let vscode = null; // injected during activation; avoids loading vscode in node:test
@@ -71,10 +77,24 @@ let versionedBridge = null; // per-window versioned JSON-RPC bridge
 let editorContext = null; // per-window approved editor attachments backing vscode/editor methods
 let embedPatchPath = null; // generated --patch overlay applied to extension-owned DSH children
 let runtimeStorageRoot = null; // managed runtime storage under VS Code global storage
-let localDshHome = null; // persistent extension-owned .dsh configuration home
+let activeDshHome = null; // effective shared/isolated DSH user-data home
+let activeDshHomeInfo = null; // effective mode/path/source for diagnostics
 let ensureRuntime = null; // resolves/verifies (and optionally provisions) the managed runtime
 let ensureWorkspaceSessionFn = null; // owned-instance automatic workspace session binding
 let runtimeAbort = new AbortController(); // cancels in-flight runtime provisioning on deactivate
+
+function prepareDshHome(config, context) {
+  const info = resolveDshHome({
+    mode: config.homeMode,
+    configuredPath: config.homePath,
+    globalStoragePath: context.globalStorageUri.fsPath,
+  });
+  activeDshHomeInfo = info;
+  activeDshHome = info.path;
+  embedPatchPath = writeEmbedOverlay(activeDshHome);
+  manager?.setEmbedPatchPath?.(embedPatchPath);
+  return info;
+}
 
 /**
  * Localize a template with params. Templates are English by default and are
@@ -203,6 +223,7 @@ async function bindServer(context, server, cwd) {
 async function connectNow(context) {
   try {
     const cfg = hostContext.config();
+    prepareDshHome(cfg, context);
     const cwd = hostContext.workspaceCwd();
     setStatusBar("$(radio-tower) " + loc("DSH: connecting…"));
     render(statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail: "", lang: vscode.env.language }));
@@ -210,7 +231,7 @@ async function connectNow(context) {
     let server = null;
     // autoStart uses the locally installed official DSH package by default and
     // an explicitly configured verified release manifest as an opt-in path.
-    // Both launch with the extension-owned persistent .dsh home and web profile.
+    // Both launch with the independently selected shared/isolated home and web profile.
     // One exception: when no managed runtime can be provided but a DSH
     // instance is already serving the configured endpoint, adopt that
     // instance as a reused external server instead of stranding the sidebar.
@@ -228,7 +249,7 @@ async function connectNow(context) {
           arch: process.arch,
           manifestUrl: cfg.runtimeManifestUrl,
           version: cfg.runtimeVersion,
-          dshHome: localDshHome,
+          dshHome: activeDshHome,
           packageRoot: cfg.localPackageRoot,
           nodePath: cfg.localNodePath,
           signal: runtimeAbort.signal,
@@ -246,6 +267,7 @@ async function connectNow(context) {
         server = adopted;
       }
       if (server === null) {
+        resolvedRuntime = bindRuntimeHome(resolvedRuntime, activeDshHome);
         manager.setResolvedRuntime(resolvedRuntime);
       }
     }
@@ -398,6 +420,8 @@ function scheduleConfigReconcile(context) {
       || String(prev.runtimeVersion || '') !== String(next.runtimeVersion || '')
       || String(prev.localPackageRoot || '') !== String(next.localPackageRoot || '')
       || String(prev.localNodePath || '') !== String(next.localNodePath || '')
+      || String(prev.homeMode || '') !== String(next.homeMode || '')
+      || String(prev.homePath || '') !== String(next.homePath || '')
     );
 
     if (decision.shouldReconnect || runtimeChanged) {
@@ -431,7 +455,23 @@ async function activateWithDependencies(context, dependencies = {}) {
   runtimeAbort = new AbortController();
   const realpath = dependencies.realpath || require('node:fs').promises.realpath;
   runtimeStorageRoot = path.join(context.globalStorageUri.fsPath, 'runtime');
-  localDshHome = path.join(context.globalStorageUri.fsPath, '.dsh');
+  const initialConfig = hostContext.config();
+  const initialSharedHome = resolveDshHome({
+    mode: HOME_MODES.SHARED,
+    configuredPath: initialConfig.homePath,
+    globalStoragePath: context.globalStorageUri.fsPath,
+  }).path;
+  const migration = await migrateLegacyHomeMode({
+    vscode,
+    context,
+    sharedHome: initialSharedHome,
+    isolatedHome: path.join(context.globalStorageUri.fsPath, '.dsh'),
+  });
+  if (migration.changed) {
+    vscode.window.showWarningMessage(loc(
+      'DSH 0.5.0 kept your existing isolated DSH home to protect its modules and sessions. Set dsh.home.mode to shared when you are ready to use the official shared DSH home.'
+    ));
+  }
   ensureRuntime = dependencies.ensureRuntime
     || dependencies.ensureManagedRuntime
     || ((options) => options.manifestUrl
@@ -449,7 +489,7 @@ async function activateWithDependencies(context, dependencies = {}) {
     },
   });
   try {
-    embedPatchPath = writeEmbedOverlay(context.globalStorageUri.fsPath);
+    prepareDshHome(hostContext.config(), context);
   } catch (err) {
     console.error('dsh-vs-sidebar: could not write embed overlay; starting without --patch:', err);
     embedPatchPath = null;
@@ -785,11 +825,14 @@ async function activateWithDependencies(context, dependencies = {}) {
           config: hostContext.config(),
           server: currentServer,
           bridge: versionedBridge,
+          home: activeDshHomeInfo,
         });
         const installed = snapshot.providers.filter((provider) => provider.installed).length;
         vscode.window.showInformationMessage(loc(
-          "DSH diagnose: server {server}, bridge {bridge}, catalog {catalog}, providers {installed}/{total} installed",
+          "DSH diagnose: home {homeMode} ({homePath}), server {server}, bridge {bridge}, catalog {catalog}, providers {installed}/{total} installed",
           {
+            homeMode: snapshot.home.mode,
+            homePath: snapshot.home.path,
             server: snapshot.server.available ? loc("running") : loc("stopped"),
             bridge: snapshot.bridge.listening ? loc("listening") : loc("closed"),
             catalog: String(snapshot.catalogRevision).slice(0, 8),
@@ -835,6 +878,8 @@ async function activateWithDependencies(context, dependencies = {}) {
         e.affectsConfiguration("dsh.runtime.version") ||
         e.affectsConfiguration("dsh.local.packageRoot") ||
         e.affectsConfiguration("dsh.local.nodePath")
+        || e.affectsConfiguration("dsh.home.mode")
+        || e.affectsConfiguration("dsh.home.path")
       ) {
         scheduleConfigReconcile(context);
       }

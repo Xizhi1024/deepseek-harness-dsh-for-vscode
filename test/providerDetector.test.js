@@ -168,7 +168,11 @@ test('diagnosticSnapshot exposes stable fields with live server and bridge', () 
   const fake = createFakeVscode();
   const snapshot = diagnosticSnapshot({
     vscode: fake.api,
-    config: { host: '127.0.0.1', port: 3080, autoStart: false, closePolicy: 'onVscodeExit' },
+    config: {
+      host: '127.0.0.1', port: 3080, autoStart: false, closePolicy: 'onVscodeExit',
+      homeMode: 'shared', homePath: '',
+    },
+    home: { mode: 'shared', path: 'D:\\DSH', source: 'setting' },
     server: { owned: true, url: 'http://127.0.0.1:3080', port: 3080 },
     bridge: { port: 5678 },
     now: () => '2026-08-15T00:00:00.000Z',
@@ -182,7 +186,10 @@ test('diagnosticSnapshot exposes stable fields with live server and bridge', () 
     port: 3080,
     autoStart: false,
     closePolicy: 'onVscodeExit',
+    homeMode: 'shared',
+    homePath: '',
   });
+  assert.deepStrictEqual(snapshot.home, { mode: 'shared', path: 'D:\\DSH', source: 'setting' });
   assert.deepStrictEqual(snapshot.server, {
     available: true,
     owned: true,
@@ -214,7 +221,10 @@ test('diagnosticSnapshot reports unavailable server and bridge for null inputs',
     port: null,
     autoStart: null,
     closePolicy: null,
+    homeMode: null,
+    homePath: null,
   });
+  assert.deepStrictEqual(snapshot.home, { mode: null, path: null, source: null });
 });
 
 test('getProviderStates handler returns a providers array', async () => {

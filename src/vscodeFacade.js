@@ -19,6 +19,7 @@ function createVscodeFacade(api) {
     l10n: api.l10n,
     Range: api.Range,
     StatusBarAlignment: api.StatusBarAlignment,
+    ConfigurationTarget: api.ConfigurationTarget,
     Uri: api.Uri,
     window: api.window,
     workspace: api.workspace,

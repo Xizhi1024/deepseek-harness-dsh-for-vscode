@@ -103,9 +103,9 @@ async function resolveLocalDshRuntime({
     throw new Error('dsh.local.nodePath must be absolute');
   }
 
-  // The profile home belongs to the extension, not to the npm installation.
-  // Create it even when DSH itself is still missing so the ownership and
-  // maintenance location are stable from the first activation onward.
+  // The selected DSH home is independent from the npm installation. Create it
+  // even when DSH itself is still missing so shared/isolated selection is
+  // stable from the first activation onward.
   const resolvedHome = path.resolve(dshHome);
   await fs.promises.mkdir(resolvedHome, { recursive: true });
 
@@ -123,7 +123,7 @@ async function resolveLocalDshRuntime({
   }
   if (!resolvedPackageRoot) {
     throw new ServerError(
-      'Official DSH is not installed. Install it with `npm install -g @deepseek-ai/dsh`, then reload VS Code; the extension will create and maintain its own .dsh profile automatically.'
+      'Official DSH is not installed. Install it with `npm install -g @deepseek-ai/dsh`, then reload VS Code; the extension will create or reuse the selected DSH home automatically.'
     );
   }
 
