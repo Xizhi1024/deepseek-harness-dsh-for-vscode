@@ -55,12 +55,18 @@ test('withVscodeEmbedMode ignores over-long and NUL session ids', () => {
   );
 });
 
-test('withVscodeEmbedMode rejects non-http(s) schemes without adding embed markers', () => {
-  for (const bad of ['javascript:alert(1)', 'data:text/html,<h1>hi</h1>']) {
+test('withVscodeEmbedMode maps invalid/non-http(s) URLs to about:blank', () => {
+  for (const bad of ['javascript:alert(1)', 'data:text/html,<h1>hi</h1>', '//evil.com/path']) {
     const out = withVscodeEmbedMode(bad, 's');
-    assert.strictEqual(out, bad);
+    assert.strictEqual(out, 'about:blank');
     assert.ok(!out.includes('dsh_embed'));
   }
+});
+
+test('framePage fallback link and iframe become about:blank for unsafe URLs', () => {
+  const html = framePage({ url: 'javascript:alert(1)', openBrowserLabel: 'Open' });
+  assert.match(html, /<iframe[^>]*src="about:blank"/);
+  assert.match(html, /<a id="fallback-link"[^>]*href="about:blank"/);
 });
 
 test('withVscodeEmbedMode accepts http and https URLs and adds markers', () => {

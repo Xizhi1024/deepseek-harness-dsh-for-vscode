@@ -366,7 +366,13 @@ async function activateWithDependencies(context, dependencies = {}) {
   vscode = createVscodeFacade(dependencies.vscode || require("vscode"));
   hostContext = createWorkspaceContext(vscode, context);
   lifecycle = new LifecycleQueue();
+  try {
+    runtimeAbort?.abort?.();
+  } catch {
+    // ignore stale controller abort errors during repeated activation
+  }
   runtimeAbort = new AbortController();
+  const realpath = dependencies.realpath || require('node:fs').promises.realpath;
   runtimeStorageRoot = path.join(context.globalStorageUri.fsPath, 'runtime');
   ensureRuntime = dependencies.ensureManagedRuntime
     || ((options) => ensureManagedRuntime(options));
@@ -400,14 +406,34 @@ async function activateWithDependencies(context, dependencies = {}) {
         throw new Error("Text document bridge requires an open workspace folder");
       }
       const resolved = path.resolve(absolutePath);
-      const insideWorkspace = folders.some((folder) => {
+      // Resolve symlinks before the containment check: a path that lexically
+      // looks like it is inside the workspace must not escape through a link
+      // to another directory (e.g. a workspace symlink pointing outside).
+      let candidateReal = resolved;
+      try {
+        candidateReal = await realpath(resolved);
+      } catch {
+        const parentReal = await realpath(path.dirname(resolved)).catch(() => path.resolve(path.dirname(resolved)));
+        candidateReal = path.join(parentReal, path.basename(resolved));
+      }
+      let insideWorkspace = false;
+      for (const folder of folders) {
         const folderPath = folder && folder.uri && folder.uri.fsPath
           ? folder.uri.fsPath
           : null;
-        if (!folderPath) return false;
-        const relative = path.relative(path.resolve(folderPath), resolved);
-        return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-      });
+        if (!folderPath) continue;
+        let folderReal = path.resolve(folderPath);
+        try {
+          folderReal = await realpath(folderPath);
+        } catch {
+          folderReal = path.resolve(folderPath);
+        }
+        const relative = path.relative(folderReal, candidateReal);
+        if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+          insideWorkspace = true;
+          break;
+        }
+      }
       if (!insideWorkspace) {
         throw new Error(`Refusing to open path outside the workspace: ${absolutePath}`);
       }
@@ -457,8 +483,8 @@ async function activateWithDependencies(context, dependencies = {}) {
           render(statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail, lang: vscode.env.language }));
         } catch (_) { /* non-fatal */ }
       }
-      if (s.state === "error" && s.message) {
-        setStatusBar("$(error) " + loc(s.message, s.params));
+      if (s.state === "error") {
+        setStatusBar("$(error) " + (s.message ? loc(s.message, s.params) : loc("DSH: unavailable")));
         currentServer = null;
         currentExternalUrl = null;
         currentSessionId = null;
@@ -466,7 +492,7 @@ async function activateWithDependencies(context, dependencies = {}) {
         try {
           render(statusPage({
             title: loc("DeepSeek Harness unavailable"),
-            detail: loc(s.message, s.params),
+            detail: s.message ? loc(s.message, s.params) : "",
             showRetry: true,
             retryLabel: loc("Retry"),
             lang: vscode.env.language,
@@ -511,7 +537,7 @@ async function activateWithDependencies(context, dependencies = {}) {
         // NOTE: onDidReceiveMessage lives on the Webview, not the WebviewView.
         view.webview.onDidReceiveMessage(createWebviewMessageHandler({
           openBrowser: () => {
-            if (currentExternalUrl) {
+            if (currentServer && currentExternalUrl) {
               vscode.env.openExternal(vscode.Uri.parse(currentExternalUrl));
             }
           },
@@ -768,8 +794,8 @@ async function deactivate() {
   // On VS Code exit, stop only an owned process — and honor the close policy:
   // `never` intentionally leaves even an owned process running for explicit
   // user-managed operation. Other policies stop our child.
-  lifecycle.stopAccepting();
-  runtimeAbort.abort(); // cancel only in-flight provisioning; never touches a ready owned child
+  lifecycle?.stopAccepting?.();
+  runtimeAbort?.abort?.(); // cancel only in-flight provisioning; never touches a ready owned child
   viewGeneration += 1;
   try {
     if (!manager) return undefined;

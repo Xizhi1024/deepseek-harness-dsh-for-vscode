@@ -36,23 +36,43 @@ function escapeHtml(value) {
 const WEBVIEW_CSP_META = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; base-uri \'none\'; style-src \'unsafe-inline\'; script-src \'unsafe-inline\'; frame-src http: https:; img-src data:;">';
 
 /**
+ * Returns a URL only when it is absolute http(s); otherwise returns the safe
+ * `about:blank` sentinel. Used before embedding or linking so a malformed or
+ * non-http(s) value (e.g. `javascript:`, `data:`, protocol-relative) can never
+ * become an active iframe/link target.
+ *
+ * @param {*} value - Candidate URL.
+ * @returns {string} The original http(s) URL or `about:blank`.
+ */
+function safeHttpUrl(value) {
+  try {
+    const parsed = new URL(String(value || ""));
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return String(value || "");
+    }
+  } catch {
+    // fall through to about:blank
+  }
+  return "about:blank";
+}
+
+/**
  * Adds the DSH compact-layout marker to an iframe URL while preserving any
  * existing query parameters and fragment. When a valid session id is supplied
  * the `dsh_session` query parameter is added as well; invalid session ids are
- * ignored so the iframe simply opens the DSH default session. Invalid URLs
- * are returned as-is so the webview's normal fallback UI remains responsible
- * for the failure.
+ * ignored so the iframe simply opens the DSH default session. Invalid or
+ * non-http(s) URLs are returned as `about:blank` so the webview's normal
+ * fallback UI remains responsible for the failure.
  *
  * @param {string} url - Externalized DSH URL.
  * @param {string} [sessionId] - Optional DSH session id.
  * @returns {string} URL carrying the VS Code embed marker.
  */
 function withVscodeEmbedMode(url, sessionId = undefined) {
+  const safe = safeHttpUrl(url);
+  if (safe === "about:blank") return safe;
   try {
-    const parsed = new URL(String(url || ""));
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return String(url || "");
-    }
+    const parsed = new URL(safe);
     parsed.searchParams.set("dsh_embed", "vscode");
     if (
       typeof sessionId === "string"
@@ -64,7 +84,7 @@ function withVscodeEmbedMode(url, sessionId = undefined) {
     }
     return parsed.toString();
   } catch {
-    return String(url || "");
+    return "about:blank";
   }
 }
 
@@ -201,7 +221,7 @@ function framePage({
   lang = "en",
 } = {}) {
   const safeFrameUrl = escapeHtml(withVscodeEmbedMode(url, sessionId));
-  const safeBrowserUrl = escapeHtml(url || "");
+  const safeBrowserUrl = escapeHtml(safeHttpUrl(url));
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(lang)}">
 <head>
@@ -266,4 +286,4 @@ ${WEBVIEW_CSP_META}
 </html>`;
 }
 
-module.exports = { statusPage, framePage, withVscodeEmbedMode };
+module.exports = { statusPage, framePage, safeHttpUrl, withVscodeEmbedMode };

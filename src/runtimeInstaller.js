@@ -4,7 +4,12 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { parseRuntimeArtifactManifest, sha256File, verifyRuntimeDirectory } = require('./runtimeArtifact');
+const {
+  isValidDshVersion,
+  parseRuntimeArtifactManifest,
+  sha256File,
+  verifyRuntimeDirectory,
+} = require('./runtimeArtifact');
 const { extractRuntimeTarGz } = require('./runtimeArchive');
 
 async function readJson(filePath) {
@@ -29,6 +34,7 @@ class RuntimeInstaller {
     this.storageRoot = path.resolve(storageRoot);
     this.platform = platform;
     this.arch = arch;
+    this._lastPromoted = null;
   }
 
   /** Install and verify a candidate without changing current or last-good. */
@@ -76,6 +82,7 @@ class RuntimeInstaller {
   /** Promote a health-checked candidate, retaining the previous current as last-good. */
   async promote(candidate) {
     const pointer = this._pointer(candidate.manifest);
+    this._lastPromoted = pointer;
     const stateRoot = path.join(this.storageRoot, 'state');
     const currentPath = path.join(stateRoot, 'current.json');
     if (await exists(currentPath)) {
@@ -89,13 +96,49 @@ class RuntimeInstaller {
    * When no last-good pointer exists (e.g. the first promote failed before a
    * prior current was recorded), remove current.json so a later provision run
    * sees a missing pointer and can re-provision cleanly.
+   *
+   * `expected` guards against clobbering another VS Code window's current:
+   * when provided (or when this installer instance just promoted a candidate),
+   * the current pointer must match the expected identity before rollback does
+   * anything; otherwise it is a no-op.
+   *
+   * @param {{dshVersion: string, platform: string, arch: string}} [expected]
+   *   Expected current pointer identity. Defaults to this instance's last
+   *   promote when available.
    */
-  async rollback() {
+  async rollback(expected) {
     const stateRoot = path.join(this.storageRoot, 'state');
     const currentPath = path.join(stateRoot, 'current.json');
     const lastGoodPath = path.join(stateRoot, 'last-good.json');
+    const expectedPointer = expected === undefined ? this._lastPromoted : expected;
+    if (expectedPointer !== undefined && expectedPointer !== null) {
+      if (!await exists(currentPath)) return; // nothing to roll back
+      let current;
+      try {
+        current = await readJson(currentPath);
+      } catch {
+        // A corrupt current is not something to restore over; leave it for
+        // the caller to surface. Removing it here would be a destructive guess.
+        throw new Error('Cannot roll back with an unreadable current.json');
+      }
+      if (
+        !current
+        || current.dshVersion !== expectedPointer.dshVersion
+        || current.platform !== expectedPointer.platform
+        || current.arch !== expectedPointer.arch
+      ) {
+        return; // current belongs to another promotion/window; do not touch it
+      }
+    }
     if (await exists(lastGoodPath)) {
-      await writeJsonAtomic(currentPath, await readJson(lastGoodPath));
+      try {
+        await writeJsonAtomic(currentPath, await readJson(lastGoodPath));
+      } catch (error) {
+        // A corrupt last-good must not leave the bad current in place; remove
+        // the current pointer so a later manifest-URL run can re-provision.
+        await fs.promises.rm(currentPath, { force: true });
+        throw error;
+      }
       return;
     }
     await fs.promises.rm(currentPath, { force: true });
@@ -113,6 +156,7 @@ class RuntimeInstaller {
       if (
         !pointer || typeof pointer.dshVersion !== 'string'
         || pointer.platform !== this.platform || pointer.arch !== this.arch
+        || !isValidDshVersion(pointer.dshVersion)
       ) {
         throw new Error(`Cannot clean runtimes with an invalid ${pointerName} pointer`);
       }
