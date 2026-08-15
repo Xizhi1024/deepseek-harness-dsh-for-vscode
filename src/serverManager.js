@@ -17,7 +17,7 @@
  * Zero external dependencies: only Node built-ins are used.
  */
 
-const http = require('node:http');
+const net = require('node:net');
 const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -325,8 +325,11 @@ class ServerManager {
   }
 
   /**
-   * Probe host:port with GET / and a 3s timeout. Redirects are never
-   * followed (http.request default behavior — no manual following either).
+   * Probe host:port with a bounded raw HTTP GET over TCP and a 3s timeout.
+   * Raw TCP is deliberate: the F5 Extension Host enables Node's experimental
+   * network inspector, whose node:http instrumentation can throw
+   * `Missing dataLength in event` and strand the probe Promise forever.
+   * Redirects are never followed.
    * Returns:
    *   { reachable: true,  isDsh: true  } — HTTP 200 + BOOT_MARKER in body
    *   { reachable: true,  isDsh: false } — responded, but no BOOT_MARKER
@@ -335,43 +338,42 @@ class ServerManager {
   async probe(host, port) {
     return new Promise((resolve) => {
       let done = false;
+      let raw = '';
       const finish = (result) => {
-        if (!done) { done = true; resolve(result); }
+        if (!done) {
+          done = true;
+          socket.destroy();
+          resolve(result);
+        }
       };
 
-      const req = http.request(
-        {
-          host,
-          port,
-          path: '/',
-          method: 'GET',
-          timeout: PROBE_TIMEOUT_MS,
-          // One-off agent: sockets are not pooled, so probes never keep a
-          // server (or the extension process) alive after they finish.
-          agent: false,
-        },
-        (res) => {
-          let body = '';
-          res.setEncoding('utf8');
-          res.on('data', (chunk) => {
-            if (body.length < MAX_BODY_BYTES) body += chunk; // bounded read
-          });
-          res.on('end', () => {
-            finish({
-              reachable: true,
-              isDsh: res.statusCode === 200 && body.includes(BOOT_MARKER),
-            });
-          });
-          res.on('error', () => finish({ reachable: true, isDsh: false }));
-        }
-      );
-
-      req.on('timeout', () => {
-        // Timed out: destroy the socket so 'error' fires and we resolve as unreachable.
-        req.destroy(new Error('probe timeout'));
+      const socket = net.createConnection({ host, port });
+      socket.setEncoding('utf8');
+      socket.setTimeout(PROBE_TIMEOUT_MS);
+      socket.on('connect', () => {
+        socket.write(
+          `GET / HTTP/1.1\r\nHost: ${host}:${port}\r\nConnection: close\r\nAccept: text/html\r\n\r\n`
+        );
       });
-      req.on('error', () => finish({ reachable: false }));
-      req.end();
+      socket.on('data', (chunk) => {
+        const remaining = MAX_BODY_BYTES - raw.length;
+        if (remaining > 0) raw += chunk.slice(0, remaining);
+        const status = /^HTTP\/1\.[01]\s+(\d{3})\b/.exec(raw);
+        if (status && Number(status[1]) === 200 && raw.includes(BOOT_MARKER)) {
+          finish({ reachable: true, isDsh: true });
+        } else if (raw.length >= MAX_BODY_BYTES) {
+          finish({ reachable: true, isDsh: false });
+        }
+      });
+      socket.on('end', () => {
+        const status = /^HTTP\/1\.[01]\s+(\d{3})\b/.exec(raw);
+        finish({
+          reachable: true,
+          isDsh: Boolean(status && Number(status[1]) === 200 && raw.includes(BOOT_MARKER)),
+        });
+      });
+      socket.on('timeout', () => finish({ reachable: false }));
+      socket.on('error', () => finish({ reachable: false }));
     });
   }
 

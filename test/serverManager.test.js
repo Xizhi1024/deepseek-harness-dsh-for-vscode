@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
+const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
@@ -31,6 +32,22 @@ function close(server) {
     server.closeAllConnections?.();
   });
 }
+
+test('probe recognizes a fragmented boot marker over raw HTTP/TCP', async (t) => {
+  const server = net.createServer((socket) => {
+    socket.once('data', () => {
+      socket.write('HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n__DSH_');
+      setImmediate(() => socket.end('BOOT__'));
+    });
+  });
+  t.after(() => close(server));
+  await listen(server);
+
+  assert.deepStrictEqual(
+    await new ServerManager().probe('127.0.0.1', server.address().port),
+    { reachable: true, isDsh: true }
+  );
+});
 
 test('ServerManager preserves the standalone self-test behavior', async (t) => {
   const servers = [];

@@ -19,6 +19,11 @@ All notable changes to this project are documented here, following [Keep a Chang
 - **七个上下文命令不再占用任何标题栏**：`Add Active File` / `Add Active Selection` / `Add Problems` / `New Session` / `Switch Session` / `Capabilities and Integrations` / `Diagnose` 从 `view/title` 移除，仅保留在命令面板，不会再以长文本按钮铺在 DSH 视图顶部。点击 DSH 图标复用现有 `dsh.focusSidebar` 实现（打开并聚焦已有的 DSH 视图容器/视图，不创建重复视图）。
   The seven context commands no longer occupy any title bar: Add Active File / Add Active Selection / Add Problems / New Session / Switch Session / Capabilities and Integrations / Diagnose are removed from `view/title` and remain available from the command palette, so they cannot render as long text buttons above the DSH view. The DSH icon reuses the existing `dsh.focusSidebar` implementation, which reveals and focuses the existing DSH view container/view without creating duplicates.
 
+### Fixed / 修复
+
+- **F5 调试宿主不再永久停在“正在启动”**：健康检查改用有 3 秒超时和 5 MiB 上限的原始 TCP HTTP 探测，避开 VS Code F5 Extension Host 的 Node experimental network inspector 在 `node:http` 响应上反复抛出 `Missing dataLength in event`、导致 Promise 永不结束的问题；仍严格要求 HTTP 200 与 `__DSH_BOOT__` 标记。
+  F5 debugging no longer remains on “Starting” forever: health checks now use a raw TCP HTTP probe bounded by a 3-second timeout and 5 MiB limit, avoiding the VS Code F5 Extension Host's Node experimental network inspector repeatedly throwing `Missing dataLength in event` on `node:http` responses and leaving the Promise unsettled. HTTP 200 plus the `__DSH_BOOT__` marker is still required.
+
 ## [0.4.2] - 2026-08-15
 
 ### Changed / 变更
