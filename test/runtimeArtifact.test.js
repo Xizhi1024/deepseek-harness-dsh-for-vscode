@@ -9,6 +9,7 @@ const test = require('node:test');
 
 const {
   hashFileManifest,
+  isValidDshVersion,
   parseRuntimeArtifactManifest,
   verifyRuntimeDirectory,
 } = require('../src/runtimeArtifact');
@@ -65,6 +66,18 @@ test('runtime manifest validates identity, hashes, licenses, and safe paths', ()
   const missingScript = validManifest();
   missingScript.entryScript = 'bin/missing.js';
   assert.throws(() => parseRuntimeArtifactManifest(missingScript), /entryScript must be listed/);
+});
+
+test('runtime manifest rejects unsafe dshVersion values', () => {
+  assert.strictEqual(isValidDshVersion('0.1.0-rc.5'), true);
+  assert.strictEqual(isValidDshVersion('1.0.0'), true);
+  assert.strictEqual(isValidDshVersion('2026.08.15+build.1'), true);
+  for (const bad of ['../..', 'has space', '', '..', 'a/b', '-leading']) {
+    assert.strictEqual(isValidDshVersion(bad), false, `expected invalid: ${JSON.stringify(bad)}`);
+    const manifest = validManifest();
+    manifest.dshVersion = bad;
+    assert.throws(() => parseRuntimeArtifactManifest(manifest), /dshVersion/);
+  }
 });
 
 test('runtime directory verification rejects corruption and unknown files', async (t) => {

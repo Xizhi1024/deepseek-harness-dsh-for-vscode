@@ -70,6 +70,7 @@ let editorContext = null; // per-window approved editor attachments backing vsco
 let embedPatchPath = null; // generated --patch overlay applied to managed DSH children
 let runtimeStorageRoot = null; // managed runtime storage under VS Code global storage
 let ensureRuntime = null; // resolves/verifies (and optionally provisions) the managed runtime
+let runtimeAbort = new AbortController(); // cancels in-flight runtime provisioning on deactivate
 
 /**
  * Localize a template with params. Templates are English by default and are
@@ -183,6 +184,7 @@ async function connectNow(context) {
         arch: process.arch,
         manifestUrl: cfg.runtimeManifestUrl,
         version: cfg.runtimeVersion,
+        signal: runtimeAbort.signal,
       });
       manager.setResolvedRuntime(resolvedRuntime);
     }
@@ -364,6 +366,7 @@ async function activateWithDependencies(context, dependencies = {}) {
   vscode = createVscodeFacade(dependencies.vscode || require("vscode"));
   hostContext = createWorkspaceContext(vscode, context);
   lifecycle = new LifecycleQueue();
+  runtimeAbort = new AbortController();
   runtimeStorageRoot = path.join(context.globalStorageUri.fsPath, 'runtime');
   ensureRuntime = dependencies.ensureManagedRuntime
     || ((options) => ensureManagedRuntime(options));
@@ -561,6 +564,10 @@ async function activateWithDependencies(context, dependencies = {}) {
     vscode.commands.registerCommand("dsh.openInBrowser", async () => {
       return lifecycle.enqueue("open in browser", async () => {
         if (!currentServer) await connectNow(context);
+        if (!currentServer) {
+          vscode.window.showErrorMessage(loc("DSH: unavailable"));
+          return;
+        }
         if (currentExternalUrl) {
           await vscode.env.openExternal(vscode.Uri.parse(currentExternalUrl));
         }
@@ -762,6 +769,7 @@ async function deactivate() {
   // `never` intentionally leaves even an owned process running for explicit
   // user-managed operation. Other policies stop our child.
   lifecycle.stopAccepting();
+  runtimeAbort.abort(); // cancel only in-flight provisioning; never touches a ready owned child
   viewGeneration += 1;
   try {
     if (!manager) return undefined;
