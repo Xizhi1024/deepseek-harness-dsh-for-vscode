@@ -3,6 +3,16 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-08-16
+
+### Changed / 变更
+
+- **精简 Git/GitHub 仓库维护面**：删除整个 `docs/` 目录及其中的架构图、图片和旧问题说明；通过 `.gitignore` 明确不再跟踪该目录，正式说明集中维护在 README 与 CHANGELOG。
+  Reduce the Git/GitHub maintenance surface: remove the complete `docs/` tree, including architecture sources, images, and the former upstream-issue note. `.gitignore` now prevents the tree from being tracked again; maintained product documentation lives in README and CHANGELOG.
+
+- **取消 GitHub Actions 发布目录**：删除 `.github/workflows/publish.yml` 并忽略该目录，0.5.1 起使用本地 `check:w0`、Extension Host smoke 与 VSIX 打包流程。保留 `.vscode/launch.json` 作为开发者 F5 调试必需入口，同时删除已失效且引用旧绝对路径的 `.vscode/tasks.json`。
+  Retire the GitHub Actions publishing directory: remove `.github/workflows/publish.yml` and ignore that directory; 0.5.1 uses the local `check:w0`, Extension Host smoke, and VSIX packaging flow. Keep `.vscode/launch.json` because it is required for developer F5 debugging, while deleting the obsolete `.vscode/tasks.json` that referenced an old absolute path.
+
 ## [0.5.0] - 2026-08-16
 
 ### Added / 新增

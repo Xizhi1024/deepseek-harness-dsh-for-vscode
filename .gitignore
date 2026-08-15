@@ -22,3 +22,8 @@ dsh-instances.json
 
 # ---- Local agent workspace / 本地辅助目录 ----
 .agents/
+
+# ---- Repository policy / 仓库维护策略 ----
+# Product documentation is kept in README/CHANGELOG; do not recreate a tracked docs tree.
+docs/
+.github/workflows/
