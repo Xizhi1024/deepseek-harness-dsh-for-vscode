@@ -44,6 +44,8 @@ const { createBridgeWorkspaceIdentity } = require("./bridgeWorkspace");
 const { DEFAULT_HOST, DEFAULT_PORT, VIEW_ID, CONTAINER_ID } = require("./types");
 const { createVscodeFacade } = require("./vscodeFacade");
 const { createWebviewMessageHandler } = require("./webviewMessages");
+const { handleInteractionRequest } = require('./interactionBridge');
+const { installDshIntegration } = require('./dshIntegration');
 const { createWorkspaceContext } = require("./workspaceContext");
 const { createEditorContext } = require("./editorContext");
 const {
@@ -84,13 +86,21 @@ let ensureWorkspaceSessionFn = null; // owned-instance automatic workspace sessi
 let runtimeAbort = new AbortController(); // cancels in-flight runtime provisioning on deactivate
 
 function prepareDshHome(config, context) {
-  const info = resolveDshHome({
+  const resolved = resolveDshHome({
     mode: config.homeMode,
     configuredPath: config.homePath,
     globalStoragePath: context.globalStorageUri.fsPath,
   });
+  activeDshHome = resolved.path;
+  const integration = installDshIntegration(
+    activeDshHome,
+    context.extensionPath || path.resolve(__dirname, '..')
+  );
+  const info = {
+    ...resolved,
+    integrationNodeModulesPath: integration.nodeModulesPath,
+  };
   activeDshHomeInfo = info;
-  activeDshHome = info.path;
   embedPatchPath = writeEmbedOverlay(activeDshHome);
   manager?.setEmbedPatchPath?.(embedPatchPath);
   return info;
@@ -568,7 +578,10 @@ async function activateWithDependencies(context, dependencies = {}) {
   const createServerManager = dependencies.createServerManager
     || ((options) => new ServerManager(options));
   manager = createServerManager({
-    spawnEnv: { ...textDocumentBridge.env, ...versionedBridge.env },
+    spawnEnv: {
+      ...textDocumentBridge.env,
+      ...versionedBridge.env,
+    },
     embedPatchPath,
     onStatus: (s) => {
       // Surface each lifecycle stage inside the sidebar so the user can see
@@ -648,6 +661,11 @@ async function activateWithDependencies(context, dependencies = {}) {
             }
           },
           retry: () => scheduleConnect(context, resolvedViewGeneration).catch(() => {}),
+          interaction: (message) => {
+            handleInteractionRequest({ vscode, webview: view.webview, message }).catch((error) => {
+              console.error('dsh-vs-sidebar: Webview interaction bridge failed:', error);
+            });
+          },
         }));
         view.onDidDispose(() => {
           if (currentView !== view) return;

@@ -4,6 +4,10 @@
 
 Embeds the local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) web UI in the VS Code auxiliary sidebar (right rail, alongside Copilot Chat). By default, every VS Code window starts and owns one `dsh web` child with the current workspace as cwd, then renders it in a compact full-screen iframe.
 
+## **VS CODE INTERACTION GUARANTEE (0.5.0)**
+
+**In an extension-owned DSH session, model-output Copy uses the VS Code clipboard, `Read …` files open in the exact owning VS Code window, and HTTP/HTTPS links open in VS Code Simple Browser. Markdown files no longer fall through to Windows file associations such as Typora. The integration package is maintained inside the selected DSH Web profile and the launch-only overlay remains under `DSH_HOME/.integrations/vscode-sidebar/`.**
+
 ## 🚨 **IMPORTANT: ISOLATED MODE CAN MAKE ALL EXISTING MODULES APPEAR TO DISAPPEAR**
 
 > [!IMPORTANT]

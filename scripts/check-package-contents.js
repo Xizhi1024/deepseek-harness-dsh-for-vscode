@@ -46,6 +46,8 @@ for (const required of [
   'src/runtimeInstaller.js',
   'src/managedRuntimeLaunch.js',
   'src/embedOverlay.js',
+  'src/dshIntegration.js',
+  'src/interactionBridge.js',
   'src/editorContext.js',
   'src/capabilityCatalog.js',
   'src/providerDetector.js',
@@ -60,6 +62,9 @@ for (const required of [
   'src/webviewHtml.js',
   'src/webviewMessages.js',
   'src/workspaceContext.js',
+  'runtime-integration/dsh-vscode-integration/package.json',
+  'runtime-integration/dsh-vscode-integration/lib/index.js',
+  'runtime-integration/dsh-vscode-integration/lib/client.js',
 ]) {
   assert.ok(files.includes(required), `Required package entry is missing: ${required}`);
 }

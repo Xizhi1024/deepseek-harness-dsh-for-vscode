@@ -33,7 +33,10 @@ test('editor title exposes one persistent icon and DSH view title exposes no pri
   const focusCommand = manifest.contributes.commands.find(
     (entry) => entry.command === 'dsh.focusSidebar'
   );
-  assert.strictEqual(focusCommand.icon, 'media/deepseek.svg');
+  assert.deepStrictEqual(focusCommand.icon, {
+    light: 'media/deepseek-light.svg',
+    dark: 'media/deepseek-dark.svg'
+  });
 
   const container = manifest.contributes.viewsContainers.secondarySidebar.find(
     (entry) => entry.id === CONTAINER_ID

@@ -12,6 +12,8 @@ const {
 } = require('../src/managedRuntimeLaunch');
 const {
   EMBED_DISABLED_PLUGIN_IDS,
+  EMBED_INTEGRATION_PACKAGE,
+  EMBED_INTEGRATION_PLUGIN_ID,
   renderEmbedOverlay,
   writeEmbedOverlay,
 } = require('../src/embedOverlay');
@@ -161,6 +163,9 @@ test('embed overlay renders and writes only the frozen disabled plugin ids', (t)
   for (const id of EMBED_DISABLED_PLUGIN_IDS) {
     assert.strictEqual(rendered.includes(`- id: ${id}\n  disabled: true\n`), true);
   }
+  assert.ok(rendered.includes(
+    `- insert:\n    - id: ${EMBED_INTEGRATION_PLUGIN_ID}\n      name: ${EMBED_INTEGRATION_PACKAGE}\n`
+  ));
 
   const marker = 'CALLER_INPUT_MARKER';
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), `dsh-embed-overlay-${marker}-`));

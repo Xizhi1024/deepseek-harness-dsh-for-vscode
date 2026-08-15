@@ -24,6 +24,9 @@ All notable changes to this project are documented here, following [Keep a Chang
 
 ### Fixed / 修复
 
+- **修复模型输出交互**：复制通过 VS Code 剪贴板完成；`Read …` 文件通过带认证的 owning-window 文档桥打开，不再进入 Typora 等系统默认程序；HTTP/HTTPS 链接在 VS Code Simple Browser 中打开。
+  Fix model-output interactions: Copy uses the VS Code clipboard, `Read …` files use the authenticated owning-window document bridge instead of default applications such as Typora, and HTTP/HTTPS links open in VS Code Simple Browser.
+
 - **0.4.x 升级保护**：首次升级时，若旧扩展隔离目录非空且用户尚未明确选择模式，自动保留 `isolated` 并提示；已有 Junction/符号链接若实际指向共享目录则直接进入 `shared`。扩展从不复制、合并或删除两个目录中的数据。
   Protect 0.4.x upgrades: a non-empty legacy isolated home is preserved with a one-time notice when no mode was explicitly selected; a Junction/symlink already resolving to the shared home upgrades directly to `shared`. The extension never copies, merges, or deletes either home's data.
 

@@ -26,3 +26,13 @@ test('Webview message routing rejects incomplete handler facades', () => {
     /must be functions/
   );
 });
+
+test('Webview messages route DSH interaction requests when configured', () => {
+  const calls = [];
+  const handle = createWebviewMessageHandler({
+    openBrowser() {}, retry() {}, interaction(message) { calls.push(message); },
+  });
+  const message = { type: 'dshBridge', requestId: 'one' };
+  assert.strictEqual(handle(message), true);
+  assert.deepStrictEqual(calls, [message]);
+});

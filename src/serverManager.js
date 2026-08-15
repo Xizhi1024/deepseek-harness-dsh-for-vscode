@@ -242,6 +242,13 @@ class ServerManager {
     return this.embedPatchPath;
   }
 
+  /** Merge environment values used by future owned DSH spawns. */
+  setSpawnEnv(spawnEnv) {
+    if (!spawnEnv || typeof spawnEnv !== 'object') throw new TypeError('spawnEnv must be an object');
+    this.spawnEnv = { ...this.spawnEnv, ...spawnEnv };
+    return { ...this.spawnEnv };
+  }
+
   /** True while this manager still owns a spawned child, including startup. */
   hasOwnedChild() {
     return Boolean(this._child);

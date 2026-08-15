@@ -13,6 +13,8 @@ const EMBED_DISABLED_PLUGIN_IDS = Object.freeze([
   'better-sidebar',
   'ui-dsh-aionui-panel',
 ]);
+const EMBED_INTEGRATION_PLUGIN_ID = 'vscode-integration';
+const EMBED_INTEGRATION_PACKAGE = 'dsh-vscode-integration';
 
 /**
  * Render the embed overlay document consumed by `dsh --patch <path>`.
@@ -29,6 +31,11 @@ function renderEmbedOverlay() {
   for (const id of EMBED_DISABLED_PLUGIN_IDS) {
     lines.push(`- id: ${id}`, '  disabled: true');
   }
+  lines.push(
+    '- insert:',
+    `    - id: ${EMBED_INTEGRATION_PLUGIN_ID}`,
+    `      name: ${EMBED_INTEGRATION_PACKAGE}`
+  );
   return `${lines.join('\n')}\n`;
 }
 
@@ -66,6 +73,8 @@ function writeEmbedOverlay(dshHome, options = {}) {
 
 module.exports = {
   EMBED_DISABLED_PLUGIN_IDS,
+  EMBED_INTEGRATION_PACKAGE,
+  EMBED_INTEGRATION_PLUGIN_ID,
   renderEmbedOverlay,
   writeEmbedOverlay,
 };

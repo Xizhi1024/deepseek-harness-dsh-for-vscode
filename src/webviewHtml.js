@@ -222,6 +222,9 @@ function framePage({
 } = {}) {
   const safeFrameUrl = escapeHtml(withVscodeEmbedMode(url, sessionId));
   const safeBrowserUrl = escapeHtml(safeHttpUrl(url));
+  let frameOrigin = 'null';
+  try { frameOrigin = new URL(safeHttpUrl(url)).origin; } catch { /* null sentinel */ }
+  const safeFrameOriginScript = JSON.stringify(frameOrigin).replace(/</g, '\\u003c');
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(lang)}">
 <head>
@@ -263,8 +266,12 @@ ${WEBVIEW_CSP_META}
     </div>
   </div>
   <script>
+    const vscode = acquireVsCodeApi();
     const frame = document.getElementById("frame");
     const fallback = document.getElementById("fallback");
+    const DSH_ORIGIN = ${safeFrameOriginScript};
+    const BRIDGE_CHANNEL = "dsh-vscode-interaction";
+    const BRIDGE_VERSION = 1;
     const LOAD_TIMEOUT_MS = 10000;
     let loaded = false;
 
@@ -277,6 +284,28 @@ ${WEBVIEW_CSP_META}
     frame.addEventListener("load", () => { loaded = true; });
     frame.addEventListener("error", showFallback);
     setTimeout(showFallback, LOAD_TIMEOUT_MS);
+
+    window.addEventListener("message", (event) => {
+      const message = event.data;
+      if (
+        event.source === frame.contentWindow
+        && event.origin === DSH_ORIGIN
+        && message && message.type === "dshBridge"
+        && message.channel === BRIDGE_CHANNEL
+        && message.version === BRIDGE_VERSION
+      ) {
+        vscode.postMessage(message);
+        return;
+      }
+      if (
+        event.source !== frame.contentWindow
+        && message && message.type === "dshBridgeResult"
+        && message.channel === BRIDGE_CHANNEL
+        && message.version === BRIDGE_VERSION
+      ) {
+        frame.contentWindow.postMessage(message, DSH_ORIGIN);
+      }
+    });
 
     document.getElementById("fallback-retry").addEventListener("click", () => {
       location.reload();

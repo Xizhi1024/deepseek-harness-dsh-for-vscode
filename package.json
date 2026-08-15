@@ -117,7 +117,10 @@
         "command": "dsh.focusSidebar",
         "title": "%dsh.cmd.focusSidebar%",
         "category": "%dsh.cmd.category%",
-        "icon": "media/deepseek.svg"
+        "icon": {
+          "light": "media/deepseek-light.svg",
+          "dark": "media/deepseek-dark.svg"
+        }
       },
       {
         "command": "dsh.addActiveFile",

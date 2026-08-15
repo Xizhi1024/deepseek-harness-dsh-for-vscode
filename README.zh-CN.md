@@ -4,6 +4,10 @@
 
 把本地 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）Web 界面嵌入 VS Code 辅助侧边栏（右侧栏，与 Copilot Chat 同排）。默认情况下，每个 VS Code 窗口都会以当前工作区为 cwd 单独启动并持有一个 `dsh web` 子进程，再以紧凑的全屏 iframe 渲染。
 
+## **VS CODE 交互保证（0.5.0）**
+
+**在扩展自管的 DSH 会话中，模型输出的“复制”使用 VS Code 剪贴板，`Read …` 文件在拥有该 DSH 进程的 VS Code 窗口中打开，HTTP/HTTPS 链接在 VS Code Simple Browser 中打开。Markdown 文件不再回退到 Typora 等 Windows 默认关联程序。集成包由扩展维护在所选 DSH 的 Web profile 内，启动专用 overlay 仍位于 `DSH_HOME/.integrations/vscode-sidebar/`。**
+
 ## 🚨 **重要警告：隔离模式会让原有模块看起来全部“消失”**
 
 > [!IMPORTANT]
