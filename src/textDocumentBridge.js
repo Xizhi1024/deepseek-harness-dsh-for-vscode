@@ -171,7 +171,7 @@ if (require.main === module) {
     const relative = await fetch(bridge.env.DSH_VSCODE_OPEN_URL, {
       method: "POST",
       headers: {
-        "Authorization": "Bearer test-token",
+        "Authorization": "Bearer test-token", // allow-secret-scan
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ path: "settings.yaml" }),
@@ -181,7 +181,7 @@ if (require.main === module) {
     const accepted = await fetch(bridge.env.DSH_VSCODE_OPEN_URL, {
       method: "POST",
       headers: {
-        "Authorization": "Bearer test-token",
+        "Authorization": "Bearer test-token", // allow-secret-scan
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ path: absolute }),

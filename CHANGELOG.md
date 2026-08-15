@@ -5,6 +5,40 @@ All notable changes to this project are documented here, following [Keep a Chang
 
 ## [Unreleased]
 
+> 本节条目已实现但尚未随任何版本发布，也未提交到 Git 仓库；相关改动仅存在于工作区。
+> Everything in this section is implemented but unreleased and uncommitted; the changes exist only in the working tree.
+
+### Added / 新增
+
+- **编辑器显式附件（W3）**：新增 Add Active File / Add Active Selection / Add Problems 三条命令，只把用户明确选择的文件、选区与 Problems 附加到 DSH 上下文；版本化桥暴露 `vscode/editor/open`、`vscode/editor/openDiff`、`vscode/workspace/getDiagnostics`，且只接受受信任工作区内的 `file` URI。
+  W3 explicit editor attachments: add Add Active File / Add Active Selection / Add Problems so only explicitly selected files, selections, and Problems are attached to DSH context; the versioned bridge exposes `vscode/editor/open`, `vscode/editor/openDiff`, and `vscode/workspace/getDiagnostics`, and only accepts `file` URIs inside a trusted workspace.
+
+- **会话导航（W3）**：QuickPick 新建 / 切换会话，复用 DSH 本地会话 API；切换会话后 iframe 带 `dsh_session` 查询参数重载，DSH 服务仍是会话树的唯一数据源。
+  W3 session navigation: New Session / Switch Session QuickPicks built on DSH's local session API; switching reloads the iframe with the `dsh_session` query parameter, and the DSH server remains the single source of truth for the session tree.
+
+- **能力目录与检测框架（W4）**：新增 `dsh.capabilities` / `dsh.diagnose` 命令、受控 provider 目录与检测器；4 个第三方候选（Remote WSL/SSH、GitHub、Browser 占位）全部标记为 `manual-assist`，因稳定接口审计（G3）未关闭而不标记任何 `integrated`；`vscode/extensions/openDetails` 只打开目录受控的扩展详情页或官方文档，绝不安装。
+  W4 capability catalog & detection: add `dsh.capabilities` / `dsh.diagnose`, a controlled provider catalog, and a detector; all four third-party candidates (Remote WSL/SSH, GitHub, Browser placeholder) are `manual-assist` — none is marked `integrated` because the stable-interface audit (G3) is still open; `vscode/extensions/openDetails` only opens catalog-controlled extension detail pages or official documentation and never installs.
+
+- **托管运行时与嵌入底座（W1/W2 既有）**：managed runtime（解析 / 下载 / 校验 / 安装）与 VersionedBridgeServer 支撑嵌入与桥接；自管子进程附加动态生成的 `--patch` overlay，禁用 `better-sidebar`、`ui-dsh-aionui-panel`，避免嵌入模式重复叠加侧边栏/面板。
+  W1/W2 managed runtime & embed foundation: the managed runtime (resolve / download / verify / install) and VersionedBridgeServer back the embed and bridge; managed children receive a generated `--patch` overlay that disables `better-sidebar` and `ui-dsh-aionui-panel` so embed mode never duplicates sidebar/panel chrome.
+
+- **托管运行时接入激活路径（W1-6/W1-7）**：扩展激活时在 `globalStorageUri/runtime` 下创建运行时存储；每次 `autoStart` 前 `connectNow` 先经 `RuntimeResolver` 解析并校验 runtime，再通过 `ServerManager.setResolvedRuntime()` 交给启动器。新增 `dsh.runtime.manifestUrl`（HTTPS 发布清单）与 `dsh.runtime.version`（可选锁定）：本地无 verified runtime 时按清单下载/安装/promote，失败一律 fail closed 并在状态页展示错误，绝不回退 PATH 上的 `dsh`；`autoStart=false` 路径不变。
+  Managed runtime wired into activation (W1-6/W1-7): activation creates runtime storage under `globalStorageUri/runtime`; every autoStart resolves and verifies the runtime through `RuntimeResolver` and hands it to `ServerManager.setResolvedRuntime()` before spawning. New `dsh.runtime.manifestUrl` (HTTPS release manifest) and `dsh.runtime.version` (optional pin) provision missing/pinned runtimes through the existing downloader/installer; all failures fail closed on the status page and never fall back to a PATH `dsh`; `autoStart=false` behavior is unchanged.
+
+- **命令与验证基线**：命令面板共 11 条命令；单元测试 96 pass / 0 fail / 1 skip；Extension Host 激活 smoke 在 VS Code 1.90 通过（存在 `secondarySidebar` 贡献点警告，该贡献点需 VS Code 1.106+）。
+  Command & verification baseline: 11 commands in the command palette; unit tests 96 pass / 0 fail / 1 skip; the Extension Host activation smoke passes on VS Code 1.90 (with a `secondarySidebar` contribution-point warning — that contribution point requires VS Code 1.106+).
+
+- **密钥扫描门禁（W6-4/W6-5 本地部分）**：新增 `scripts/check-secrets.js` 与 `npm run test:secrets`，扫描将进入 VSIX 的源码/文档（不扫 `node_modules`、`.git`、`.vscode-test`），检测硬编码 DSH 桥接 token 字面量、`Authorization: Bearer` 凭据、OpenAI/AWS key、私钥与密码字面量；示例/测试 fixture 使用显式 `// allow-secret-scan` 注释放行；`check:w0` 末尾纳入该门禁。
+  Secret-scan gate (local part of W6-4/W6-5): add `scripts/check-secrets.js` and `npm run test:secrets` to scan the source/docs that will enter the VSIX (never `node_modules`, `.git`, or `.vscode-test`), detecting hardcoded DSH bridge token literals, `Authorization: Bearer` credentials, OpenAI/AWS keys, private keys, and password literals; example/test fixtures are released with an explicit `// allow-secret-scan` comment; `check:w0` now runs this gate.
+
+### Changed / 变更
+
+- **测试入口标准化**：`ServerManager` 的内嵌自测迁移到 `node:test`，由 `npm test` 在本地和三平台 CI 运行；运行时代码不再包含直接执行分支。
+  Standardize tests: move the embedded `ServerManager` self-test to `node:test`, run it through `npm test` locally and in the three-platform CI matrix, and remove the direct-execution branch from runtime code.
+
+- **W0 回归骨架**：新增可注入 VS Code facade、Webview 消息路由、持久化 ID、生命周期、工作区与 PATH 单元门禁；CI 同时校验 VSIX 文件清单并运行真实 Extension Host 激活 smoke。
+  W0 regression foundation: add unit gates for the injectable VS Code facade, Webview routing, persistent IDs, lifecycle, workspace and PATH behavior; CI also checks the VSIX file list and runs a real Extension Host activation smoke.
+
 ## [0.3.1] - 2026-08-15
 
 ### Added / 新增

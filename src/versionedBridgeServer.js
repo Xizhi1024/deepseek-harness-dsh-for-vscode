@@ -1,0 +1,340 @@
+'use strict';
+
+const crypto = require('node:crypto');
+const net = require('node:net');
+
+const VSCODE_PROTOCOL_VERSION = 1;
+const VSCODE_MAX_FRAME_BYTES = 1024 * 1024;
+const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
+const REQUEST_METHODS = Object.freeze([
+  'vscode/editor/getContext',
+  'vscode/editor/open',
+  'vscode/editor/openDiff',
+  'vscode/workspace/getDiagnostics',
+  'vscode/extensions/getProviderStates',
+  'vscode/extensions/openDetails',
+]);
+const NOTIFICATION_METHODS = Object.freeze([
+  'vscode/contextChanged',
+  'vscode/providerStatesChanged',
+  'vscode/workspaceChanged',
+]);
+
+function isRecord(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function tokenMatches(actual, expected) {
+  if (typeof actual !== 'string' || typeof expected !== 'string') return false;
+  const left = Buffer.from(actual, 'utf8');
+  const right = Buffer.from(expected, 'utf8');
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function bridgeError(code, message) {
+  const error = new Error(message);
+  error.bridgeCode = code;
+  return error;
+}
+
+class VersionedBridgeServer {
+  constructor({
+    handlers = {},
+    workspace,
+    serverVersion = '0.0.0',
+    token = crypto.randomBytes(32).toString('hex'),
+    protocolVersion = VSCODE_PROTOCOL_VERSION,
+    maxFrameBytes = VSCODE_MAX_FRAME_BYTES,
+    requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  } = {}) {
+    if (!isRecord(handlers)) throw new Error('VersionedBridgeServer handlers must be an object');
+    if (!Number.isInteger(protocolVersion) || protocolVersion < 1) {
+      throw new Error('VersionedBridgeServer protocolVersion must be a positive integer');
+    }
+    if (!Number.isSafeInteger(maxFrameBytes) || maxFrameBytes < 256) {
+      throw new Error('VersionedBridgeServer maxFrameBytes must be at least 256');
+    }
+    if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 1) {
+      throw new Error('VersionedBridgeServer requestTimeoutMs must be positive');
+    }
+    for (const name of Object.keys(handlers)) {
+      if (!REQUEST_METHODS.includes(name)) throw new Error(`Unsupported VS Code bridge handler: ${name}`);
+      if (typeof handlers[name] !== 'function') throw new Error(`VS Code bridge handler must be a function: ${name}`);
+    }
+    this.handlers = Object.freeze({ ...handlers });
+    this.workspace = workspace || {
+      windowId: crypto.randomUUID(),
+      trusted: false,
+      kind: 'local',
+      folders: [],
+    };
+    this.serverVersion = String(serverVersion);
+    this.token = token;
+    this.protocolVersion = protocolVersion;
+    this.maxFrameBytes = maxFrameBytes;
+    this.requestTimeoutMs = requestTimeoutMs;
+    this.server = null;
+    this.sockets = new Set();
+    this.connections = new Set();
+    this.initializedWaiters = new Set();
+    this.port = null;
+    this.closed = false;
+  }
+
+  async start() {
+    if (this.server) return this;
+    if (this.closed) throw new Error('VersionedBridgeServer is closed');
+    const server = net.createServer((socket) => this._accept(socket));
+    this.server = server;
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        server.off('error', reject);
+        resolve();
+      });
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('VersionedBridgeServer has no TCP address');
+    this.port = address.port;
+    server.unref();
+    return this;
+  }
+
+  get env() {
+    if (this.port === null) throw new Error('VersionedBridgeServer has not started');
+    return Object.freeze({
+      DSH_VSCODE_BRIDGE_HOST: '127.0.0.1',
+      DSH_VSCODE_BRIDGE_PORT: String(this.port),
+      DSH_VSCODE_BRIDGE_TOKEN: this.token,
+      DSH_VSCODE_BRIDGE_PROTOCOL: String(this.protocolVersion),
+    });
+  }
+
+  waitForInitialized(timeoutMs = this.requestTimeoutMs) {
+    if ([...this.connections].some((connection) => connection.initialized)) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const waiter = { resolve, reject, timer: null };
+      waiter.timer = setTimeout(() => {
+        this.initializedWaiters.delete(waiter);
+        reject(bridgeError('VSCODE_REQUEST_TIMEOUT', 'VS Code bridge initialization timed out'));
+      }, timeoutMs);
+      waiter.timer.unref?.();
+      this.initializedWaiters.add(waiter);
+    });
+  }
+
+  notify(method, params) {
+    if (!NOTIFICATION_METHODS.includes(method)) throw new Error(`Unsupported VS Code bridge notification: ${method}`);
+    for (const connection of this.connections) {
+      if (connection.initialized && !connection.socket.destroyed) {
+        this._write(connection.socket, { jsonrpc: '2.0', method, params });
+      }
+    }
+  }
+
+  _accept(socket) {
+    if (socket.remoteAddress !== '127.0.0.1' && socket.remoteAddress !== '::ffff:127.0.0.1') {
+      socket.destroy();
+      return;
+    }
+    socket.setNoDelay(true);
+    socket.unref();
+    const connection = {
+      socket,
+      buffer: Buffer.alloc(0),
+      initialized: false,
+      pending: new Map(),
+    };
+    this.sockets.add(socket);
+    this.connections.add(connection);
+    socket.on('data', (chunk) => this._onData(connection, chunk));
+    socket.once('close', () => this._release(connection));
+    socket.once('error', () => this._release(connection));
+  }
+
+  _onData(connection, chunk) {
+    if (connection.socket.destroyed) return;
+    connection.buffer = connection.buffer.length === 0
+      ? Buffer.from(chunk)
+      : Buffer.concat([connection.buffer, chunk]);
+    for (;;) {
+      const newline = connection.buffer.indexOf(0x0a);
+      if (newline < 0) {
+        if (connection.buffer.length > this.maxFrameBytes) this._rejectOversized(connection);
+        return;
+      }
+      if (newline > this.maxFrameBytes) {
+        this._rejectOversized(connection);
+        return;
+      }
+      const frame = connection.buffer.subarray(0, newline);
+      connection.buffer = connection.buffer.subarray(newline + 1);
+      if (frame.length === 0) continue;
+      void this._handleFrame(connection, frame);
+    }
+  }
+
+  _rejectOversized(connection) {
+    this._writeError(connection.socket, null, -32010, 'VSCODE_FRAME_TOO_LARGE', 'VS Code bridge frame exceeds byte limit');
+    connection.socket.end();
+  }
+
+  async _handleFrame(connection, bytes) {
+    let frame;
+    try {
+      frame = JSON.parse(bytes.toString('utf8'));
+    } catch {
+      this._writeError(connection.socket, null, -32700, 'VSCODE_INVALID_PARAMS', 'Invalid JSON frame');
+      return;
+    }
+    if (!isRecord(frame) || frame.jsonrpc !== '2.0' || typeof frame.method !== 'string') {
+      this._writeError(connection.socket, isRecord(frame) ? frame.id ?? null : null, -32600, 'VSCODE_INVALID_PARAMS', 'Invalid JSON-RPC request');
+      return;
+    }
+    if (frame.method === '$/cancelRequest' && frame.id === undefined) {
+      const targetId = isRecord(frame.params) ? frame.params.id : undefined;
+      const controller = connection.pending.get(targetId);
+      controller?.abort(bridgeError('VSCODE_REQUEST_CANCELLED', 'VS Code bridge request cancelled'));
+      return;
+    }
+    if (frame.id === undefined) return;
+    const id = frame.id;
+    if (typeof id !== 'string' && typeof id !== 'number') {
+      this._writeError(connection.socket, null, -32600, 'VSCODE_INVALID_PARAMS', 'JSON-RPC id must be a string or number');
+      return;
+    }
+    const params = isRecord(frame.params) ? frame.params : {};
+    if (!connection.initialized) {
+      if (frame.method !== 'initialize') {
+        this._writeError(connection.socket, id, -32001, 'VSCODE_NOT_INITIALIZED', 'VS Code bridge is not initialized');
+        return;
+      }
+      this._initialize(connection, id, params);
+      return;
+    }
+    if (frame.method === 'initialize') {
+      this._writeError(connection.socket, id, -32600, 'VSCODE_INVALID_PARAMS', 'VS Code bridge is already initialized');
+      return;
+    }
+    const handler = this.handlers[frame.method];
+    if (!REQUEST_METHODS.includes(frame.method) || typeof handler !== 'function') {
+      this._writeError(connection.socket, id, -32601, 'VSCODE_METHOD_NOT_ALLOWED', `Method not allowed: ${frame.method}`);
+      return;
+    }
+    const controller = new AbortController();
+    connection.pending.set(id, controller);
+    const timer = setTimeout(() => {
+      controller.abort(bridgeError('VSCODE_REQUEST_TIMEOUT', `VS Code bridge request timed out: ${frame.method}`));
+    }, this.requestTimeoutMs);
+    timer.unref?.();
+    try {
+      const result = await Promise.race([
+        Promise.resolve(handler(params, { signal: controller.signal, method: frame.method })),
+        new Promise((_, reject) => {
+          controller.signal.addEventListener('abort', () => reject(
+            controller.signal.reason instanceof Error
+              ? controller.signal.reason
+              : bridgeError('VSCODE_REQUEST_CANCELLED', 'VS Code bridge request cancelled')
+          ), { once: true });
+        }),
+      ]);
+      if (!connection.socket.destroyed) this._write(connection.socket, { jsonrpc: '2.0', id, result });
+    } catch (error) {
+      if (!connection.socket.destroyed) {
+        const code = error && error.bridgeCode
+          ? error.bridgeCode
+          : 'VSCODE_INVALID_PARAMS';
+        this._writeError(connection.socket, id, -32603, code, error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      clearTimeout(timer);
+      connection.pending.delete(id);
+    }
+  }
+
+  _initialize(connection, id, params) {
+    if (!tokenMatches(params.token, this.token)) {
+      this._writeError(connection.socket, id, -32002, 'VSCODE_AUTH_FAILED', 'VS Code bridge authentication failed');
+      connection.socket.end();
+      return;
+    }
+    if (params.protocolVersion !== this.protocolVersion) {
+      this._writeError(connection.socket, id, -32003, 'VSCODE_PROTOCOL_MISMATCH', `VS Code bridge requires protocol ${this.protocolVersion}`);
+      connection.socket.end();
+      return;
+    }
+    if (!isRecord(params.clientInfo) || typeof params.clientInfo.name !== 'string' || typeof params.clientInfo.version !== 'string') {
+      this._writeError(connection.socket, id, -32602, 'VSCODE_INVALID_PARAMS', 'VS Code bridge initialize requires clientInfo');
+      return;
+    }
+    connection.initialized = true;
+    this._write(connection.socket, {
+      jsonrpc: '2.0',
+      id,
+      result: {
+        protocolVersion: this.protocolVersion,
+        serverInfo: { name: 'dsh-vs-sidebar', version: this.serverVersion },
+        workspace: this.workspace,
+        methods: Object.keys(this.handlers),
+        notifications: [...NOTIFICATION_METHODS],
+        maxFrameBytes: this.maxFrameBytes,
+      },
+    });
+    const waiters = [...this.initializedWaiters];
+    this.initializedWaiters.clear();
+    for (const waiter of waiters) {
+      clearTimeout(waiter.timer);
+      waiter.resolve();
+    }
+  }
+
+  _writeError(socket, id, rpcCode, bridgeCode, message) {
+    this._write(socket, {
+      jsonrpc: '2.0',
+      id,
+      error: { code: rpcCode, message, data: { code: bridgeCode } },
+    });
+  }
+
+  _write(socket, frame) {
+    if (!socket.destroyed) socket.write(`${JSON.stringify(frame)}\n`);
+  }
+
+  _release(connection) {
+    if (!this.connections.delete(connection)) return;
+    this.sockets.delete(connection.socket);
+    for (const controller of connection.pending.values()) {
+      controller.abort(bridgeError('VSCODE_REQUEST_CANCELLED', 'VS Code bridge connection closed'));
+    }
+    connection.pending.clear();
+  }
+
+  async close() {
+    if (this.closed) return;
+    this.closed = true;
+    const waiters = [...this.initializedWaiters];
+    this.initializedWaiters.clear();
+    for (const waiter of waiters) {
+      clearTimeout(waiter.timer);
+      waiter.reject(bridgeError('VSCODE_REQUEST_CANCELLED', 'VS Code bridge closed'));
+    }
+    for (const socket of this.sockets) socket.destroy();
+    const server = this.server;
+    this.server = null;
+    if (server) {
+      await new Promise((resolve) => server.close(() => resolve()));
+    }
+    this.port = null;
+  }
+}
+
+module.exports = {
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  NOTIFICATION_METHODS,
+  REQUEST_METHODS,
+  VSCODE_MAX_FRAME_BYTES,
+  VSCODE_PROTOCOL_VERSION,
+  VersionedBridgeServer,
+  bridgeError,
+  tokenMatches,
+};

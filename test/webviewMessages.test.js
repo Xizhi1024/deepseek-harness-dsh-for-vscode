@@ -1,0 +1,28 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const test = require('node:test');
+
+const { createWebviewMessageHandler } = require('../src/webviewMessages');
+
+test('Webview messages route only the fixed openBrowser and retry actions', () => {
+  const calls = [];
+  const handle = createWebviewMessageHandler({
+    openBrowser: () => calls.push('openBrowser'),
+    retry: () => calls.push('retry'),
+  });
+
+  assert.strictEqual(handle(null), false);
+  assert.strictEqual(handle('retry'), false);
+  assert.strictEqual(handle({ type: 'unknown' }), false);
+  assert.strictEqual(handle({ type: 'openBrowser' }), true);
+  assert.strictEqual(handle({ type: 'retry' }), true);
+  assert.deepStrictEqual(calls, ['openBrowser', 'retry']);
+});
+
+test('Webview message routing rejects incomplete handler facades', () => {
+  assert.throws(
+    () => createWebviewMessageHandler({ openBrowser() {} }),
+    /must be functions/
+  );
+});

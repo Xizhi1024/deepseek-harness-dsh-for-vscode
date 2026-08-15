@@ -1,0 +1,115 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const test = require('node:test');
+
+const { RuntimeInstaller } = require('../src/runtimeInstaller');
+const { RuntimeResolver } = require('../src/runtimeResolver');
+const { createManifest, createTarGz } = require('./runtimeFixtures');
+
+function runtimeArchive(entryContent = 'entry', extraEntries = []) {
+  return createTarGz([
+    { name: 'bin/', type: '5' },
+    { name: 'bin/dsh.cmd', content: entryContent },
+    { name: 'LICENSE', content: 'license' },
+    ...extraEntries,
+  ]);
+}
+
+function writeArchive(root, name, content) {
+  const archivePath = path.join(root, name);
+  fs.writeFileSync(archivePath, content);
+  return archivePath;
+}
+
+test('RuntimeInstaller verifies, installs, promotes, and rolls back atomically', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-runtime-installer-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const storageRoot = path.join(root, 'storage');
+  const installer = new RuntimeInstaller({ storageRoot, platform: 'win32', arch: 'x64' });
+  const resolver = new RuntimeResolver({ storageRoot, platform: 'win32', arch: 'x64' });
+
+  const archive1 = runtimeArchive('entry-v1');
+  const manifest1 = createManifest({ archive: archive1, version: '1.0.0', entryContent: 'entry-v1' });
+  const candidate1 = await installer.installFromArchive({
+    manifest: manifest1,
+    archivePath: writeArchive(root, 'runtime-1.tar.gz', archive1),
+  });
+  assert.strictEqual(fs.existsSync(path.join(storageRoot, 'state', 'current.json')), false);
+  await installer.promote(candidate1);
+  assert.strictEqual((await resolver.resolveCurrent()).manifest.dshVersion, '1.0.0');
+
+  const archive2 = runtimeArchive('entry-v2');
+  const manifest2 = createManifest({ archive: archive2, version: '2.0.0', entryContent: 'entry-v2' });
+  const candidate2 = await installer.installFromArchive({
+    manifest: manifest2,
+    archivePath: writeArchive(root, 'runtime-2.tar.gz', archive2),
+  });
+  await installer.promote(candidate2);
+  assert.strictEqual((await resolver.resolveCurrent()).manifest.dshVersion, '2.0.0');
+  assert.strictEqual((await resolver.resolveLastGood()).manifest.dshVersion, '1.0.0');
+
+  await installer.rollback();
+  assert.strictEqual((await resolver.resolveCurrent()).manifest.dshVersion, '1.0.0');
+
+  const archive3 = runtimeArchive('entry-v3');
+  const candidate3 = await installer.installFromArchive({
+    manifest: createManifest({ archive: archive3, version: '3.0.0', entryContent: 'entry-v3' }),
+    archivePath: writeArchive(root, 'runtime-3.tar.gz', archive3),
+  });
+  assert.deepStrictEqual(await installer.cleanup({ activeRuntimeRoots: [candidate3.runtimeRoot] }), [
+    candidate2.runtimeRoot,
+  ]);
+  assert.strictEqual(fs.existsSync(candidate1.runtimeRoot), true);
+  assert.strictEqual(fs.existsSync(candidate3.runtimeRoot), true);
+  assert.deepStrictEqual(await installer.cleanup(), [candidate3.runtimeRoot]);
+  assert.strictEqual(fs.existsSync(candidate3.runtimeRoot), false);
+});
+
+test('RuntimeInstaller fails closed for archive corruption, traversal, links, and cancellation', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-runtime-reject-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const storageRoot = path.join(root, 'storage');
+  const installer = new RuntimeInstaller({ storageRoot, platform: 'win32', arch: 'x64' });
+
+  const goodArchive = runtimeArchive();
+  const goodManifest = createManifest({ archive: goodArchive });
+  const corruptPath = writeArchive(root, 'corrupt.tar.gz', Buffer.from('not-an-archive'));
+  await assert.rejects(
+    installer.installFromArchive({ manifest: goodManifest, archivePath: corruptPath }),
+    /archive hash mismatch/
+  );
+
+  const traversalArchive = runtimeArchive('entry', [{ name: '../escape', content: 'bad' }]);
+  await assert.rejects(
+    installer.installFromArchive({
+      manifest: createManifest({ archive: traversalArchive }),
+      archivePath: writeArchive(root, 'traversal.tar.gz', traversalArchive),
+    }),
+    /safe relative path/
+  );
+  assert.strictEqual(fs.existsSync(path.join(root, 'escape')), false);
+
+  const linkArchive = runtimeArchive('entry', [{ name: 'bin/link', type: '2' }]);
+  await assert.rejects(
+    installer.installFromArchive({
+      manifest: createManifest({ archive: linkArchive }),
+      archivePath: writeArchive(root, 'link.tar.gz', linkArchive),
+    }),
+    /entry type is not allowed/
+  );
+
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    installer.installFromArchive({
+      manifest: goodManifest,
+      archivePath: writeArchive(root, 'cancelled.tar.gz', goodArchive),
+      signal: controller.signal,
+    }),
+    { name: 'AbortError' }
+  );
+});

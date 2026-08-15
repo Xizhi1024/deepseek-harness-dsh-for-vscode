@@ -35,6 +35,15 @@
     "vscode": "^1.90.0"
   },
   "main": "src/extension.js",
+  "scripts": {
+    "lint": "node scripts/lint.js",
+    "test": "node --test \"test/*.test.js\"",
+    "test:unit": "node --test \"test/*.test.js\"",
+    "test:package": "node scripts/check-package-contents.js",
+    "test:secrets": "node scripts/check-secrets.js",
+    "test:extension-host": "node test/extension-host/run.js",
+    "check:w0": "npm run lint && npm run test:unit && npm run test:package && npm run test:secrets"
+  },
   "l10n": "./l10n",
   "activationEvents": [
     "onStartupFinished",
@@ -42,7 +51,14 @@
     "onCommand:dsh.openInBrowser",
     "onCommand:dsh.restartServer",
     "onCommand:dsh.stopServer",
-    "onCommand:dsh.focusSidebar"
+    "onCommand:dsh.focusSidebar",
+    "onCommand:dsh.addActiveFile",
+    "onCommand:dsh.addActiveSelection",
+    "onCommand:dsh.addProblems",
+    "onCommand:dsh.newSession",
+    "onCommand:dsh.switchSession",
+    "onCommand:dsh.capabilities",
+    "onCommand:dsh.diagnose"
   ],
   "extensionKind": [
     "workspace"
@@ -58,7 +74,9 @@
     }
   },
   "devDependencies": {
-    "@types/vscode": "^1.90.0"
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "3.9.2"
   },
   "contributes": {
     "viewsContainers": {
@@ -99,8 +117,82 @@
         "command": "dsh.focusSidebar",
         "title": "%dsh.cmd.focusSidebar%",
         "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.addActiveFile",
+        "title": "%dsh.cmd.addActiveFile%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.addActiveSelection",
+        "title": "%dsh.cmd.addActiveSelection%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.addProblems",
+        "title": "%dsh.cmd.addProblems%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.newSession",
+        "title": "%dsh.cmd.newSession%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.switchSession",
+        "title": "%dsh.cmd.switchSession%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.capabilities",
+        "title": "%dsh.cmd.capabilities%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.diagnose",
+        "title": "%dsh.cmd.diagnose%",
+        "category": "%dsh.cmd.category%"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "dsh.addActiveFile",
+          "when": "view == dsh.webview",
+          "group": "navigation@1"
+        },
+        {
+          "command": "dsh.addActiveSelection",
+          "when": "view == dsh.webview",
+          "group": "navigation@2"
+        },
+        {
+          "command": "dsh.addProblems",
+          "when": "view == dsh.webview",
+          "group": "navigation@3"
+        },
+        {
+          "command": "dsh.newSession",
+          "when": "view == dsh.webview",
+          "group": "navigation@4"
+        },
+        {
+          "command": "dsh.switchSession",
+          "when": "view == dsh.webview",
+          "group": "navigation@5"
+        },
+        {
+          "command": "dsh.capabilities",
+          "when": "view == dsh.webview",
+          "group": "navigation@6"
+        },
+        {
+          "command": "dsh.diagnose",
+          "when": "view == dsh.webview",
+          "group": "navigation@7"
+        }
+      ]
+    },
     "configuration": {
       "title": "%dsh.cfg.title%",
       "properties": {
@@ -133,6 +225,16 @@
           ],
           "default": "onVscodeExit",
           "description": "%dsh.cfg.closePolicy%"
+        },
+        "dsh.runtime.manifestUrl": {
+          "type": "string",
+          "default": "",
+          "description": "%dsh.cfg.runtime.manifestUrl%"
+        },
+        "dsh.runtime.version": {
+          "type": "string",
+          "default": "",
+          "description": "%dsh.cfg.runtime.version%"
         }
       }
     }

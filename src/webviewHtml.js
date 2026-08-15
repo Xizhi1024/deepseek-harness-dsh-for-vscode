@@ -18,16 +18,28 @@ function escapeHtml(value) {
 
 /**
  * Adds the DSH compact-layout marker to an iframe URL while preserving any
- * existing query parameters and fragment. Invalid URLs are returned as-is so
- * the webview's normal fallback UI remains responsible for the failure.
+ * existing query parameters and fragment. When a valid session id is supplied
+ * the `dsh_session` query parameter is added as well; invalid session ids are
+ * ignored so the iframe simply opens the DSH default session. Invalid URLs
+ * are returned as-is so the webview's normal fallback UI remains responsible
+ * for the failure.
  *
  * @param {string} url - Externalized DSH URL.
+ * @param {string} [sessionId] - Optional DSH session id.
  * @returns {string} URL carrying the VS Code embed marker.
  */
-function withVscodeEmbedMode(url) {
+function withVscodeEmbedMode(url, sessionId = undefined) {
   try {
     const parsed = new URL(String(url || ""));
     parsed.searchParams.set("dsh_embed", "vscode");
+    if (
+      typeof sessionId === "string"
+      && sessionId.length > 0
+      && sessionId.length <= 200
+      && !sessionId.includes("\0")
+    ) {
+      parsed.searchParams.set("dsh_session", sessionId);
+    }
     return parsed.toString();
   } catch {
     return String(url || "");
@@ -150,6 +162,7 @@ function statusPage({
  *
  * @param {object} options
  * @param {string} options.url - DSH web URL to embed in the iframe.
+ * @param {string} [options.sessionId] - Optional DSH session id for the iframe URL.
  * @param {string} [options.failText] - Fallback heading when the iframe cannot load.
  * @param {string} [options.openBrowserLabel] - Label of the open-in-browser link.
  * @param {string} [options.retryLabel] - Label of the retry button.
@@ -158,12 +171,13 @@ function statusPage({
  */
 function framePage({
   url,
+  sessionId,
   failText = "Failed to load: DSH service unreachable",
   openBrowserLabel = "Open in browser",
   retryLabel = "Retry",
   lang = "en",
 } = {}) {
-  const safeFrameUrl = escapeHtml(withVscodeEmbedMode(url));
+  const safeFrameUrl = escapeHtml(withVscodeEmbedMode(url, sessionId));
   const safeBrowserUrl = escapeHtml(url || "");
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(lang)}">

@@ -14,6 +14,8 @@ ci/**
 
 # --- Tests & scratch data / 测试与临时数据 ---
 .vscode-test/**
+test/**
+scripts/**
 smoke*.js
 dsh-instances.json
 .smoke-storage/**
