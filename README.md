@@ -12,7 +12,7 @@ Embeds the local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 Select one or more code ranges, right-click **Add to DSH Thread**, and the DSH draft receives compact file-and-line Markdown links instead of pasted source code. The screenshot shows two selections queued in the same draft.
 
-![Add selected VS Code ranges to a DSH conversation as compact links](media/add-to-dsh-thread-example.png)
+![Add selected VS Code ranges to a DSH conversation as compact links](media/add-to-dsh-thread-example-en.png)
 
 ## 🚨 **IMPORTANT: ISOLATED MODE CAN MAKE ALL EXISTING MODULES APPEAR TO DISAPPEAR**
 
