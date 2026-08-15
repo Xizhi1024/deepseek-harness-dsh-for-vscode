@@ -5,9 +5,9 @@
 把本地 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）Web 界面嵌入 VS Code 辅助侧边栏（右侧栏，与 Copilot Chat 同排）。默认情况下，每个 VS Code 窗口都会以当前工作区为 cwd 单独启动并持有一个 `dsh web` 子进程，再以紧凑的全屏 iframe 渲染。
 
 > [!IMPORTANT]
-> **VS Code 启动时自动拉起 `dsh web` 是预期行为，不是 bug。** `dsh.autoStart` 默认为 `true`：扩展会查找本机通过 npm 安装的官方 `@deepseek-ai/dsh`，自动创建并始终使用扩展专属的持久化 `.dsh`（profile 固定为 `web`）。首次启动由官方 DSH 的 `web` 模板生成默认配置；扩展不注入第三方插件。此后该目录由用户维护，扩展只复用它，从而保持侧边栏的 DSH 配置与会话状态。Windows 默认位置为 `%APPDATA%\Code\User\globalStorage\Xizhi1024.dsh-vs-sidebar\.dsh`（VS Code 变体/远程宿主路径可能不同）。
+> **升级后原有模块可能会突然全部“消失”。模块通常没有被删除，这是两套 DSH_HOME 导致的配置隔离。** 独立运行的 DSH 默认使用 `%USERPROFILE%\.dsh`；本扩展默认使用 `%APPDATA%\Code\User\globalStorage\Xizhi1024.dsh-vs-sidebar\.dsh`。新目录首次只生成官方 `web` profile，因此旧目录中的第三方 bundles、skills、agent presets、providers、凭据和会话不会自动出现。继续安装/修改前，请先检查旧 `%USERPROFILE%\.dsh`；可迁移所需内容，或在停止 DSH 并备份新目录后，将扩展 `.dsh` 建成指向旧目录的 Windows Junction。不要把“空的新 profile”误判为模块已被卸载或数据已丢失。
 >
-> 若尚未安装 DSH，扩展仍会先创建自己的 `.dsh`，随后提示运行 `npm install -g @deepseek-ai/dsh`；配置目录可以自建，但 DSH 可执行程序不能凭空生成。若本机 npm/Node 安装在非标准位置，请设置 `dsh.local.packageRoot` / `dsh.local.nodePath`。
+> `dsh.autoStart=true` 时 VS Code 自动拉起 `dsh web` 是次要的预期行为，不是 bug。若尚未安装 DSH，扩展仍会先创建自己的 `.dsh`，随后提示运行 `npm install -g @deepseek-ai/dsh`。若本机 npm/Node 安装在非标准位置，请设置 `dsh.local.packageRoot` / `dsh.local.nodePath`。
 
 ## 安装需求
 

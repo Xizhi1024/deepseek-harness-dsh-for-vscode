@@ -24,6 +24,9 @@ All notable changes to this project are documented here, following [Keep a Chang
 - **F5 调试宿主不再永久停在“正在启动”**：健康检查改用有 3 秒超时和 5 MiB 上限的原始 TCP HTTP 探测，避开 VS Code F5 Extension Host 的 Node experimental network inspector 在 `node:http` 响应上反复抛出 `Missing dataLength in event`、导致 Promise 永不结束的问题；仍严格要求 HTTP 200 与 `__DSH_BOOT__` 标记。
   F5 debugging no longer remains on “Starting” forever: health checks now use a raw TCP HTTP probe bounded by a 3-second timeout and 5 MiB limit, avoiding the VS Code F5 Extension Host's Node experimental network inspector repeatedly throwing `Missing dataLength in event` on `node:http` responses and leaving the Promise unsettled. HTTP 200 plus the `__DSH_BOOT__` marker is still required.
 
+- **README 顶部增加配置隔离/模块“消失”警告**：明确独立 DSH 的 `%USERPROFILE%\.dsh` 与扩展 global storage 下的 `.dsh` 默认互不继承；旧模块、skills、provider 配置、凭据和会话通常仍在旧目录，并给出迁移或 Windows Junction 绑定边界，避免把新官方空 profile 误判为数据丢失。
+  Add a top-level configuration-isolation/module “disappearance” warning: standalone `%USERPROFILE%\.dsh` and the extension's global-storage `.dsh` do not inherit from each other by default. Old modules, skills, provider settings, credentials, and sessions usually remain in the old directory; the README now explains migration or Windows Junction binding so the fresh official-only profile is not mistaken for data loss.
+
 ## [0.4.2] - 2026-08-15
 
 ### Changed / 变更
