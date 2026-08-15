@@ -210,7 +210,7 @@ function framePage({
 </style>
 </head>
 <body>
-  <iframe id="frame" src="${safeFrameUrl}" style="position:fixed;inset:0;width:100%;height:100%;border:none"></iframe>
+  <iframe id="frame" src="${safeFrameUrl}" allow="clipboard-write" style="position:fixed;inset:0;width:100%;height:100%;border:none"></iframe>
   <div id="fallback">
     <p>${escapeHtml(failText)}</p>
     <div>
