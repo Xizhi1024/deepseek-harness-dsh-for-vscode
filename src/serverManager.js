@@ -40,6 +40,7 @@ const PORT_SCAN_LIMIT = 50;      // max ports scanned forward when the target is
 const HEALTH_POLL_MS = 700;      // interval between health checks after spawn
 const HEALTH_TIMEOUT_MS = 30000; // overall wait for the spawned service to become ready
 const MAX_BODY_BYTES = 5 * 1024 * 1024; // bound on the probe response body we buffer
+const TASKKILL_TIMEOUT_MS = 5000; // max wait for taskkill /T /F before stop() proceeds
 
 /**
  * Substitute {name} placeholders in a template with the given params.
@@ -726,16 +727,54 @@ class ServerManager {
   /**
    * Kill a child process. On Windows the spawned dsh is a cmd.exe wrapper,
    * so taskkill /T /F kills the whole tree and the promise resolves when
-   * taskkill exits. On POSIX the child was spawned detached (its pid is the
-   * process-group id), so SIGTERM the group first — dsh web and any workers
-   * it spawned all die — then fall back to the single process.
+   * taskkill exits or after TASKKILL_TIMEOUT_MS — whichever comes first. On
+   * POSIX the child was spawned detached (its pid is the process-group id),
+   * so SIGTERM the group first — dsh web and any workers it spawned all die —
+   * then fall back to the single process.
+   *
+   * @param {object} child - ChildProcess-like handle with a pid.
+   * @param {object} [options] - Injectable seams for tests.
+   * @param {string} [options.platform] - Override process.platform.
+   * @param {Function} [options.spawnFn] - Override node:child_process.spawn.
+   * @param {number} [options.timeoutMs] - Override TASKKILL_TIMEOUT_MS.
+   * @returns {Promise<void>}
    */
-  _killChild(child) {
-    if (process.platform === 'win32') {
+  _killChild(child, { platform = process.platform, spawnFn = spawn, timeoutMs = TASKKILL_TIMEOUT_MS } = {}) {
+    if (platform === 'win32') {
       return new Promise((resolve) => {
-        const killer = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
-        killer.once('error', () => resolve());
-        killer.once('exit', () => resolve());
+        let killer;
+        try {
+          killer = spawnFn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+        } catch {
+          resolve();
+          return;
+        }
+        let settled = false;
+        let timer = null;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (typeof killer.removeListener === 'function') {
+            killer.removeListener('error', finish);
+            killer.removeListener('exit', finish);
+          }
+          resolve();
+        };
+        timer = setTimeout(() => {
+          try {
+            killer.kill?.();
+          } catch {
+            // ignore: the killer may already be gone
+          }
+          finish();
+        }, timeoutMs);
+        if (typeof killer.once === 'function') {
+          killer.once('error', finish);
+          killer.once('exit', finish);
+        } else {
+          finish();
+        }
       });
     }
     try {

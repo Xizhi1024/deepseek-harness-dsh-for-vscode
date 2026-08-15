@@ -75,3 +75,24 @@ test('RuntimeResolver fails closed on pointer platform drift', async (t) => {
   const resolver = new RuntimeResolver({ storageRoot, platform: 'linux', arch: 'x64' });
   await assert.rejects(resolver.resolveCurrent(), /platform mismatch/);
 });
+
+test('RuntimeResolver rejects unsafe dshVersion pointers before path resolution', async (t) => {
+  const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-runtime-version-'));
+  t.after(() => fs.rmSync(storageRoot, { recursive: true, force: true }));
+  writeRuntimeFixture(storageRoot);
+  const resolver = new RuntimeResolver({ storageRoot, platform: 'win32', arch: 'x64' });
+
+  for (const bad of ['../..', 'has space', '..', 'a/b', '']) {
+    fs.writeFileSync(
+      path.join(storageRoot, 'state', 'current.json'),
+      JSON.stringify({ dshVersion: bad, platform: 'win32', arch: 'x64' })
+    );
+    await assert.rejects(resolver.resolveCurrent(), /dshVersion/);
+  }
+
+  fs.writeFileSync(
+    path.join(storageRoot, 'state', 'last-good.json'),
+    JSON.stringify({ dshVersion: '../../escape', platform: 'win32', arch: 'x64' })
+  );
+  await assert.rejects(resolver.resolveLastGood(), /invalid dshVersion/);
+});

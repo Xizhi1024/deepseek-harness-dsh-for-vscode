@@ -3,7 +3,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { parseRuntimeArtifactManifest, verifyRuntimeDirectory } = require('./runtimeArtifact');
+const {
+  isValidDshVersion,
+  parseRuntimeArtifactManifest,
+  verifyRuntimeDirectory,
+} = require('./runtimeArtifact');
 
 class RuntimeResolver {
   /**
@@ -45,6 +49,9 @@ class RuntimeResolver {
     }
     if (typeof pointer.dshVersion !== 'string' || pointer.dshVersion.trim() === '') {
       throw new Error(`Runtime pointer ${pointerPath} has no dshVersion`);
+    }
+    if (!isValidDshVersion(pointer.dshVersion)) {
+      throw new Error(`Runtime pointer ${pointerPath} has invalid dshVersion`);
     }
 
     const runtimeRoot = path.join(

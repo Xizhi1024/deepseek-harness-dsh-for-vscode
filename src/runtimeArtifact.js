@@ -8,6 +8,23 @@ const RUNTIME_MANIFEST_SCHEMA_VERSION = 1;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const PLATFORM_VALUES = new Set(['win32', 'linux', 'darwin']);
 const ARCH_VALUES = new Set(['x64', 'arm64']);
+const DSH_VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$/;
+
+/**
+ * Whether a value is a safe DSH runtime version string.
+ *
+ * Versions are used to build filesystem paths under the managed runtime
+ * storage root, so they are restricted to a conservative alphanumeric-plus
+ * separator pattern. In particular, path separators, whitespace, NUL, and
+ * relative-path components such as `..` are rejected before any path.join().
+ *
+ * @param {unknown} value - Candidate runtime version.
+ * @returns {boolean} True when the value is a non-empty version string within
+ *   the allowed 1..64 character pattern.
+ */
+function isValidDshVersion(value) {
+  return typeof value === 'string' && DSH_VERSION_PATTERN.test(value);
+}
 
 function requireString(value, field) {
   if (typeof value !== 'string' || value.trim() === '') {
@@ -133,10 +150,14 @@ function parseRuntimeArtifactManifest(input) {
   if (hashFileManifest(files) !== unpackedSha256) {
     throw new Error('Runtime manifest unpackedSha256 does not match its canonical file list');
   }
+  const dshVersion = requireString(input.dshVersion, 'dshVersion');
+  if (!isValidDshVersion(dshVersion)) {
+    throw new Error(`Runtime manifest field dshVersion must match ${DSH_VERSION_PATTERN}`);
+  }
 
   return Object.freeze({
     schemaVersion: RUNTIME_MANIFEST_SCHEMA_VERSION,
-    dshVersion: requireString(input.dshVersion, 'dshVersion'),
+    dshVersion,
     bridgeProtocolVersion: input.bridgeProtocolVersion,
     nodeVersion: requireString(input.nodeVersion, 'nodeVersion'),
     platform: input.platform,
@@ -217,6 +238,7 @@ function assertSameFiles(actual, expected) {
 module.exports = {
   RUNTIME_MANIFEST_SCHEMA_VERSION,
   hashFileManifest,
+  isValidDshVersion,
   parseRuntimeArtifactManifest,
   sha256File,
   validateArtifactPath,

@@ -457,3 +457,32 @@ test('ServerManager passes the generated embed overlay through as --patch', (t) 
     /embed patchPath must be an absolute path/
   );
 });
+
+test('ServerManager Windows taskkill timeout resolves and kills a hanging killer', async () => {
+  const manager = new ServerManager();
+  let killCalls = 0;
+  const killer = {
+    handlers: {},
+    once(event, callback) {
+      this.handlers[event] = callback;
+      return this;
+    },
+    removeListener(event, callback) {
+      if (this.handlers[event] === callback) delete this.handlers[event];
+    },
+    kill() {
+      killCalls += 1;
+    },
+  };
+
+  await manager._killChild(
+    { pid: 12345 },
+    {
+      platform: 'win32',
+      spawnFn: () => killer,
+      timeoutMs: 20,
+    }
+  );
+
+  assert.strictEqual(killCalls, 1, 'timeout must kill the hanging taskkill process');
+});

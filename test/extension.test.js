@@ -378,8 +378,11 @@ test('autoStart resolves the managed runtime before spawn and hands it to Server
     ensureRuntimeOptions.storageRoot,
     path.join(context.globalStorageUri.fsPath, 'runtime')
   );
+  assert.ok(ensureRuntimeOptions.signal, 'runtime provisioning must receive an abort signal');
+  assert.strictEqual(ensureRuntimeOptions.signal.aborted, false, 'signal starts un-aborted');
 
   await deactivate();
+  assert.strictEqual(ensureRuntimeOptions.signal.aborted, true, 'deactivate must abort in-flight provisioning');
 });
 
 test('autoStart fails closed without spawning when managed runtime resolution fails', async () => {
@@ -430,6 +433,52 @@ test('autoStart fails closed without spawning when managed runtime resolution fa
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.strictEqual(ensureServerCalls, 0, 'failed runtime resolution must not spawn');
   assert.ok(statusBarText.includes('DSH: unavailable'), `status bar should show unavailable, got "${statusBarText}"`);
+
+  await deactivate();
+});
+
+test('openInBrowser does not open a fallback URL when connect fails', async () => {
+  const fake = createFakeVscode();
+  let openExternalCalls = 0;
+  fake.api.env.openExternal = async () => {
+    openExternalCalls += 1;
+  };
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-openbrowser-${process.pid}`) },
+    subscriptions: [],
+  };
+  const manager = {
+    setResolvedRuntime() {},
+    ensureServer() {
+      return Promise.reject(new Error('no dsh service'));
+    },
+    hasOwnedChild() { return false; },
+    cancelPending() {},
+    async stop() {},
+  };
+
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() {
+      return manager;
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  await fake.commands.get('dsh.openInBrowser')();
+  assert.strictEqual(openExternalCalls, 0, 'must not open a fallback URL after a failed connect');
+  assert.ok(
+    fake.errorMessages.some((message) => message.includes('DSH: unavailable')),
+    'must surface the unavailable state as an error message'
+  );
 
   await deactivate();
 });
