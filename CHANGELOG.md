@@ -3,6 +3,16 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-08-15
+
+### Changed / 变更
+
+- **编辑器标题栏只保留一个 DSH 图标入口**：`editor/title` 仅注册 `dsh.focusSidebar` 一条（`navigation@40`，仅 file/untitled 编辑器显示），并为该命令配置 `media/dsh.svg` 图标，因此标题栏只显示鲸鱼图标而不显示文字。`navigation` 组整体排在 VS Code 内置 `4_split`（拆分编辑器）组之前，所以图标位于 Claude Code / Codex 等第三方图标之后、拆分编辑器按钮之前。
+  Editor title bar keeps a single icon-only DSH entry: `editor/title` registers only `dsh.focusSidebar` (`navigation@40`, file/untitled editors only) with the `media/dsh.svg` icon, so the title bar shows just the whale icon and no text. The `navigation` group as a whole sorts before VS Code's built-in `4_split` (split editor) group, placing the icon after Claude Code / Codex third-party icons and before the split-editor button.
+
+- **七个上下文命令不再进入编辑器标题栏**：`Add Active File` / `Add Active Selection` / `Add Problems` / `New Session` / `Switch Session` / `Capabilities and Integrations` / `Diagnose` 只保留在 DSH 视图标题栏（`view/title`，`view == dsh.webview`）和命令面板，不会以长文本按钮的形式出现在编辑器标题栏。点击 DSH 图标复用现有 `dsh.focusSidebar` 实现（打开并聚焦已有的 DSH 视图容器/视图，不创建重复视图）。
+  The seven context commands never enter the editor title bar: Add Active File / Add Active Selection / Add Problems / New Session / Switch Session / Capabilities and Integrations / Diagnose stay available only in the DSH view title bar (`view/title`, `view == dsh.webview`) and the command palette — never as long text buttons in the editor title bar. The DSH icon reuses the existing `dsh.focusSidebar` implementation, which reveals and focuses the existing DSH view container/view without creating duplicates.
+
 ## [0.4.1] - 2026-08-15
 
 ### Fixed / 修复
@@ -190,6 +200,8 @@ All notable changes to this project are documented here, following [Keep a Chang
 - **README 精简**：只保留安装需求、使用/配置要点与实现说明（实现透明，便于其他 AI 发现 bug）。
   README slimmed down to install requirements, key usage/config and the implementation notes (transparency for AI bug-hunting).
 
+[0.4.2]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.4.2
+[0.4.1]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.4.1
 [0.4.0]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.4.0
 [0.3.1]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.3.1
 [0.3.0]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.3.0
@@ -222,5 +234,3 @@ All notable changes to this project are documented here, following [Keep a Chang
 - **安全的实例清理**：关闭 VS Code 时只清理本扩展自行启动的进程（Windows 用 `taskkill /T` 树级清理）；注册表清理只删除已死进程的条目，绝不杀死其他窗口复用的存活实例。
   Safe instance cleanup: on VS Code close only processes this extension spawned are stopped (tree-kill via `taskkill /T` on Windows); registry cleanup deletes only dead entries and never kills live instances reused by other windows.
 
-[0.4.0]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.4.0
-[0.1.0]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.1.0
