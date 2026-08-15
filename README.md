@@ -4,14 +4,14 @@
 
 Embeds the local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) web UI in the VS Code auxiliary sidebar (right rail, alongside Copilot Chat). By default, every VS Code window starts and owns one `dsh web` child with the current workspace as cwd, then renders it in a compact full-screen iframe.
 
-## **VS CODE INTERACTION GUARANTEE (0.5.1)**
+## **VS CODE INTERACTION GUARANTEE (0.5.2)**
 
-**In an extension-owned DSH session, model-output Copy uses the VS Code clipboard, `Read …` files—including absolute paths from shared older sessions outside the current workspace—open in the exact owning VS Code window, and HTTP/HTTPS links open in VS Code Simple Browser. Markdown files no longer fall through to Windows file associations such as Typora. Select code and right-click `Add to DSH Thread` to append a visible, editable source-and-line-number code block to the active DSH draft; it is never auto-sent. The integration package is maintained inside the selected DSH Web profile and the launch-only overlay remains under `DSH_HOME/.integrations/vscode-sidebar/`.**
+**In an extension-owned DSH session, model-output Copy uses the VS Code clipboard, `Read …` files—including absolute paths from shared older sessions outside the current workspace—open in the exact owning VS Code window, and HTTP/HTTPS links open in VS Code Simple Browser. Markdown files no longer fall through to Windows file associations such as Typora. Select code and right-click `Add to DSH Thread` to append only a compact Markdown file-and-line link to the active DSH draft—never the selected source text; clicking the rendered link reopens that approved selection in the owning VS Code window. It is never auto-sent.**
 
 ## 🚨 **IMPORTANT: ISOLATED MODE CAN MAKE ALL EXISTING MODULES APPEAR TO DISAPPEAR**
 
 > [!IMPORTANT]
-> **Version 0.5.1 defaults to `dsh.home.mode: shared` and directly uses the official DSH home (`DSH_HOME`, otherwise `~/.dsh`). Existing modules, skills, providers, credentials, presets, and sessions are therefore shared with standalone DSH.**
+> **Version 0.5.2 defaults to `dsh.home.mode: shared` and directly uses the official DSH home (`DSH_HOME`, otherwise `~/.dsh`). Existing modules, skills, providers, credentials, presets, and sessions are therefore shared with standalone DSH.**
 >
 > Set `dsh.home.mode` to `isolated` only when this VS Code extension needs a completely separate module configuration. Isolated mode uses the extension's private `globalStorage/.dsh`, initially containing only the official `web` profile. Switching modes can therefore make every module appear to disappear, but nothing is deleted—the data remains in the other DSH home. The extension never copies or merges the two homes.
 >
@@ -33,7 +33,7 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 - Dev: open this repo → `F5` → **Run Extension**
 - Verify: `npm ci` → `npm run check:w0` → `npm run test:extension-host`
 - Secret scan: `npm run test:secrets` scans the source/docs that would enter the VSIX (never `node_modules`, `.git`, or `.vscode-test`) and exits 1 on hardcoded bridge tokens, `Authorization: Bearer` credentials, API keys, private keys, or password literals; example/test fixtures are released with an explicit `// allow-secret-scan` comment.
-- Package: `npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.5.1.vsix`
+- Package: `npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.5.2.vsix`
 
 ## Usage
 
@@ -47,7 +47,7 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 
 ## Editor context (explicit attachment)
 
-For the Codex-style path, select code in a trusted workspace editor and right-click **Add to DSH Thread**. The extension focuses the DSH sidebar and appends a visible fenced code block—with source URI and line range—to the active conversation's input draft. Existing draft text is preserved, and the extension does not send the message automatically.
+For the compact-link path, select code in a trusted workspace editor and right-click **Add to DSH Thread**. The extension focuses the DSH sidebar and appends only a Markdown link such as `[app.js:5-8](…)`; the selected source text is not pasted into the draft. After the message is rendered, clicking the link reopens the approved file range in the owning VS Code window. Existing draft text is preserved, and the extension does not send automatically.
 
 The extension never sends editor content implicitly. The active file, selection, and Problems stay out of DSH until you run one of the **Add … to DSH Context** commands; the resulting attachment is the only thing the `vscode_editor` tool can read back through the versioned bridge.
 

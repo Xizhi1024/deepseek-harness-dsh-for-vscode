@@ -223,6 +223,18 @@ test('attachActiveSelection captures selection text and range', () => {
   });
 });
 
+test('openAttachment opens the approved selection and rejects stale ids', async () => {
+  const { vscode, calls } = createHarness();
+  const ctx = createEditorContext({ vscode });
+  const attachment = ctx.attachActiveSelection();
+
+  assert.deepStrictEqual(await ctx.openAttachment(attachment.id), { opened: true });
+  assert.strictEqual(calls.openTextDocument.length, 1);
+  assert.strictEqual(uriText(calls.openTextDocument[0]), 'file:///ws/a.ts');
+  assert.deepStrictEqual(calls.showTextDocument[0].options.selection, fakeRange(1, 2, 3, 4));
+  await rejectsWith(ctx.openAttachment('ctx-999'), 'VSCODE_ATTACHMENT_NOT_FOUND');
+});
+
 test('attachProblems projects diagnostics and JSON-encodes them', () => {
   const { vscode } = createHarness({
     diagnostics: [

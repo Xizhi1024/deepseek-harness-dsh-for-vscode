@@ -126,7 +126,12 @@ window.__ModuleLoader__.load({
       if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      request('link/open', { url: url.toString() }).catch(() => {});
+      if (url.hostname === 'dsh-vscode.invalid' && url.pathname.startsWith('/attachment/')) {
+        const attachmentId = decodeURIComponent(url.pathname.slice('/attachment/'.length));
+        request('attachment/open', { attachmentId }).catch(() => {});
+      } else {
+        request('link/open', { url: url.toString() }).catch(() => {});
+      }
     }
 
     function apply(ctx) {

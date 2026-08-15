@@ -6,24 +6,24 @@ const CHANNEL = 'dsh-vscode-thread';
 const VERSION = 1;
 const REQUEST_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
-function longestBacktickRun(text) {
-  let longest = 0;
-  for (const match of String(text).matchAll(/`+/g)) longest = Math.max(longest, match[0].length);
-  return longest;
-}
-
 function formatSelectionAttachment(attachment, label) {
   if (!attachment || attachment.kind !== 'selection' || typeof attachment.content !== 'string') {
     throw new TypeError('A selection attachment is required');
   }
-  const language = attachment.document && typeof attachment.document.languageId === 'string'
-    ? attachment.document.languageId.replace(/[^A-Za-z0-9_+.-]/g, '')
-    : '';
+  if (typeof attachment.id !== 'string' || !/^ctx-[1-9][0-9]*$/.test(attachment.id)) {
+    throw new TypeError('A valid selection attachment id is required');
+  }
   const start = attachment.range && attachment.range.start ? attachment.range.start.line + 1 : null;
   const end = attachment.range && attachment.range.end ? attachment.range.end.line + 1 : null;
-  const location = start === null || end === null ? '' : ` (lines ${start}-${end})`;
-  const fence = '`'.repeat(Math.max(3, longestBacktickRun(attachment.content) + 1));
-  return `Selected code from ${label}${location}:\n${fence}${language}\n${attachment.content}\n${fence}`;
+  let fileName = String(label || 'selection');
+  try {
+    const pathname = new URL(fileName).pathname;
+    fileName = decodeURIComponent(pathname.slice(pathname.lastIndexOf('/') + 1)) || fileName;
+  } catch { /* keep the supplied label */ }
+  const linkLabel = `${fileName}${start === null || end === null ? '' : `:${start}-${end}`}`
+    .replace(/([\\\[\]])/g, '\\$1');
+  const target = `https://dsh-vscode.invalid/attachment/${encodeURIComponent(attachment.id)}`;
+  return `[${linkLabel}](${target})`;
 }
 
 function parseThreadResult(message) {

@@ -4,6 +4,7 @@ const CHANNEL = 'dsh-vscode-interaction';
 const VERSION = 1;
 const MAX_COPY_BYTES = 1024 * 1024;
 const REQUEST_ID = /^[A-Za-z0-9_-]{1,100}$/;
+const ATTACHMENT_ID = /^ctx-[1-9][0-9]*$/;
 
 function parseInteractionRequest(message) {
   if (!message || typeof message !== 'object' || message.type !== 'dshBridge') return null;
@@ -22,6 +23,10 @@ function parseInteractionRequest(message) {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
     return { requestId: message.requestId, method: message.method, url: parsed.toString() };
   }
+  if (message.method === 'attachment/open') {
+    if (typeof message.params.attachmentId !== 'string' || !ATTACHMENT_ID.test(message.params.attachmentId)) return null;
+    return { requestId: message.requestId, method: message.method, attachmentId: message.params.attachmentId };
+  }
   return null;
 }
 
@@ -36,14 +41,17 @@ function resultMessage(requestId, ok, error = undefined) {
   };
 }
 
-async function handleInteractionRequest({ vscode, webview, message }) {
+async function handleInteractionRequest({ vscode, webview, message, openAttachment = undefined }) {
   const request = parseInteractionRequest(message);
   if (!request) return false;
   try {
     if (request.method === 'clipboard/writeText') {
       await vscode.env.clipboard.writeText(request.text);
-    } else {
+    } else if (request.method === 'link/open') {
       await vscode.commands.executeCommand('simpleBrowser.show', request.url);
+    } else {
+      if (typeof openAttachment !== 'function') throw new Error('Editor attachment opener is unavailable');
+      await openAttachment(request.attachmentId);
     }
     await webview.postMessage(resultMessage(request.requestId, true));
   } catch (error) {

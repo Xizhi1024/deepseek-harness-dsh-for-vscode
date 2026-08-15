@@ -642,7 +642,12 @@ async function activateWithDependencies(context, dependencies = {}) {
           },
           retry: () => scheduleConnect(context, resolvedViewGeneration).catch(() => {}),
           interaction: (message) => {
-            handleInteractionRequest({ vscode, webview: view.webview, message }).catch((error) => {
+            handleInteractionRequest({
+              vscode,
+              webview: view.webview,
+              message,
+              openAttachment: (attachmentId) => editorContext.openAttachment(attachmentId),
+            }).catch((error) => {
               console.error('dsh-vs-sidebar: Webview interaction bridge failed:', error);
             });
           },

@@ -3,6 +3,13 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-08-16
+
+### Changed / 变更
+
+- **选区改为文本超链接**：编辑器右键“添加到 DSH 对话”不再粘贴代码正文，只向草稿追加 `[文件名:起始行-结束行](…)` Markdown 链接。选区内容仍作为当前窗口内的显式附件保存；消息渲染后点击链接，由版本化交互桥在所属 VS Code 窗口打开文件并恢复选区。工作区变化或窗口重启后附件失效，旧链接会安全地返回“附件已不可用”。
+  Represent selections as text links: **Add to DSH Thread** no longer pastes source text and appends only a `[file:start-end](…)` Markdown link. The selection remains an explicit in-memory attachment; clicking the rendered link uses the versioned interaction bridge to reopen the file range in its owning VS Code window. Attachments expire on workspace change or window restart, and stale links fail closed.
+
 ## [0.5.1] - 2026-08-16
 
 ### Changed / 变更

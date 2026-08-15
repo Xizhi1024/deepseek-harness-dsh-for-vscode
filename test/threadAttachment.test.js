@@ -11,16 +11,16 @@ const {
   parseThreadResult,
 } = require('../src/threadAttachment');
 
-test('selection attachment becomes a visible fenced DSH composer draft', () => {
+test('selection attachment becomes a compact clickable Markdown reference', () => {
   const text = formatSelectionAttachment({
+    id: 'ctx-7',
     kind: 'selection',
     document: { languageId: 'javascript' },
     range: { start: { line: 4 }, end: { line: 7 } },
     content: 'const value = `safe`;',
   }, 'file:///D:/work/app.js');
-  assert.match(text, /Selected code from file:\/\/\/D:\/work\/app\.js \(lines 5-8\):/);
-  assert.match(text, /```javascript/);
-  assert.match(text, /const value = `safe`;/);
+  assert.strictEqual(text, '[app.js:5-8](https://dsh-vscode.invalid/attachment/ctx-7)');
+  assert.doesNotMatch(text, /const value/);
 });
 
 test('thread coordinator posts one versioned request and resolves its acknowledgement', async () => {

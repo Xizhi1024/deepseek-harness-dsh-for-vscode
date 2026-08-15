@@ -405,6 +405,20 @@ function createEditorContext(options = {}) {
   }
 
   /**
+   * Open one approved in-memory attachment in its owning VS Code editor.
+   * @param {string} attachmentId - Current window attachment id.
+   * @returns {Promise<{opened: boolean}>} Open result.
+   */
+  async function openAttachment(attachmentId) {
+    if (typeof attachmentId !== 'string') throw invalidParams('attachmentId must be a string');
+    const attachment = attachments.get(attachmentId);
+    if (!attachment || !attachment.document || typeof attachment.document.uri !== 'string') {
+      throw new EditorContextError('VSCODE_ATTACHMENT_NOT_FOUND', 'Editor attachment is no longer available');
+    }
+    return openHandler({ document: attachment.document, range: attachment.range, preserveFocus: false });
+  }
+
+  /**
    * @param {object} [params] - Request params.
    * @param {string[]} [params.attachmentIds] - Optional ids to filter by.
    * @param {{ signal?: AbortSignal }} [context] - Request context.
@@ -568,6 +582,7 @@ function createEditorContext(options = {}) {
     attachProblems,
     clearAttachments,
     attachmentSnapshot,
+    openAttachment,
   };
   return Object.freeze(api);
 }

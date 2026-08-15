@@ -2,7 +2,7 @@
   "name": "dsh-vs-sidebar",
   "displayName": "%dsh.displayName%",
   "description": "%dsh.ext.description%",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "publisher": "Xizhi1024",
   "license": "MIT",
   "pricing": "Free",

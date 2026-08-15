@@ -4,14 +4,14 @@
 
 把本地 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）Web 界面嵌入 VS Code 辅助侧边栏（右侧栏，与 Copilot Chat 同排）。默认情况下，每个 VS Code 窗口都会以当前工作区为 cwd 单独启动并持有一个 `dsh web` 子进程，再以紧凑的全屏 iframe 渲染。
 
-## **VS CODE 交互保证（0.5.1）**
+## **VS CODE 交互保证（0.5.2）**
 
-**在扩展自管的 DSH 会话中，模型输出的“复制”使用 VS Code 剪贴板，`Read …` 文件（包括共享旧会话中位于当前工作区之外的绝对路径）在拥有该 DSH 进程的 VS Code 窗口中打开，HTTP/HTTPS 链接在 VS Code Simple Browser 中打开。Markdown 文件不再回退到 Typora 等 Windows 默认关联程序。在编辑器中选中代码并右键“添加到 DSH 对话”，即可把带文件来源和行号的可见、可编辑代码块追加到当前 DSH 输入草稿；扩展绝不会自动发送。集成包由扩展维护在所选 DSH 的 Web profile 内，启动专用 overlay 仍位于 `DSH_HOME/.integrations/vscode-sidebar/`。**
+**在扩展自管的 DSH 会话中，模型输出的“复制”使用 VS Code 剪贴板，`Read …` 文件（包括共享旧会话中位于当前工作区之外的绝对路径）在拥有该 DSH 进程的 VS Code 窗口中打开，HTTP/HTTPS 链接在 VS Code Simple Browser 中打开。Markdown 文件不再回退到 Typora 等 Windows 默认关联程序。在编辑器中选中代码并右键“添加到 DSH 对话”，只会向当前 DSH 草稿追加紧凑的文件名/行号 Markdown 链接，不再粘贴代码正文；消息渲染后点击链接，会在所属 VS Code 窗口重新打开并选中该附件。扩展绝不会自动发送。**
 
 ## 🚨 **重要警告：隔离模式会让原有模块看起来全部“消失”**
 
 > [!IMPORTANT]
-> **0.5.1 默认使用 `dsh.home.mode: shared`，直接采用 DSH 官方用户目录（优先 `DSH_HOME`，否则 `~/.dsh`）。独立 DSH 原有的模块、skills、providers、凭据、预设和会话会直接共享到 VS Code 侧栏。**
+> **0.5.2 默认使用 `dsh.home.mode: shared`，直接采用 DSH 官方用户目录（优先 `DSH_HOME`，否则 `~/.dsh`）。独立 DSH 原有的模块、skills、providers、凭据、预设和会话会直接共享到 VS Code 侧栏。**
 >
 > 只有需要为本扩展单独维护一套模块配置时，才应设置 `dsh.home.mode: isolated`。隔离模式使用扩展私有的 `globalStorage/.dsh`，首次只有官方 `web` profile。切换模式后，所有模块可能看起来突然消失，但数据没有被删除，只是仍在另一套 DSH_HOME 中；扩展绝不会自动复制或合并两个目录。
 >
@@ -33,7 +33,7 @@
 - 开发调试：打开本仓库 → `F5` → **Run Extension**
 - 验证：`npm ci` → `npm run check:w0` → `npm run test:extension-host`
 - 密钥扫描：`npm run test:secrets` 扫描将进入 VSIX 的源码/文档（不扫 `node_modules`、`.git`、`.vscode-test`），命中硬编码桥接 token、`Authorization: Bearer` 凭据、API key、私钥或密码字面量时以 1 退出；示例/测试 fixture 使用显式 `// allow-secret-scan` 注释放行。
-- 打包安装：`npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.5.1.vsix`
+- 打包安装：`npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.5.2.vsix`
 
 ## 使用
 
@@ -47,7 +47,7 @@
 
 ## 编辑器上下文（显式附加）
 
-若要使用与 Codex 相同的直达方式，请在受信任工作区的编辑器中选中代码，再右键选择 **添加到 DSH 对话**。扩展会聚焦 DSH 侧栏，并把带源文件 URI 和行号范围的 fenced code block 追加到当前会话输入草稿；原有草稿会保留，消息不会自动发送。
+若要使用紧凑链接方式，请在受信任工作区的编辑器中选中代码，再右键选择 **添加到 DSH 对话**。扩展会聚焦 DSH 侧栏，并只追加类似 `[app.js:5-8](…)` 的 Markdown 链接，不把选中代码正文粘进输入框；消息渲染后点击链接，会在所属 VS Code 窗口打开文件并选中对应范围。原有草稿会保留，消息不会自动发送。
 
 扩展不会隐式发送任何编辑器内容。活动文件、选区与 Problems 只有在你执行「将 … 添加到 DSH 上下文」命令后才进入 DSH；之后 `vscode_editor` 工具只能经版本化桥读回这些已批准的附件。
 

@@ -7,7 +7,7 @@ const request = (method, params, requestId = 'request_1') => ({
   type: 'dshBridge', channel: CHANNEL, version: VERSION, requestId, method, params,
 });
 
-test('interaction requests accept clipboard text and http(s) links only', () => {
+test('interaction requests accept clipboard text, http(s) links, and approved attachment ids only', () => {
   assert.deepStrictEqual(parseInteractionRequest(request('clipboard/writeText', { text: 'copied' })), {
     requestId: 'request_1', method: 'clipboard/writeText', text: 'copied',
   });
@@ -16,9 +16,13 @@ test('interaction requests accept clipboard text and http(s) links only', () => 
   assert.deepStrictEqual(parseInteractionRequest(request('link/open', { url: 'https://example.com/a' })), {
     requestId: 'request_1', method: 'link/open', url: 'https://example.com/a',
   });
+  assert.deepStrictEqual(parseInteractionRequest(request('attachment/open', { attachmentId: 'ctx-12' })), {
+    requestId: 'request_1', method: 'attachment/open', attachmentId: 'ctx-12',
+  });
+  assert.strictEqual(parseInteractionRequest(request('attachment/open', { attachmentId: '../secret' })), null);
 });
 
-test('interaction handler uses VS Code clipboard and Simple Browser', async () => {
+test('interaction handler uses VS Code clipboard, Simple Browser, and the attachment opener', async () => {
   const calls = [];
   const replies = [];
   const vscode = {
@@ -26,8 +30,19 @@ test('interaction handler uses VS Code clipboard and Simple Browser', async () =
     commands: { async executeCommand(...args) { calls.push(args); } },
   };
   const webview = { async postMessage(message) { replies.push(message); } };
+  const openAttachment = async (attachmentId) => { calls.push(['attachment', attachmentId]); };
   await handleInteractionRequest({ vscode, webview, message: request('clipboard/writeText', { text: 'hello' }) });
   await handleInteractionRequest({ vscode, webview, message: request('link/open', { url: 'http://example.com' }, 'request_2') });
-  assert.deepStrictEqual(calls, [['copy', 'hello'], ['simpleBrowser.show', 'http://example.com/']]);
-  assert.deepStrictEqual(replies.map((value) => [value.requestId, value.ok]), [['request_1', true], ['request_2', true]]);
+  await handleInteractionRequest({
+    vscode, webview, openAttachment,
+    message: request('attachment/open', { attachmentId: 'ctx-3' }, 'request_3'),
+  });
+  assert.deepStrictEqual(calls, [
+    ['copy', 'hello'],
+    ['simpleBrowser.show', 'http://example.com/'],
+    ['attachment', 'ctx-3'],
+  ]);
+  assert.deepStrictEqual(replies.map((value) => [value.requestId, value.ok]), [
+    ['request_1', true], ['request_2', true], ['request_3', true],
+  ]);
 });
