@@ -25,11 +25,20 @@ All notable changes to this project are documented here, following [Keep a Chang
 - **托管运行时接入激活路径（W1-6/W1-7）**：扩展激活时在 `globalStorageUri/runtime` 下创建运行时存储；每次 `autoStart` 前 `connectNow` 先经 `RuntimeResolver` 解析并校验 runtime，再通过 `ServerManager.setResolvedRuntime()` 交给启动器。新增 `dsh.runtime.manifestUrl`（HTTPS 发布清单）与 `dsh.runtime.version`（可选锁定）：本地无 verified runtime 时按清单下载/安装/promote，失败一律 fail closed 并在状态页展示错误，绝不回退 PATH 上的 `dsh`；`autoStart=false` 路径不变。
   Managed runtime wired into activation (W1-6/W1-7): activation creates runtime storage under `globalStorageUri/runtime`; every autoStart resolves and verifies the runtime through `RuntimeResolver` and hands it to `ServerManager.setResolvedRuntime()` before spawning. New `dsh.runtime.manifestUrl` (HTTPS release manifest) and `dsh.runtime.version` (optional pin) provision missing/pinned runtimes through the existing downloader/installer; all failures fail closed on the status page and never fall back to a PATH `dsh`; `autoStart=false` behavior is unchanged.
 
-- **命令与验证基线**：命令面板共 11 条命令；单元测试 116 pass / 0 fail / 1 skip；Extension Host 激活 smoke 默认在 VS Code 1.106 运行（`secondarySidebar` 贡献点自该版本起受支持）。
-  Command & verification baseline: 11 commands in the command palette; unit tests 116 pass / 0 fail / 1 skip; the Extension Host activation smoke runs on VS Code 1.106 by default (`secondarySidebar` is supported from that version onward).
+- **命令与验证基线**：命令面板共 11 条命令；单元测试 123 pass / 0 fail / 1 skip；Extension Host 激活 smoke 默认在 VS Code 1.106 运行（`secondarySidebar` 贡献点自该版本起受支持）。
+  Command & verification baseline: 11 commands in the command palette; unit tests 123 pass / 0 fail / 1 skip; the Extension Host activation smoke runs on VS Code 1.106 by default (`secondarySidebar` is supported from that version onward).
 
 - **密钥扫描门禁（W6-4/W6-5 本地部分）**：新增 `scripts/check-secrets.js` 与 `npm run test:secrets`，扫描将进入 VSIX 的源码/文档（不扫 `node_modules`、`.git`、`.vscode-test`），检测硬编码 DSH 桥接 token 字面量、`Authorization: Bearer` 凭据、OpenAI/AWS key、私钥与密码字面量；示例/测试 fixture 使用显式 `// allow-secret-scan` 注释放行；`check:w0` 末尾纳入该门禁。
   Secret-scan gate (local part of W6-4/W6-5): add `scripts/check-secrets.js` and `npm run test:secrets` to scan the source/docs that will enter the VSIX (never `node_modules`, `.git`, or `.vscode-test`), detecting hardcoded DSH bridge token literals, `Authorization: Bearer` credentials, OpenAI/AWS keys, private keys, and password literals; example/test fixtures are released with an explicit `// allow-secret-scan` comment; `check:w0` now runs this gate.
+
+- **编辑器右上角鲸鱼按钮（PR #2）**：`dsh.focusSidebar` 命令新增 `media/dsh.svg` 图标，并注册到 `editor/title` 菜单；在编辑器标题栏点击鲸鱼图标即可聚焦 DSH 侧边栏。
+  Editor-corner whale button (PR #2): `dsh.focusSidebar` gains a `media/dsh.svg` icon and an `editor/title` menu entry, so the whale icon in the editor title bar focuses the DSH sidebar directly.
+
+- **自管实例自动绑定工作区（PR #2）**：扩展自管（owned）DSH 实例启动后自动通过 `ensureWorkspaceSession` 复用/创建当前工作区 cwd 的 blank 根会话，iframe 携带 `dsh_session` 打开正确工作区；reused 外部实例绝不触碰。绑定失败/超时仅跳过，不影响连接。
+  Owned-instance workspace auto-binding (PR #2): after an owned DSH instance starts, the extension auto-reuses/creates a blank root session for the current workspace cwd via `ensureWorkspaceSession` and passes `dsh_session` to the iframe; reused external instances are never touched, and binding failures/timeouts only skip the binding.
+
+- **同进程 fresh-origin 端口（PR #2）**：同一 `ServerManager` 实例每次 spawn 都从上次使用端口之后扫描，确保每次启动使用全新 origin，避免 DSH 按 origin 缓存旧工作区；跨 VS Code 重启仍优先配置端口。
+  Same-process fresh-origin ports (PR #2): each spawn in the same `ServerManager` scans from after the previously used port, giving every launch a fresh origin so DSH does not cache the previous workspace under one origin; across VS Code restarts the configured port is still preferred.
 
 ### Changed / 变更
 

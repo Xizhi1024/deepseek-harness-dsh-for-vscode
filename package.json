@@ -116,7 +116,8 @@
       {
         "command": "dsh.focusSidebar",
         "title": "%dsh.cmd.focusSidebar%",
-        "category": "%dsh.cmd.category%"
+        "category": "%dsh.cmd.category%",
+        "icon": "media/dsh.svg"
       },
       {
         "command": "dsh.addActiveFile",
@@ -190,6 +191,13 @@
           "command": "dsh.diagnose",
           "when": "view == dsh.webview",
           "group": "navigation@7"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "dsh.focusSidebar",
+          "group": "navigation@100",
+          "when": "resourceScheme == file || resourceScheme == untitled"
         }
       ]
     },

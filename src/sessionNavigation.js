@@ -338,6 +338,35 @@ async function createSession(baseUrl, options = {}) {
 }
 
 /**
+ * Ensure a DSH root session exists for the given workspace root.
+ *
+ * This is the automatic workspace-binding entry point used by owned (managed)
+ * DSH instances: when `cwd` is a non-empty string it lists sessions, reuses a
+ * blank root session already bound to that cwd when one exists, and otherwise
+ * creates a new session for the cwd. When `cwd` is empty or not a string the
+ * function returns `null` and never calls the session API.
+ *
+ * @param {string} baseUrl - Loopback base URL (`http://127.0.0.1:<port>` or
+ *   `http://localhost:<port>`).
+ * @param {string|null|undefined} cwd - Workspace root to bind.
+ * @param {object} [options]
+ * @param {Function} [options.fetchImpl] - Fetch-compatible function; defaults
+ *   to `globalThis.fetch`.
+ * @param {AbortSignal} [options.signal] - Optional abort signal.
+ * @returns {Promise<string|null>} Existing/created session id, or null when no
+ *   workspace root was supplied.
+ * @throws {DshSessionError} With the DSH_SESSION_API_* error codes.
+ */
+async function ensureWorkspaceSession(baseUrl, cwd, options = {}) {
+  if (typeof cwd !== "string" || cwd.length === 0) return null;
+  const fetchImpl = resolveFetchImpl(options);
+  const items = await listSessions(baseUrl, { fetchImpl, signal: options.signal });
+  const reused = reuseBlankSession(items, cwd);
+  if (reused) return reused;
+  return createSession(baseUrl, { cwd, fetchImpl, signal: options.signal });
+}
+
+/**
  * Reduce raw session items to root (non-subagent, non-child) QuickPick rows.
  *
  * Only `sessionId` is required; every other field is passed through loosely.
@@ -548,6 +577,7 @@ module.exports = {
   DshSessionError,
   listSessions,
   createSession,
+  ensureWorkspaceSession,
   rootSessionItems,
   reuseBlankSession,
   buildQuickPickItems,
