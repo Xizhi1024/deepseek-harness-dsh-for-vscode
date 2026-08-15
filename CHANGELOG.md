@@ -5,8 +5,8 @@ All notable changes to this project are documented here, following [Keep a Chang
 
 ## [Unreleased]
 
-> 本节条目已实现但尚未随任何版本发布，也未提交到 Git 仓库；相关改动仅存在于工作区。
-> Everything in this section is implemented but unreleased and uncommitted; the changes exist only in the working tree.
+> 本节条目已实现但尚未随任何版本发布。
+> Everything in this section is implemented but not yet released in any published version.
 
 ### Added / 新增
 
@@ -25,8 +25,8 @@ All notable changes to this project are documented here, following [Keep a Chang
 - **托管运行时接入激活路径（W1-6/W1-7）**：扩展激活时在 `globalStorageUri/runtime` 下创建运行时存储；每次 `autoStart` 前 `connectNow` 先经 `RuntimeResolver` 解析并校验 runtime，再通过 `ServerManager.setResolvedRuntime()` 交给启动器。新增 `dsh.runtime.manifestUrl`（HTTPS 发布清单）与 `dsh.runtime.version`（可选锁定）：本地无 verified runtime 时按清单下载/安装/promote，失败一律 fail closed 并在状态页展示错误，绝不回退 PATH 上的 `dsh`；`autoStart=false` 路径不变。
   Managed runtime wired into activation (W1-6/W1-7): activation creates runtime storage under `globalStorageUri/runtime`; every autoStart resolves and verifies the runtime through `RuntimeResolver` and hands it to `ServerManager.setResolvedRuntime()` before spawning. New `dsh.runtime.manifestUrl` (HTTPS release manifest) and `dsh.runtime.version` (optional pin) provision missing/pinned runtimes through the existing downloader/installer; all failures fail closed on the status page and never fall back to a PATH `dsh`; `autoStart=false` behavior is unchanged.
 
-- **命令与验证基线**：命令面板共 11 条命令；单元测试 101 pass / 0 fail / 1 skip；Extension Host 激活 smoke 默认在 VS Code 1.106 运行（`secondarySidebar` 贡献点自该版本起受支持）。
-  Command & verification baseline: 11 commands in the command palette; unit tests 101 pass / 0 fail / 1 skip; the Extension Host activation smoke runs on VS Code 1.106 by default (`secondarySidebar` is supported from that version onward).
+- **命令与验证基线**：命令面板共 11 条命令；单元测试 109 pass / 0 fail / 1 skip；Extension Host 激活 smoke 默认在 VS Code 1.106 运行（`secondarySidebar` 贡献点自该版本起受支持）。
+  Command & verification baseline: 11 commands in the command palette; unit tests 109 pass / 0 fail / 1 skip; the Extension Host activation smoke runs on VS Code 1.106 by default (`secondarySidebar` is supported from that version onward).
 
 - **密钥扫描门禁（W6-4/W6-5 本地部分）**：新增 `scripts/check-secrets.js` 与 `npm run test:secrets`，扫描将进入 VSIX 的源码/文档（不扫 `node_modules`、`.git`、`.vscode-test`），检测硬编码 DSH 桥接 token 字面量、`Authorization: Bearer` 凭据、OpenAI/AWS key、私钥与密码字面量；示例/测试 fixture 使用显式 `// allow-secret-scan` 注释放行；`check:w0` 末尾纳入该门禁。
   Secret-scan gate (local part of W6-4/W6-5): add `scripts/check-secrets.js` and `npm run test:secrets` to scan the source/docs that will enter the VSIX (never `node_modules`, `.git`, or `.vscode-test`), detecting hardcoded DSH bridge token literals, `Authorization: Bearer` credentials, OpenAI/AWS keys, private keys, and password literals; example/test fixtures are released with an explicit `// allow-secret-scan` comment; `check:w0` now runs this gate.
@@ -55,6 +55,24 @@ All notable changes to this project are documented here, following [Keep a Chang
 
 - **会话 id 校验**：New Session / Switch Session 在写入 `currentSessionId` 前使用 `sessionIdFromValue`，超长或含 NUL 的 id 不再出现“UI 提示已切换但 iframe 静默丢弃”的不一致。
   Session id validation: New Session / Switch Session validate ids through `sessionIdFromValue` before use, so over-long or NUL-containing ids cannot silently diverge from the iframe URL.
+
+- **Webview 外壳 CSP 与嵌入 URL 白名单**：status/frame 两页均加入 CSP meta（`default-src 'none'`，iframe 仅允许 `http:`/`https:`）；`withVscodeEmbedMode` 拒绝 `javascript:`、`data:` 等非 http(s) scheme，不再把这类 URL 追加嵌入参数。
+  Webview shell CSP and embed URL whitelist: both generated pages now carry a CSP meta (`default-src 'none'`, iframe restricted to `http:`/`https:`); `withVscodeEmbedMode` rejects non-http(s) schemes such as `javascript:` or `data:` instead of appending embed parameters.
+
+- **关停路径加固**：扩展停用会 abort 仍在进行的 runtime provisioning（不触碰已就绪的 owned 子进程）；Windows `taskkill` 增加 5s 超时兜底，避免停止/退出被挂起的 taskkill 永久阻塞。
+  Shutdown hardening: deactivation aborts in-flight runtime provisioning (never touching a ready owned child); Windows `taskkill` gains a 5s timeout so a stuck killer cannot block stop/deactivation forever.
+
+- **Runtime 版本号白名单**：`dshVersion` 统一限制为 1–64 位字母数字与 `._+-`，解析 manifest 与读取 current/last-good 指针时都先校验，杜绝版本串参与 `path.join` 时的路径穿越纵深缺口。
+  Runtime version whitelist: `dshVersion` is restricted to 1–64 alphanumeric/`._+-` characters and validated in both manifest parsing and current/last-good pointer reads, closing the defense-in-depth gap where a version string feeds `path.join`.
+
+- **openInBrowser 失败保护**：连接失败时该命令改为显示 `DSH: unavailable`，不再打开一个必定的死 fallback URL。
+  openInBrowser failure guard: after a failed connect the command now shows `DSH: unavailable` instead of opening the guaranteed-dead fallback URL.
+
+- **移除未接线的 PATH 修复**：删除从未被调用的 `runtimeEnvironment.js`（`ensureDshOnPath`）及其测试与文档条目；`autoStart=false` 只复用端点、从不 spawn，因此该代码无实际作用。
+  Remove the unwired PATH helper: delete the never-called `runtimeEnvironment.js` (`ensureDshOnPath`) plus its tests and doc entries; `autoStart=false` only reuses an endpoint and never spawns, so the helper had no effect.
+
+- **Rollback 恢复闭环**：无 `last-good.json` 时 rollback 改为移除 `current.json`（首次 promote 失败也能恢复）；promote 后 `resolveCurrent()` 失败会自动 best-effort rollback 并保留原始错误，下次带 `manifestUrl` 启动可重新 provision。
+  Rollback recovery loop: with no `last-good.json`, rollback removes `current.json` so even a failed first promote can recover; a failed `resolveCurrent()` right after promote now triggers a best-effort rollback while preserving the original error, letting the next manifest-URL run provision again.
 
 ## [0.3.1] - 2026-08-15
 
