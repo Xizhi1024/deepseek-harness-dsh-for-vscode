@@ -3,6 +3,13 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-08-16
+
+### Changed / 变更
+
+- **更新 Marketplace 英文示例图**：README 现使用全英文、大尺寸 DSH 侧栏截图，清晰展示“Add to DSH Thread”和文本附件链接；截图不包含历史会话列表或真实对话标题。
+  Refresh the Marketplace English example: the README now uses a fully English screenshot with a large DSH sidebar, clearly showing **Add to DSH Thread** and the text attachment link without exposing session history or real conversation titles.
+
 ## [0.5.2] - 2026-08-16
 
 ### Changed / 变更
