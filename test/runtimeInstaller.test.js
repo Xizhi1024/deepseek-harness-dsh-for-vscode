@@ -69,6 +69,22 @@ test('RuntimeInstaller verifies, installs, promotes, and rolls back atomically',
   assert.strictEqual(fs.existsSync(candidate3.runtimeRoot), false);
 });
 
+test('RuntimeInstaller.rollback without last-good removes the current pointer without throwing', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-runtime-rollback-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const storageRoot = path.join(root, 'storage');
+  const installer = new RuntimeInstaller({ storageRoot, platform: 'win32', arch: 'x64' });
+  const stateRoot = path.join(storageRoot, 'state');
+  fs.mkdirSync(stateRoot, { recursive: true });
+  const currentPath = path.join(stateRoot, 'current.json');
+  fs.writeFileSync(currentPath, JSON.stringify({ dshVersion: '1.0.0', platform: 'win32', arch: 'x64' }));
+
+  await installer.rollback();
+
+  assert.strictEqual(fs.existsSync(currentPath), false);
+  assert.strictEqual(fs.existsSync(path.join(stateRoot, 'last-good.json')), false);
+});
+
 test('RuntimeInstaller fails closed for archive corruption, traversal, links, and cancellation', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-runtime-reject-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

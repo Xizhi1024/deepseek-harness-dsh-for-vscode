@@ -84,3 +84,64 @@ test('ensureManagedRuntime fails readably without a manifest URL and no installe
     }
   );
 });
+
+test('ensureManagedRuntime rolls back when resolveCurrent fails after promote', async (t) => {
+  const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-runtime-provisioner-rollback-'));
+  t.after(() => fs.rmSync(storageRoot, { recursive: true, force: true }));
+
+  const value = manifest('1.0.0', '2026-08-15T00:00:00.000Z');
+  const release = {
+    schemaVersion: 1,
+    artifacts: [
+      { platform: 'win32', arch: 'x64', url: 'https://example.test/dsh.tar.gz', manifest: value },
+    ],
+  };
+  const manifestBody = Buffer.from(JSON.stringify(release));
+  const openResponse = async () => ({
+    statusCode: 200,
+    body: (async function* () { yield manifestBody; })(),
+  });
+
+  let resolveCalls = 0;
+  const resolver = {
+    async resolveCurrent() {
+      resolveCalls += 1;
+      if (resolveCalls === 1) throw new Error('missing current');
+      throw new Error('post-promote verification failed');
+    },
+  };
+  const promoted = [];
+  const rolledBack = [];
+  const installer = {
+    async installFromArchive(options) {
+      return { manifest: options.manifest };
+    },
+    async promote(candidate) {
+      promoted.push(candidate);
+    },
+    async rollback() {
+      rolledBack.push(true);
+    },
+  };
+  const downloader = {
+    async download() {
+      return '/tmp/fake-archive.tar.gz';
+    },
+  };
+
+  await assert.rejects(
+    ensureManagedRuntime({
+      storageRoot,
+      platform: 'win32',
+      arch: 'x64',
+      manifestUrl: 'https://example.test/manifest.json',
+      openResponse,
+      resolver,
+      installer,
+      downloader,
+    }),
+    /post-promote verification failed/
+  );
+  assert.strictEqual(promoted.length, 1);
+  assert.strictEqual(rolledBack.length, 1);
+});

@@ -84,11 +84,21 @@ class RuntimeInstaller {
     await writeJsonAtomic(currentPath, pointer);
   }
 
-  /** Restore current to the previously promoted last-good pointer. */
+  /**
+   * Restore current to the previously promoted last-good pointer.
+   * When no last-good pointer exists (e.g. the first promote failed before a
+   * prior current was recorded), remove current.json so a later provision run
+   * sees a missing pointer and can re-provision cleanly.
+   */
   async rollback() {
     const stateRoot = path.join(this.storageRoot, 'state');
-    const lastGood = await readJson(path.join(stateRoot, 'last-good.json'));
-    await writeJsonAtomic(path.join(stateRoot, 'current.json'), lastGood);
+    const currentPath = path.join(stateRoot, 'current.json');
+    const lastGoodPath = path.join(stateRoot, 'last-good.json');
+    if (await exists(lastGoodPath)) {
+      await writeJsonAtomic(currentPath, await readJson(lastGoodPath));
+      return;
+    }
+    await fs.promises.rm(currentPath, { force: true });
   }
 
   /** Remove only obsolete runtimes for this platform, preserving active paths. */

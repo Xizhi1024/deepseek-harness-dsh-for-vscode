@@ -194,8 +194,10 @@ async function ensureManagedRuntime({
   signal,
   onProgress = () => {},
   openResponse = defaultOpenResponse,
+  resolver = new RuntimeResolver({ storageRoot, platform, arch }),
+  installer = new RuntimeInstaller({ storageRoot, platform, arch }),
+  downloader = new RuntimeDownloader({ storageRoot }),
 } = {}) {
-  const resolver = new RuntimeResolver({ storageRoot, platform, arch });
   const trimmedManifestUrl = String(manifestUrl || '').trim();
   const trimmedVersion = String(version || '').trim();
 
@@ -242,8 +244,6 @@ async function ensureManagedRuntime({
     arch,
     version: trimmedVersion,
   });
-  const installer = new RuntimeInstaller({ storageRoot, platform, arch });
-  const downloader = new RuntimeDownloader({ storageRoot });
   const archivePath = await downloader.download({
     url: artifact.url,
     sha256: artifact.manifest.archiveSha256,
@@ -256,7 +256,20 @@ async function ensureManagedRuntime({
     signal,
   });
   await installer.promote(candidate);
-  return resolver.resolveCurrent();
+  try {
+    return await resolver.resolveCurrent();
+  } catch (error) {
+    // Best effort: if the newly promoted current pointer cannot be resolved,
+    // roll back to last-good (or remove the pointer when no last-good exists)
+    // so the next run with a manifest URL sees a missing pointer and can
+    // provision again. Swallow rollback failures and preserve the original error.
+    try {
+      await installer.rollback();
+    } catch {
+      // rollback is best-effort; the original resolve failure is authoritative.
+    }
+    throw error;
+  }
 }
 
 module.exports = {

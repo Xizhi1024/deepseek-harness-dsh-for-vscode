@@ -82,7 +82,6 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 - iframe 会收到 `dsh_embed=vscode`；支持此约定的 DSH 版本会隐藏内部侧边栏、详情栏和拖动手柄，而「在浏览器中打开」仍保持普通完整布局
 - 自管子进程还会收到扩展在 VS Code global storage 下动态生成的 `--patch` overlay，用于禁用已知会在嵌入模式重复叠加侧边栏/右面板的第三方插件（`better-sidebar`、`ui-dsh-aionui-panel`）。未安装这些插件时 overlay 不产生效果；该补丁不修改 DSH 源码、profile 或 `cordis.patch.yml`
 - 托管 autoStart 每次 spawn 前都会解析并校验运行时（指针、manifest、payload SHA-256）。清单缺失、哈希错误、无平台匹配、`dsh.runtime.manifestUrl` 为空且未安装等一律 fail closed，通过侧边栏状态页展示错误——扩展**绝不回退到 PATH 上的 `dsh`**
-- GUI 启动导致 PATH 被截断时自动补齐：`%APPDATA%\npm`（Windows）；已存在的 npm 全局 bin（POSIX）——仅与 `dsh.autoStart=false` 复用模式相关
 - 进程清理：`taskkill /T /F` 树杀（Windows——强制终止，非优雅停止）；detached 启动 + `kill(-pid)` 进程组 SIGTERM（POSIX）
 - 不受信任 / 虚拟工作区**不支持**（会启动本地进程并操作工作区文件）——已通过 `capabilities` 声明
 - 容器/视图 ID `dsh-sidebar` / `dsh.webview` 是**持久化契约**——发布版不可变更（否则用户侧边栏布局重置）
@@ -107,7 +106,6 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 | `src/bridgeWorkspace.js` | 桥接工作区身份与信任分类 |
 | `src/embedOverlay.js` | 为自管 DSH 子进程动态生成 `--patch` overlay |
 | `src/lifecycle.js` | 生命周期串行队列与停用门禁 |
-| `src/runtimeEnvironment.js` | GUI 启动 PATH 修复 |
 | `src/managedRuntimeLaunch.js` | 已验证托管运行时启动规格、profile/路径归一化、`--patch` 透传 |
 | `src/runtimeResolver.js` | 托管运行时解析与 current/last-good 指针校验 |
 | `src/runtimeProvisioner.js` | 发布清单解析、artifact 选择、解析或安装编排 |
