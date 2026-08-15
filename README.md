@@ -18,7 +18,7 @@ Embeds the local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 - Dev: open this repo → `F5` → **Run Extension**
 - Verify: `npm ci` → `npm run check:w0` → `npm run test:extension-host`
 - Secret scan: `npm run test:secrets` scans the source/docs that would enter the VSIX (never `node_modules`, `.git`, or `.vscode-test`) and exits 1 on hardcoded bridge tokens, `Authorization: Bearer` credentials, API keys, private keys, or password literals; example/test fixtures are released with an explicit `// allow-secret-scan` comment.
-- Package: `npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension dsh-vs-sidebar-0.3.1.vsix`
+- Package: `npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension dsh-vs-sidebar-0.4.0.vsix`
 
 ## Usage
 

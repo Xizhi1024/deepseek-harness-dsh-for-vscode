@@ -3,10 +3,10 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-08-15
 
-> 本节条目已实现但尚未随任何版本发布。
-> Everything in this section is implemented but not yet released in any published version.
+> 本节内容已实现，尚未在 Marketplace / Open VSX 发布。
+> This section is implemented but not yet published to the Marketplace / Open VSX.
 
 ### Added / 新增
 
@@ -25,8 +25,8 @@ All notable changes to this project are documented here, following [Keep a Chang
 - **托管运行时接入激活路径（W1-6/W1-7）**：扩展激活时在 `globalStorageUri/runtime` 下创建运行时存储；每次 `autoStart` 前 `connectNow` 先经 `RuntimeResolver` 解析并校验 runtime，再通过 `ServerManager.setResolvedRuntime()` 交给启动器。新增 `dsh.runtime.manifestUrl`（HTTPS 发布清单）与 `dsh.runtime.version`（可选锁定）：本地无 verified runtime 时按清单下载/安装/promote，失败一律 fail closed 并在状态页展示错误，绝不回退 PATH 上的 `dsh`；`autoStart=false` 路径不变。
   Managed runtime wired into activation (W1-6/W1-7): activation creates runtime storage under `globalStorageUri/runtime`; every autoStart resolves and verifies the runtime through `RuntimeResolver` and hands it to `ServerManager.setResolvedRuntime()` before spawning. New `dsh.runtime.manifestUrl` (HTTPS release manifest) and `dsh.runtime.version` (optional pin) provision missing/pinned runtimes through the existing downloader/installer; all failures fail closed on the status page and never fall back to a PATH `dsh`; `autoStart=false` behavior is unchanged.
 
-- **命令与验证基线**：命令面板共 11 条命令；单元测试 109 pass / 0 fail / 1 skip；Extension Host 激活 smoke 默认在 VS Code 1.106 运行（`secondarySidebar` 贡献点自该版本起受支持）。
-  Command & verification baseline: 11 commands in the command palette; unit tests 109 pass / 0 fail / 1 skip; the Extension Host activation smoke runs on VS Code 1.106 by default (`secondarySidebar` is supported from that version onward).
+- **命令与验证基线**：命令面板共 11 条命令；单元测试 116 pass / 0 fail / 1 skip；Extension Host 激活 smoke 默认在 VS Code 1.106 运行（`secondarySidebar` 贡献点自该版本起受支持）。
+  Command & verification baseline: 11 commands in the command palette; unit tests 116 pass / 0 fail / 1 skip; the Extension Host activation smoke runs on VS Code 1.106 by default (`secondarySidebar` is supported from that version onward).
 
 - **密钥扫描门禁（W6-4/W6-5 本地部分）**：新增 `scripts/check-secrets.js` 与 `npm run test:secrets`，扫描将进入 VSIX 的源码/文档（不扫 `node_modules`、`.git`、`.vscode-test`），检测硬编码 DSH 桥接 token 字面量、`Authorization: Bearer` 凭据、OpenAI/AWS key、私钥与密码字面量；示例/测试 fixture 使用显式 `// allow-secret-scan` 注释放行；`check:w0` 末尾纳入该门禁。
   Secret-scan gate (local part of W6-4/W6-5): add `scripts/check-secrets.js` and `npm run test:secrets` to scan the source/docs that will enter the VSIX (never `node_modules`, `.git`, or `.vscode-test`), detecting hardcoded DSH bridge token literals, `Authorization: Bearer` credentials, OpenAI/AWS keys, private keys, and password literals; example/test fixtures are released with an explicit `// allow-secret-scan` comment; `check:w0` now runs this gate.
@@ -73,6 +73,21 @@ All notable changes to this project are documented here, following [Keep a Chang
 
 - **Rollback 恢复闭环**：无 `last-good.json` 时 rollback 改为移除 `current.json`（首次 promote 失败也能恢复）；promote 后 `resolveCurrent()` 失败会自动 best-effort rollback 并保留原始错误，下次带 `manifestUrl` 启动可重新 provision。
   Rollback recovery loop: with no `last-good.json`, rollback removes `current.json` so even a failed first promote can recover; a failed `resolveCurrent()` right after promote now triggers a best-effort rollback while preserving the original error, letting the next manifest-URL run provision again.
+
+- **Text-document 桥 realpath 门禁**：工作区包含判断改用 realpath（候选文件不存在时解析父目录），防止工作区内的符号链接/目录联接把 DSH 指向工作区外文件。
+  Text-document bridge realpath gate: workspace containment now resolves realpaths (or the parent dir for not-yet-existing files), so a symlink/junction inside the workspace can no longer point DSH at files outside it.
+
+- **Rollback 跨窗口保护**：`RuntimeInstaller.rollback()` 只在当前指针仍是本次 promote 的候选时回滚/删除；`last-good.json` 损坏时 best-effort 移除 `current.json`，并给 `cleanup()` 补上 `dshVersion` 白名单。
+  Cross-window rollback guard: `RuntimeInstaller.rollback()` only rolls back when the current pointer still matches the candidate this installer promoted; a corrupt `last-good.json` best-effort removes `current.json`, and `cleanup()` now enforces the `dshVersion` whitelist.
+
+- **Webview URL 无效输入硬化**：无法解析 / 非 http(s) / 协议相对的嵌入 URL 统一返回 `about:blank`；frame fallback 链接同样安全化；statusPage 的 openBrowser 消息仅在确有可用 server 时打开浏览器。
+  Webview invalid-URL hardening: unparseable, non-http(s), and protocol-relative embed URLs become `about:blank`; the frame fallback link is sanitized the same way, and the statusPage openBrowser message only opens a browser when a usable server exists.
+
+- **taskkill 超时二次树杀**：Windows 停止服务时若 taskkill 挂起，超时后补发 detached `taskkill /T /F` 并放行退出；`onStatus('error')` 即使无 message 也清空残留状态。
+  taskkill timeout retry: on Windows a hung taskkill is followed by a detached `taskkill /T /F` retry and stop() proceeds; `onStatus('error')` now clears stale state even without a message.
+
+- **发布卫生**：installed-smoke 固定到 VS Code 1.106；publish workflow 的 marketplace token 改为 step 级 env 注入（不再出现在命令行参数）；`.agents/` 加入 `.gitignore`；移除 CHANGELOG 中已删除的 PATH 门禁表述。
+  Release hygiene: the installed-smoke targets VS Code 1.106; marketplace tokens are injected via step-level env (no longer command-line arguments); `.agents/` is gitignored; stale PATH-gate wording removed from the changelog.
 
 ## [0.3.1] - 2026-08-15
 
@@ -156,7 +171,7 @@ All notable changes to this project are documented here, following [Keep a Chang
 - **README 精简**：只保留安装需求、使用/配置要点与实现说明（实现透明，便于其他 AI 发现 bug）。
   README slimmed down to install requirements, key usage/config and the implementation notes (transparency for AI bug-hunting).
 
-[Unreleased]: https://github.com/Xizhi1024/dsh-vs-sidebar
+[0.4.0]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.4.0
 [0.3.1]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.3.1
 [0.3.0]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.2.0
@@ -188,5 +203,5 @@ All notable changes to this project are documented here, following [Keep a Chang
 - **安全的实例清理**：关闭 VS Code 时只清理本扩展自行启动的进程（Windows 用 `taskkill /T` 树级清理）；注册表清理只删除已死进程的条目，绝不杀死其他窗口复用的存活实例。
   Safe instance cleanup: on VS Code close only processes this extension spawned are stopped (tree-kill via `taskkill /T` on Windows); registry cleanup deletes only dead entries and never kills live instances reused by other windows.
 
-[Unreleased]: https://github.com/Xizhi1024/dsh-vs-sidebar
+[0.4.0]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.4.0
 [0.1.0]: https://github.com/Xizhi1024/dsh-vs-sidebar/releases/tag/v0.1.0
