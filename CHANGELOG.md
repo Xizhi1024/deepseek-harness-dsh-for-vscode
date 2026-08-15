@@ -36,8 +36,8 @@ All notable changes to this project are documented here, following [Keep a Chang
 - **测试入口标准化**：`ServerManager` 的内嵌自测迁移到 `node:test`，由 `npm test` 在本地和三平台 CI 运行；运行时代码不再包含直接执行分支。
   Standardize tests: move the embedded `ServerManager` self-test to `node:test`, run it through `npm test` locally and in the three-platform CI matrix, and remove the direct-execution branch from runtime code.
 
-- **W0 回归骨架**：新增可注入 VS Code facade、Webview 消息路由、持久化 ID、生命周期、工作区与 PATH 单元门禁；CI 同时校验 VSIX 文件清单并运行真实 Extension Host 激活 smoke。
-  W0 regression foundation: add unit gates for the injectable VS Code facade, Webview routing, persistent IDs, lifecycle, workspace and PATH behavior; CI also checks the VSIX file list and runs a real Extension Host activation smoke.
+- **W0 回归骨架**：新增可注入 VS Code facade、Webview 消息路由、持久化 ID、生命周期、工作区单元门禁；CI 同时校验 VSIX 文件清单并运行真实 Extension Host 激活 smoke。
+  W0 regression foundation: add unit gates for the injectable VS Code facade, Webview routing, persistent IDs, lifecycle, and workspace behavior; CI also checks the VSIX file list and runs a real Extension Host activation smoke.
 
 ### Fixed / 修复
 

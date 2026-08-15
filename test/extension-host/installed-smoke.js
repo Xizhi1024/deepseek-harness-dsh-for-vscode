@@ -46,7 +46,7 @@ async function main() {
 
   try {
     await runTests({
-      vscodeExecutablePath: path.join(testStatePath, 'vscode-win32-x64-archive-1.90.0', 'Code.exe'),
+      vscodeExecutablePath: path.join(testStatePath, 'vscode-win32-x64-archive-1.106.0', 'Code.exe'),
       // Never pass --extensionDevelopmentPath: the extension must be discovered
       // exclusively from the --extensions-dir where the local VSIX was installed.
       extensionDevelopmentPath: [],

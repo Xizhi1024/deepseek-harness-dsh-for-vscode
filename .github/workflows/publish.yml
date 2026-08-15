@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     env:
-      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      # OPEN_VSX_TOKEN 保留在 job 级，供 Open VSX step 的 if 条件判断；实际传给命令时用 step 级 env。
       OPEN_VSX_TOKEN: ${{ secrets.OPEN_VSX_TOKEN }}
     steps:
       - name: Checkout
@@ -63,9 +63,13 @@ jobs:
         run: vsce ls --no-dependencies
 
       - name: Publish to VS Code Marketplace
-        run: vsce publish --pat "$VSCE_PAT" --skip-duplicate
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: vsce publish --skip-duplicate
 
       - name: Publish to Open VSX
         if: ${{ env.OPEN_VSX_TOKEN != '' }}
         continue-on-error: true
-        run: ovsx publish --pat "$OPEN_VSX_TOKEN" --skip-duplicate
+        env:
+          OPEN_VSX_TOKEN: ${{ secrets.OPEN_VSX_TOKEN }}
+        run: ovsx publish --skip-duplicate
