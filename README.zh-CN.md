@@ -8,7 +8,7 @@
 
 | 项 | 要求 |
 |---|---|
-| VS Code | ≥ 1.90，仅桌面版 |
+| VS Code | ≥ 1.106，仅桌面版 |
 | 托管运行时（`dsh.autoStart=true`） | VS Code global storage 下已有校验通过的运行时，或配置 `dsh.runtime.manifestUrl` 进行安装 |
 | DSH CLI（仅 `dsh.autoStart=false`） | 全局安装 `dsh` |
 | DSH profile（复用模式） | 已配置，`dsh web` 可启动 |
@@ -76,7 +76,7 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 
 ## 兼容性
 
-- VS Code ≥ 1.90（`secondarySidebar`）；显式 `activationEvents`；`extensionKind: [workspace]`
+- VS Code ≥ 1.106（`secondarySidebar`）；显式 `activationEvents`；`extensionKind: [workspace]`
 - Windows / macOS / Linux
 - 每个扩展自管 DSH 子进程都会收到经鉴权的回环桥接 URL/token；支持此约定的 DSH 版本会把配置路径 POST 回所属扩展宿主，再由 `vscode.window.showTextDocument` 在该扇窗口内打开。`DSH_TEXT_EDITOR=vscode` 仅保留为旧版 DSH 的 CLI 回退；被复用的外部服务仍遵循自身编辑器策略
 - iframe 会收到 `dsh_embed=vscode`；支持此约定的 DSH 版本会隐藏内部侧边栏、详情栏和拖动手柄，而「在浏览器中打开」仍保持普通完整布局
@@ -91,9 +91,8 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 
 ## 已知限制
 
-- **VS Code `< 1.106`**：不支持 `secondarySidebar` 视图容器贡献点。扩展仍能激活，Extension Host smoke 在 1.90 上通过，但 VS Code 会记录 `secondarySidebar` 贡献点警告，DSH 视图可能回退到 Explorer 侧边栏。
 - **真实 browser provider 尚未接入**：能力目录当前仅列出 `browser-provider-placeholder`，provider 选定与验证留待 W5。
-- **Extension Host smoke 版本**：smoke 测试目前固定运行在 VS Code 1.90 上。
+- **Extension Host smoke 版本**：smoke 测试默认运行在 VS Code 1.106 上。
 
 ## 实现原理
 

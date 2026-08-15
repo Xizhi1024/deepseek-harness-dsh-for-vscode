@@ -208,11 +208,21 @@ test('activation registers the public host surface through injected dependencies
   assert.strictEqual(context.subscriptions.length, 18);
   assert.strictEqual(ensureRuntimeCalls, 0, 'autoStart=false must not resolve the managed runtime');
 
+  fake.api.workspace.workspaceFolders = [
+    { uri: { fsPath: 'D:\\workspace' }, name: 'workspace', index: 0 },
+  ];
+
   await bridgeOptions.openTextDocument('D:\\workspace\\file.js');
   assert.deepStrictEqual(fake.shownDocuments, [{
     document: { uri: { fsPath: 'D:\\workspace\\file.js' } },
     options: { preview: false, preserveFocus: false },
   }]);
+
+  await assert.rejects(
+    bridgeOptions.openTextDocument('D:\\other\\secret.txt'),
+    /outside the workspace/
+  );
+  assert.strictEqual(fake.shownDocuments.length, 1, 'outside-workspace path must not be opened');
 
   await fake.commands.get('dsh.focusSidebar')();
   assert.strictEqual(CONTAINER_ID, 'dsh-sidebar');
@@ -227,6 +237,81 @@ test('activation registers the public host surface through injected dependencies
   assert.strictEqual(cancelCalls, 1);
   assert.strictEqual(bridgeCloseCalls, 1);
   assert.strictEqual(versionedBridgeCloseCalls, 1);
+});
+
+test('crash after ready clears stale state and restart reconnects', async () => {
+  const fake = createFakeVscode();
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-crash-${process.pid}`) },
+    subscriptions: [],
+  };
+  let statusCallback = null;
+  let ensureServerCalls = 0;
+  const manager = {
+    setResolvedRuntime() {},
+    ensureServer(options) {
+      ensureServerCalls += 1;
+      return Promise.resolve({
+        url: `http://${options.host}:${options.port}`,
+        host: options.host,
+        port: options.port,
+        pid: 4242,
+        owned: true,
+      });
+    },
+    hasOwnedChild() { return false; },
+    cancelPending() {},
+    async stop() {},
+  };
+
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager(options) {
+      statusCallback = options.onStatus;
+      return manager;
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  let viewHtml = '';
+  const view = {
+    webview: {
+      options: null,
+      onDidReceiveMessage() { return disposable(); },
+      set html(value) { viewHtml = value; },
+      get html() { return viewHtml; },
+    },
+    onDidDispose() { return disposable(); },
+  };
+  fake.registrations.webview.provider.resolveWebviewView(view);
+  await waitFor(() => viewHtml.includes('iframe'));
+
+  statusCallback({
+    state: 'error',
+    message: 'DSH process exited unexpectedly (pid=4242, code=1, signal=null)',
+  });
+  await waitFor(() => !viewHtml.includes('iframe') && viewHtml.includes('btn-retry'));
+
+  assert.ok(viewHtml.includes('DeepSeek Harness unavailable'), 'error page should be rendered');
+  assert.ok(viewHtml.includes('btn-retry'), 'error page should offer Retry');
+
+  const before = ensureServerCalls;
+  await fake.commands.get('dsh.restartServer')();
+  assert.ok(ensureServerCalls > before, 'restart should re-ensure the server after a crash');
+  assert.ok(
+    !fake.informationMessages.some((message) => message.includes('reused')),
+    'restart after crash must not report a reused server'
+  );
+
+  await deactivate();
 });
 
 test('autoStart resolves the managed runtime before spawn and hands it to ServerManager', async () => {

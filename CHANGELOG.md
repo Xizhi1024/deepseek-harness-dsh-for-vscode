@@ -25,8 +25,8 @@ All notable changes to this project are documented here, following [Keep a Chang
 - **托管运行时接入激活路径（W1-6/W1-7）**：扩展激活时在 `globalStorageUri/runtime` 下创建运行时存储；每次 `autoStart` 前 `connectNow` 先经 `RuntimeResolver` 解析并校验 runtime，再通过 `ServerManager.setResolvedRuntime()` 交给启动器。新增 `dsh.runtime.manifestUrl`（HTTPS 发布清单）与 `dsh.runtime.version`（可选锁定）：本地无 verified runtime 时按清单下载/安装/promote，失败一律 fail closed 并在状态页展示错误，绝不回退 PATH 上的 `dsh`；`autoStart=false` 路径不变。
   Managed runtime wired into activation (W1-6/W1-7): activation creates runtime storage under `globalStorageUri/runtime`; every autoStart resolves and verifies the runtime through `RuntimeResolver` and hands it to `ServerManager.setResolvedRuntime()` before spawning. New `dsh.runtime.manifestUrl` (HTTPS release manifest) and `dsh.runtime.version` (optional pin) provision missing/pinned runtimes through the existing downloader/installer; all failures fail closed on the status page and never fall back to a PATH `dsh`; `autoStart=false` behavior is unchanged.
 
-- **命令与验证基线**：命令面板共 11 条命令；单元测试 96 pass / 0 fail / 1 skip；Extension Host 激活 smoke 在 VS Code 1.90 通过（存在 `secondarySidebar` 贡献点警告，该贡献点需 VS Code 1.106+）。
-  Command & verification baseline: 11 commands in the command palette; unit tests 96 pass / 0 fail / 1 skip; the Extension Host activation smoke passes on VS Code 1.90 (with a `secondarySidebar` contribution-point warning — that contribution point requires VS Code 1.106+).
+- **命令与验证基线**：命令面板共 11 条命令；单元测试 101 pass / 0 fail / 1 skip；Extension Host 激活 smoke 默认在 VS Code 1.106 运行（`secondarySidebar` 贡献点自该版本起受支持）。
+  Command & verification baseline: 11 commands in the command palette; unit tests 101 pass / 0 fail / 1 skip; the Extension Host activation smoke runs on VS Code 1.106 by default (`secondarySidebar` is supported from that version onward).
 
 - **密钥扫描门禁（W6-4/W6-5 本地部分）**：新增 `scripts/check-secrets.js` 与 `npm run test:secrets`，扫描将进入 VSIX 的源码/文档（不扫 `node_modules`、`.git`、`.vscode-test`），检测硬编码 DSH 桥接 token 字面量、`Authorization: Bearer` 凭据、OpenAI/AWS key、私钥与密码字面量；示例/测试 fixture 使用显式 `// allow-secret-scan` 注释放行；`check:w0` 末尾纳入该门禁。
   Secret-scan gate (local part of W6-4/W6-5): add `scripts/check-secrets.js` and `npm run test:secrets` to scan the source/docs that will enter the VSIX (never `node_modules`, `.git`, or `.vscode-test`), detecting hardcoded DSH bridge token literals, `Authorization: Bearer` credentials, OpenAI/AWS keys, private keys, and password literals; example/test fixtures are released with an explicit `// allow-secret-scan` comment; `check:w0` now runs this gate.
@@ -38,6 +38,23 @@ All notable changes to this project are documented here, following [Keep a Chang
 
 - **W0 回归骨架**：新增可注入 VS Code facade、Webview 消息路由、持久化 ID、生命周期、工作区与 PATH 单元门禁；CI 同时校验 VSIX 文件清单并运行真实 Extension Host 激活 smoke。
   W0 regression foundation: add unit gates for the injectable VS Code facade, Webview routing, persistent IDs, lifecycle, workspace and PATH behavior; CI also checks the VSIX file list and runs a real Extension Host activation smoke.
+
+### Fixed / 修复
+
+- **嵌入 iframe 剪贴板权限**：iframe 增加 `allow="clipboard-write"`，修复跨源嵌入时 DSH UI 复制按钮被 Permissions Policy 拦截的问题。
+  Embedded iframe clipboard permission: add `allow="clipboard-write"` so DSH UI copy buttons are not blocked by the cross-origin Permissions Policy.
+
+- **崩溃后状态僵死与重启门禁**：DSH 子进程 ready 后意外退出时清空 `currentServer` / `currentExternalUrl` / `currentSessionId` / `boundCwd` 并渲染带 Retry 的错误页；`dsh.restartServer` 不再把崩溃残留句柄误判为“复用实例”而拒绝重启。
+  Crash-after-ready state reconciliation: clear stale server/session state and render a Retry status page when an owned DSH child exits unexpectedly; `dsh.restartServer` no longer misclassifies a stale crashed handle as a reused instance and refuses to restart.
+
+- **Text-document 桥工作区门禁**：DSH 通过 text-document bridge 打开的路径现在必须是受信任工作区内某个文件夹下的绝对路径，拒绝任意盘符/工作区外文件。
+  Text-document bridge workspace gate: DSH-opened paths must be absolute paths inside a trusted workspace folder; paths outside the workspace are rejected.
+
+- **VS Code 引擎基线 1.106**：`engines.vscode` 与 `@types/vscode` 提升到 `^1.106.0`，Extension Host smoke 默认改用 1.106，文档同步移除 `<1.106` 降级说明。
+  VS Code engine baseline 1.106: bump `engines.vscode` and `@types/vscode` to `^1.106.0`, default the Extension Host smoke to 1.106, and remove the pre-1.106 fallback notes from docs.
+
+- **会话 id 校验**：New Session / Switch Session 在写入 `currentSessionId` 前使用 `sessionIdFromValue`，超长或含 NUL 的 id 不再出现“UI 提示已切换但 iframe 静默丢弃”的不一致。
+  Session id validation: New Session / Switch Session validate ids through `sessionIdFromValue` before use, so over-long or NUL-containing ids cannot silently diverge from the iframe URL.
 
 ## [0.3.1] - 2026-08-15
 

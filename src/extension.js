@@ -33,6 +33,7 @@ const {
   reuseBlankSession,
   buildQuickPickItems,
   showSessionQuickPick,
+  sessionIdFromValue,
   DshSessionError,
 } = require("./sessionNavigation");
 const { startTextDocumentBridge } = require("./textDocumentBridge");
@@ -385,6 +386,28 @@ async function activateWithDependencies(context, dependencies = {}) {
   const bridgeStarter = dependencies.startTextDocumentBridge || startTextDocumentBridge;
   textDocumentBridge = await bridgeStarter({
     openTextDocument: async (absolutePath) => {
+      if (typeof absolutePath !== "string" || !path.isAbsolute(absolutePath)) {
+        throw new Error("Text document bridge requires an absolute path");
+      }
+      if (vscode.workspace.isTrusted === false) {
+        throw new Error("Text document bridge requires a trusted workspace");
+      }
+      const folders = vscode.workspace.workspaceFolders;
+      if (!Array.isArray(folders) || folders.length === 0) {
+        throw new Error("Text document bridge requires an open workspace folder");
+      }
+      const resolved = path.resolve(absolutePath);
+      const insideWorkspace = folders.some((folder) => {
+        const folderPath = folder && folder.uri && folder.uri.fsPath
+          ? folder.uri.fsPath
+          : null;
+        if (!folderPath) return false;
+        const relative = path.relative(path.resolve(folderPath), resolved);
+        return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+      });
+      if (!insideWorkspace) {
+        throw new Error(`Refusing to open path outside the workspace: ${absolutePath}`);
+      }
       const document = await vscode.workspace.openTextDocument(vscode.Uri.file(absolutePath));
       await vscode.window.showTextDocument(document, { preview: false, preserveFocus: false });
     },
@@ -433,6 +456,19 @@ async function activateWithDependencies(context, dependencies = {}) {
       }
       if (s.state === "error" && s.message) {
         setStatusBar("$(error) " + loc(s.message, s.params));
+        currentServer = null;
+        currentExternalUrl = null;
+        currentSessionId = null;
+        boundCwd = null;
+        try {
+          render(statusPage({
+            title: loc("DeepSeek Harness unavailable"),
+            detail: loc(s.message, s.params),
+            showRetry: true,
+            retryLabel: loc("Retry"),
+            lang: vscode.env.language,
+          }));
+        } catch (_) { /* non-fatal */ }
       } else if (s.state === "stopped") {
         // Command-visible result of dsh.stopServer (and of a close-policy
         // stop): update the status bar and, when the view is still open,
@@ -531,7 +567,7 @@ async function activateWithDependencies(context, dependencies = {}) {
       });
     }),
     vscode.commands.registerCommand("dsh.restartServer", () => lifecycle.enqueue("restart server", async () => {
-      if (currentServer && !manager.hasOwnedChild()) {
+      if (currentServer && currentServer.owned !== true && !manager.hasOwnedChild()) {
         vscode.window.showInformationMessage(loc("The running DSH server is reused and cannot be restarted by this extension"));
         return;
       }
@@ -581,7 +617,7 @@ async function activateWithDependencies(context, dependencies = {}) {
           cwd: boundCwd,
           signal: controller.signal,
         });
-        currentSessionId = sessionId;
+        currentSessionId = sessionIdFromValue(sessionId);
         renderFrame(context);
         vscode.window.showInformationMessage(loc("Session created: {sessionId}", { sessionId }));
       } catch (err) {
@@ -619,7 +655,7 @@ async function activateWithDependencies(context, dependencies = {}) {
           placeholder: loc("Switch Session"),
         });
         if (selected && selected.sessionId) {
-          currentSessionId = selected.sessionId;
+          currentSessionId = sessionIdFromValue(selected.sessionId);
           renderFrame(context);
           vscode.window.showInformationMessage(loc("Session switched: {sessionId}", {
             sessionId: selected.sessionId,

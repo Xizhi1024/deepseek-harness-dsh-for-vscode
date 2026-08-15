@@ -8,7 +8,7 @@ Embeds the local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 | Item | Requirement |
 |---|---|
-| VS Code | ≥ 1.90, desktop only |
+| VS Code | ≥ 1.106, desktop only |
 | Managed runtime (`dsh.autoStart=true`) | verified runtime under VS Code global storage, or `dsh.runtime.manifestUrl` to provision one |
 | DSH CLI (`dsh.autoStart=false` only) | globally installed `dsh` |
 | DSH profile (reuse mode) | configured; `dsh web` starts |
@@ -76,7 +76,7 @@ A reused (non-owned) instance is never stopped by any policy or command.
 
 ## Compatibility
 
-- VS Code ≥ 1.90 (`secondarySidebar`); explicit `activationEvents`; `extensionKind: [workspace]`
+- VS Code ≥ 1.106 (`secondarySidebar`); explicit `activationEvents`; `extensionKind: [workspace]`
 - Windows / macOS / Linux
 - Each managed DSH child receives an authenticated loopback bridge URL/token; supported DSH builds POST configuration paths back to the owning extension host, which opens them through `vscode.window.showTextDocument` in that exact window. `DSH_TEXT_EDITOR=vscode` remains only as an older-DSH CLI fallback; reused external servers keep their own editor policy
 - The iframe receives `dsh_embed=vscode`, which supported DSH builds use to hide their internal sidebar, details column, and resize handles; **Open in Browser** keeps the normal full layout
@@ -91,9 +91,8 @@ A reused (non-owned) instance is never stopped by any policy or command.
 
 ## Known limitations
 
-- **VS Code `< 1.106`**: the `secondarySidebar` view-container contribution point is not supported. The extension still activates, and the Extension Host smoke passes on VS Code 1.90, but VS Code logs a `secondarySidebar` contribution-point warning and the DSH view may fall back to the Explorer sidebar.
 - **Real browser provider not integrated**: the capability catalog only lists `browser-provider-placeholder`; provider selection and verification are deferred to W5.
-- **Extension Host smoke version**: the smoke test currently runs against VS Code 1.90 only.
+- **Extension Host smoke version**: the smoke test currently runs against VS Code 1.106 by default.
 
 ## Implementation
 

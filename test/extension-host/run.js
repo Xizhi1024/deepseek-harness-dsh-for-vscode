@@ -31,7 +31,7 @@ async function main() {
     const markerPath = path.join(testStatePath, `extension-host-proof-${process.pid}.json`);
     fs.rmSync(markerPath, { force: true });
     await runTests({
-      version: process.env.VSCODE_TEST_VERSION || '1.90.0',
+      version: process.env.VSCODE_TEST_VERSION || '1.106.0',
       extensionDevelopmentPath: path.resolve(__dirname, '..', '..'),
       extensionTestsPath: path.resolve(__dirname, 'suite'),
       launchArgs: [
