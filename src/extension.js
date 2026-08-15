@@ -46,6 +46,7 @@ const { createVscodeFacade } = require("./vscodeFacade");
 const { createWebviewMessageHandler } = require("./webviewMessages");
 const { handleInteractionRequest } = require('./interactionBridge');
 const { installDshIntegration } = require('./dshIntegration');
+const { ThreadAttachmentCoordinator, formatSelectionAttachment } = require('./threadAttachment');
 const { createWorkspaceContext } = require("./workspaceContext");
 const { createEditorContext } = require("./editorContext");
 const {
@@ -84,6 +85,15 @@ let activeDshHomeInfo = null; // effective mode/path/source for diagnostics
 let ensureRuntime = null; // resolves/verifies (and optionally provisions) the managed runtime
 let ensureWorkspaceSessionFn = null; // owned-instance automatic workspace session binding
 let runtimeAbort = new AbortController(); // cancels in-flight runtime provisioning on deactivate
+let threadAttachmentCoordinator = null; // owning-window request/ack bridge into the DSH composer
+
+async function waitForResolvedView(timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!currentView && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return currentView;
+}
 
 function prepareDshHome(config, context) {
   const resolved = resolveDshHome({
@@ -497,6 +507,8 @@ async function activateWithDependencies(context, dependencies = {}) {
       } catch (_) { /* notification is advisory; requests stay authoritative */ }
     },
   });
+  threadAttachmentCoordinator = new ThreadAttachmentCoordinator();
+  context.subscriptions.push({ dispose() { threadAttachmentCoordinator?.dispose(); } });
   try {
     prepareDshHome(hostContext.config(), context);
   } catch (err) {
@@ -634,6 +646,7 @@ async function activateWithDependencies(context, dependencies = {}) {
               console.error('dsh-vs-sidebar: Webview interaction bridge failed:', error);
             });
           },
+          threadResult: (message) => threadAttachmentCoordinator?.handleResult(message),
         }));
         view.onDidDispose(() => {
           if (currentView !== view) return;
@@ -718,6 +731,24 @@ async function activateWithDependencies(context, dependencies = {}) {
     }),
     vscode.commands.registerCommand("dsh.addActiveSelection", () => {
       runEditorAttachment(() => editorContext.attachActiveSelection(), "Editor context attached ({kind})");
+    }),
+    vscode.commands.registerCommand("dsh.addSelectionToThread", async () => {
+      try {
+        const attachment = editorContext.attachActiveSelection();
+        await vscode.commands.executeCommand("workbench.view.extension." + CONTAINER_ID);
+        await vscode.commands.executeCommand(VIEW_ID + ".focus");
+        const view = await waitForResolvedView();
+        if (!view) throw new Error(loc("DSH sidebar is unavailable"));
+        if (!currentServer) await scheduleConnect(context);
+        if (!currentServer) throw new Error(loc("DSH: unavailable"));
+        const text = formatSelectionAttachment(attachment, attachment.document.uri);
+        await threadAttachmentCoordinator.request(view.webview, text);
+        vscode.window.showInformationMessage(loc("Selection added to the DSH conversation"));
+      } catch (err) {
+        vscode.window.showErrorMessage(loc("Add to DSH conversation failed: {message}", {
+          message: err && err.message ? err.message : String(err),
+        }));
+      }
     }),
     vscode.commands.registerCommand("dsh.addProblems", () => {
       runEditorAttachment(() => editorContext.attachProblems(), "Editor context attached ({kind})");
@@ -920,6 +951,8 @@ async function deactivate() {
     versionedBridge = null;
     await textDocumentBridge?.close().catch(() => {});
     textDocumentBridge = null;
+    threadAttachmentCoordinator?.dispose();
+    threadAttachmentCoordinator = null;
     try {
       statusBar?.dispose?.();
     } catch {

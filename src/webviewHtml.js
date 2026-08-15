@@ -272,8 +272,18 @@ ${WEBVIEW_CSP_META}
     const DSH_ORIGIN = ${safeFrameOriginScript};
     const BRIDGE_CHANNEL = "dsh-vscode-interaction";
     const BRIDGE_VERSION = 1;
+    const THREAD_CHANNEL = "dsh-vscode-thread";
+    const THREAD_VERSION = 1;
     const LOAD_TIMEOUT_MS = 10000;
     let loaded = false;
+    const pendingThreadAttachments = new Map();
+
+    function forwardThreadAttachments() {
+      if (!loaded || !frame.contentWindow) return;
+      for (const message of pendingThreadAttachments.values()) {
+        frame.contentWindow.postMessage(message, DSH_ORIGIN);
+      }
+    }
 
     function showFallback() {
       if (loaded) { return; }
@@ -281,7 +291,7 @@ ${WEBVIEW_CSP_META}
       fallback.classList.add("show");
     }
 
-    frame.addEventListener("load", () => { loaded = true; });
+    frame.addEventListener("load", () => { loaded = true; forwardThreadAttachments(); });
     frame.addEventListener("error", showFallback);
     setTimeout(showFallback, LOAD_TIMEOUT_MS);
 
@@ -298,12 +308,43 @@ ${WEBVIEW_CSP_META}
         return;
       }
       if (
+        event.source === frame.contentWindow
+        && event.origin === DSH_ORIGIN
+        && message && message.type === "dshThreadReady"
+        && message.channel === THREAD_CHANNEL
+        && message.version === THREAD_VERSION
+      ) {
+        forwardThreadAttachments();
+        return;
+      }
+      if (
+        event.source === frame.contentWindow
+        && event.origin === DSH_ORIGIN
+        && message && message.type === "dshThreadAttachResult"
+        && message.channel === THREAD_CHANNEL
+        && message.version === THREAD_VERSION
+      ) {
+        pendingThreadAttachments.delete(message.requestId);
+        vscode.postMessage(message);
+        return;
+      }
+      if (
         event.source !== frame.contentWindow
         && message && message.type === "dshBridgeResult"
         && message.channel === BRIDGE_CHANNEL
         && message.version === BRIDGE_VERSION
       ) {
         frame.contentWindow.postMessage(message, DSH_ORIGIN);
+        return;
+      }
+      if (
+        event.source !== frame.contentWindow
+        && message && message.type === "dshThreadAttach"
+        && message.channel === THREAD_CHANNEL
+        && message.version === THREAD_VERSION
+      ) {
+        pendingThreadAttachments.set(message.requestId, message);
+        forwardThreadAttachments();
       }
     });
 

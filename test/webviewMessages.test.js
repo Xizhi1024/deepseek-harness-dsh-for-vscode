@@ -36,3 +36,13 @@ test('Webview messages route DSH interaction requests when configured', () => {
   assert.strictEqual(handle(message), true);
   assert.deepStrictEqual(calls, [message]);
 });
+
+test('Webview messages route DSH thread acknowledgements when configured', () => {
+  const calls = [];
+  const handle = createWebviewMessageHandler({
+    openBrowser() {}, retry() {}, threadResult(message) { calls.push(message); },
+  });
+  const message = { type: 'dshThreadAttachResult', requestId: 'one', ok: true };
+  assert.strictEqual(handle(message), true);
+  assert.deepStrictEqual(calls, [message]);
+});

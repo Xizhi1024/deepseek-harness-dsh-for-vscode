@@ -5,6 +5,11 @@ All notable changes to this project are documented here, following [Keep a Chang
 
 ## [0.5.0] - 2026-08-16
 
+### Added / 新增
+
+- **Codex 风格“添加到 DSH 对话”**：编辑器选中代码后，右键菜单可把带源文件 URI、行号和语言标识的 fenced code block 直接追加到当前 DSH 输入草稿；保留已有草稿、聚焦 DSH 侧栏且绝不自动发送。扩展、Webview 外壳和 DSH client integration 使用带 request id 与结果确认的版本化消息桥，避免仅存入不可见的窗口附件。
+  Codex-style **Add to DSH Thread**: select editor code and use the context menu to append a fenced code block with source URI, line range, and language to the active DSH input draft. Existing draft text is preserved, the sidebar is focused, and nothing is auto-sent. A versioned request/acknowledgement bridge spans the extension, Webview shell, and DSH client integration instead of storing only an invisible window attachment.
+
 ### Changed / 变更
 
 - **扩展与仓库品牌统一**：Marketplace/VS Code 显示名改为 **DeepSeek Harness(dsh) for VS Code**，GitHub 仓库改名为 `deepseek-harness-dsh-for-vscode`。为保证现有安装能原位升级，内部扩展标识仍保持 `Xizhi1024.dsh-vs-sidebar`，视图/命令 ID 也保持不变。

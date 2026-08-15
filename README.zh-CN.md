@@ -6,7 +6,7 @@
 
 ## **VS CODE 交互保证（0.5.0）**
 
-**在扩展自管的 DSH 会话中，模型输出的“复制”使用 VS Code 剪贴板，`Read …` 文件（包括共享旧会话中位于当前工作区之外的绝对路径）在拥有该 DSH 进程的 VS Code 窗口中打开，HTTP/HTTPS 链接在 VS Code Simple Browser 中打开。Markdown 文件不再回退到 Typora 等 Windows 默认关联程序。集成包由扩展维护在所选 DSH 的 Web profile 内，启动专用 overlay 仍位于 `DSH_HOME/.integrations/vscode-sidebar/`。**
+**在扩展自管的 DSH 会话中，模型输出的“复制”使用 VS Code 剪贴板，`Read …` 文件（包括共享旧会话中位于当前工作区之外的绝对路径）在拥有该 DSH 进程的 VS Code 窗口中打开，HTTP/HTTPS 链接在 VS Code Simple Browser 中打开。Markdown 文件不再回退到 Typora 等 Windows 默认关联程序。在编辑器中选中代码并右键“添加到 DSH 对话”，即可把带文件来源和行号的可见、可编辑代码块追加到当前 DSH 输入草稿；扩展绝不会自动发送。集成包由扩展维护在所选 DSH 的 Web profile 内，启动专用 overlay 仍位于 `DSH_HOME/.integrations/vscode-sidebar/`。**
 
 ## 🚨 **重要警告：隔离模式会让原有模块看起来全部“消失”**
 
@@ -38,7 +38,7 @@
 ## 使用
 
 - `Ctrl+Alt+B` 打开辅助侧边栏 → **DeepSeek Harness (DSH)** 标签
-- 命令（全部 11 条）：**在浏览器中打开 DSH** · **新建会话** · **切换会话** · **重启 DSH 服务** · **停止 DSH 服务** · **聚焦 DSH 侧边栏** · **将活动文件添加到 DSH 上下文** · **将活动选区添加到 DSH 上下文** · **将 Problems 添加到 DSH 上下文** · **能力与集成** · **诊断**
+- 命令（全部 12 条）：**在浏览器中打开 DSH** · **新建会话** · **切换会话** · **重启 DSH 服务** · **停止 DSH 服务** · **聚焦 DSH 侧边栏** · **添加到 DSH 对话** · **将活动文件添加到 DSH 上下文** · **将活动选区添加到 DSH 上下文** · **将 Problems 添加到 DSH 上下文** · **能力与集成** · **诊断**
 - `dsh.autoStart` 开启时，VS Code 启动即拉取服务，即使侧边栏从未打开
 
 ## 会话切换
@@ -46,6 +46,8 @@
 **新建会话** / **切换会话** 使用 DSH 本地会话 API。**切换会话** 通过 QuickPick 展示每个根会话的标题、工作区路径、更新时间与运行状态；选中后 iframe 会带上 `dsh_session` 查询参数重载，DSH Web 界面据此打开对应会话。扩展不维护第二份会话树——DSH 服务本身始终是会话数据的唯一来源。**新建会话** 会为当前工作区根目录创建会话；若同 cwd 下已存在 blank 会话，则优先复用而不是重复创建。
 
 ## 编辑器上下文（显式附加）
+
+若要使用与 Codex 相同的直达方式，请在受信任工作区的编辑器中选中代码，再右键选择 **添加到 DSH 对话**。扩展会聚焦 DSH 侧栏，并把带源文件 URI 和行号范围的 fenced code block 追加到当前会话输入草稿；原有草稿会保留，消息不会自动发送。
 
 扩展不会隐式发送任何编辑器内容。活动文件、选区与 Problems 只有在你执行「将 … 添加到 DSH 上下文」命令后才进入 DSH；之后 `vscode_editor` 工具只能经版本化桥读回这些已批准的附件。
 
@@ -110,7 +112,6 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 ## 已知限制
 
 - **真实 browser provider 尚未接入**：能力目录当前仅列出 `browser-provider-placeholder`，provider 选定与验证留待 W5。
-- **部分 DSH 复制按钮仍可能失败**：扩展 iframe 已声明 `allow="clipboard-write"`；若右键复制可用但按钮无效，原因是上游 DSH UI 在 `navigator.clipboard.writeText()` 被 Webview/系统策略拒绝后只返回失败，没有 `execCommand` 等兼容回退。该行为属于 DSH UI，不应通过扩大扩展 Webview 权限规避。
 - **Extension Host smoke 版本**：smoke 测试默认运行在 VS Code 1.106 上。
 
 ## 实现原理
@@ -119,6 +120,7 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 |---|---|
 | `src/extension.js` | 扩展宿主组装与 DSH 连接协调 |
 | `src/editorContext.js` | 显式编辑器附件、打开/打开 Diff、诊断与工作区 URI 门禁 |
+| `src/threadAttachment.js` | 将编辑器选区追加到当前 DSH 草稿的带确认 Webview 桥 |
 | `src/capabilityCatalog.js` | 受控 W4 provider 目录、URI 白名单、目录 revision |
 | `src/providerDetector.js` | provider 安装/启用/健康检测、桥接 handler、诊断快照 |
 | `src/versionedBridgeServer.js` | 版本化回环桥（编辑器、诊断、扩展） |

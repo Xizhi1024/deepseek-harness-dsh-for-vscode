@@ -181,6 +181,7 @@ test('activation registers the public host surface through injected dependencies
     'dsh.stopServer',
     'dsh.addActiveFile',
     'dsh.addActiveSelection',
+    'dsh.addSelectionToThread',
     'dsh.addProblems',
     'dsh.newSession',
     'dsh.switchSession',
@@ -207,7 +208,7 @@ test('activation registers the public host surface through injected dependencies
   assert.strictEqual(typeof versionedBridgeOptions.handlers['vscode/workspace/getDiagnostics'], 'function');
   assert.strictEqual(typeof versionedBridgeOptions.handlers['vscode/extensions/getProviderStates'], 'function');
   assert.strictEqual(typeof versionedBridgeOptions.handlers['vscode/extensions/openDetails'], 'function');
-  assert.strictEqual(context.subscriptions.length, 18);
+  assert.strictEqual(context.subscriptions.length, 20);
   assert.strictEqual(ensureRuntimeCalls, 0, 'autoStart=false must not resolve the managed runtime');
 
   fake.api.workspace.workspaceFolders = [

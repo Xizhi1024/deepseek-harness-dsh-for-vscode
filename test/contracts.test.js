@@ -29,6 +29,11 @@ test('editor title exposes one persistent icon and DSH view title exposes no pri
     }
   ]);
   assert.ok(!Object.hasOwn(menus, 'view/title'));
+  assert.deepStrictEqual(menus['editor/context'], [{
+    command: 'dsh.addSelectionToThread',
+    when: 'editorHasSelection && resourceScheme == file',
+    group: 'dsh@10'
+  }]);
 
   const focusCommand = manifest.contributes.commands.find(
     (entry) => entry.command === 'dsh.focusSidebar'
@@ -48,6 +53,7 @@ test('editor title exposes one persistent icon and DSH view title exposes no pri
   for (const command of [
     'dsh.addActiveFile',
     'dsh.addActiveSelection',
+    'dsh.addSelectionToThread',
     'dsh.addProblems',
     'dsh.newSession',
     'dsh.switchSession',

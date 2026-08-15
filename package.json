@@ -54,6 +54,7 @@
     "onCommand:dsh.focusSidebar",
     "onCommand:dsh.addActiveFile",
     "onCommand:dsh.addActiveSelection",
+    "onCommand:dsh.addSelectionToThread",
     "onCommand:dsh.addProblems",
     "onCommand:dsh.newSession",
     "onCommand:dsh.switchSession",
@@ -133,6 +134,11 @@
         "category": "%dsh.cmd.category%"
       },
       {
+        "command": "dsh.addSelectionToThread",
+        "title": "%dsh.cmd.addSelectionToThread%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
         "command": "dsh.addProblems",
         "title": "%dsh.cmd.addProblems%",
         "category": "%dsh.cmd.category%"
@@ -163,6 +169,13 @@
         {
           "command": "dsh.focusSidebar",
           "group": "navigation@40"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "dsh.addSelectionToThread",
+          "when": "editorHasSelection && resourceScheme == file",
+          "group": "dsh@10"
         }
       ]
     },

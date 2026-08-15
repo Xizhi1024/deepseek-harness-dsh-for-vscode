@@ -9,7 +9,7 @@
  * @param {Function} handlers.retry
  * @returns {(message: unknown) => boolean} true when a known message was routed.
  */
-function createWebviewMessageHandler({ openBrowser, retry, interaction = undefined }) {
+function createWebviewMessageHandler({ openBrowser, retry, interaction = undefined, threadResult = undefined }) {
   if (typeof openBrowser !== 'function' || typeof retry !== 'function') {
     throw new TypeError('Webview message handlers must be functions');
   }
@@ -25,6 +25,10 @@ function createWebviewMessageHandler({ openBrowser, retry, interaction = undefin
     }
     if (message.type === 'dshBridge' && typeof interaction === 'function') {
       interaction(message);
+      return true;
+    }
+    if (message.type === 'dshThreadAttachResult' && typeof threadResult === 'function') {
+      threadResult(message);
       return true;
     }
     return false;

@@ -48,6 +48,7 @@ for (const required of [
   'src/embedOverlay.js',
   'src/dshIntegration.js',
   'src/interactionBridge.js',
+  'src/threadAttachment.js',
   'src/editorContext.js',
   'src/capabilityCatalog.js',
   'src/providerDetector.js',

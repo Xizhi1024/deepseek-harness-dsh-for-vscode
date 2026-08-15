@@ -6,7 +6,7 @@ Embeds the local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 ## **VS CODE INTERACTION GUARANTEE (0.5.0)**
 
-**In an extension-owned DSH session, model-output Copy uses the VS Code clipboard, `Read …` files—including absolute paths from shared older sessions outside the current workspace—open in the exact owning VS Code window, and HTTP/HTTPS links open in VS Code Simple Browser. Markdown files no longer fall through to Windows file associations such as Typora. The integration package is maintained inside the selected DSH Web profile and the launch-only overlay remains under `DSH_HOME/.integrations/vscode-sidebar/`.**
+**In an extension-owned DSH session, model-output Copy uses the VS Code clipboard, `Read …` files—including absolute paths from shared older sessions outside the current workspace—open in the exact owning VS Code window, and HTTP/HTTPS links open in VS Code Simple Browser. Markdown files no longer fall through to Windows file associations such as Typora. Select code and right-click `Add to DSH Thread` to append a visible, editable source-and-line-number code block to the active DSH draft; it is never auto-sent. The integration package is maintained inside the selected DSH Web profile and the launch-only overlay remains under `DSH_HOME/.integrations/vscode-sidebar/`.**
 
 ## 🚨 **IMPORTANT: ISOLATED MODE CAN MAKE ALL EXISTING MODULES APPEAR TO DISAPPEAR**
 
@@ -38,7 +38,7 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 ## Usage
 
 - `Ctrl+Alt+B` opens the auxiliary sidebar → **DeepSeek Harness (DSH)** tab
-- Commands (all 11): **Open DSH in Browser** · **New Session** · **Switch Session** · **Restart DSH Server** · **Stop DSH Server** · **Focus DSH Sidebar** · **Add Active File to DSH Context** · **Add Active Selection to DSH Context** · **Add Problems to DSH Context** · **Capabilities and Integrations** · **Diagnose**
+- Commands (all 12): **Open DSH in Browser** · **New Session** · **Switch Session** · **Restart DSH Server** · **Stop DSH Server** · **Focus DSH Sidebar** · **Add to DSH Thread** · **Add Active File to DSH Context** · **Add Active Selection to DSH Context** · **Add Problems to DSH Context** · **Capabilities and Integrations** · **Diagnose**
 - With `dsh.autoStart` on, the server is started at VS Code startup even if the sidebar is never opened
 
 ## Session navigation
@@ -46,6 +46,8 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 **New Session** / **Switch Session** use DSH's local session API. **Switch Session** shows a QuickPick with each root session's title, workspace path, update time, and running state; selecting one reloads the iframe with the `dsh_session` query parameter so the DSH web UI opens that session. The extension does not keep a second session tree — the DSH server remains the source of truth. **New Session** creates a session for the current workspace root and, when one already exists, reuses a blank session for the same cwd instead of creating a duplicate.
 
 ## Editor context (explicit attachment)
+
+For the Codex-style path, select code in a trusted workspace editor and right-click **Add to DSH Thread**. The extension focuses the DSH sidebar and appends a visible fenced code block—with source URI and line range—to the active conversation's input draft. Existing draft text is preserved, and the extension does not send the message automatically.
 
 The extension never sends editor content implicitly. The active file, selection, and Problems stay out of DSH until you run one of the **Add … to DSH Context** commands; the resulting attachment is the only thing the `vscode_editor` tool can read back through the versioned bridge.
 
@@ -110,7 +112,6 @@ A reused (non-owned) instance is never stopped by any policy or command.
 ## Known limitations
 
 - **Real browser provider not integrated**: the capability catalog only lists `browser-provider-placeholder`; provider selection and verification are deferred to W5.
-- **Some DSH copy buttons may still fail**: the extension iframe already declares `allow="clipboard-write"`. If context-menu copy works but the button does not, the upstream DSH UI returns failure when `navigator.clipboard.writeText()` is rejected by Webview/system policy and has no `execCommand`-style compatibility fallback. This belongs in the DSH UI rather than being worked around with broader Webview permissions.
 - **Extension Host smoke version**: the smoke test currently runs against VS Code 1.106 by default.
 
 ## Implementation
@@ -119,6 +120,7 @@ A reused (non-owned) instance is never stopped by any policy or command.
 |---|---|
 | `src/extension.js` | extension-host assembly and DSH connection orchestration |
 | `src/editorContext.js` | explicit editor attachments, open/openDiff, diagnostics, workspace URI gate |
+| `src/threadAttachment.js` | acknowledged Webview bridge for appending an editor selection to the active DSH draft |
 | `src/capabilityCatalog.js` | controlled W4 provider catalog, URI whitelist, catalog revision |
 | `src/providerDetector.js` | provider install/enable/health detection, bridge handlers, diagnostic snapshot |
 | `src/versionedBridgeServer.js` | versioned loopback bridge (editor, diagnostics, extensions) |
