@@ -742,7 +742,7 @@ class ServerManager {
   _killChild(child, { platform = process.platform, spawnFn = spawn, timeoutMs = TASKKILL_TIMEOUT_MS } = {}) {
     if (platform === 'win32') {
       return new Promise((resolve) => {
-        let killer;
+        let killer = null;
         try {
           killer = spawnFn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
         } catch {
@@ -755,26 +755,38 @@ class ServerManager {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
-          if (typeof killer.removeListener === 'function') {
+          if (killer && typeof killer.removeListener === 'function') {
             killer.removeListener('error', finish);
             killer.removeListener('exit', finish);
           }
           resolve();
         };
+        if (!killer || typeof killer.once !== 'function') {
+          finish();
+          return;
+        }
         timer = setTimeout(() => {
           try {
             killer.kill?.();
           } catch {
             // ignore: the killer may already be gone
           }
+          // Best-effort second tree-kill in case the hung taskkill never made
+          // it to the child; a fresh detached taskkill is not awaited.
+          try {
+            const retry = spawnFn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+              stdio: 'ignore',
+              detached: true,
+              windowsHide: true,
+            });
+            if (retry && typeof retry.unref === 'function') retry.unref();
+          } catch {
+            // ignore: the retry is best-effort
+          }
           finish();
         }, timeoutMs);
-        if (typeof killer.once === 'function') {
-          killer.once('error', finish);
-          killer.once('exit', finish);
-        } else {
-          finish();
-        }
+        killer.once('error', finish);
+        killer.once('exit', finish);
       });
     }
     try {

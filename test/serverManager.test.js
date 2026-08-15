@@ -458,9 +458,10 @@ test('ServerManager passes the generated embed overlay through as --patch', (t) 
   );
 });
 
-test('ServerManager Windows taskkill timeout resolves and kills a hanging killer', async () => {
+test('ServerManager Windows taskkill timeout resolves, kills the hanging killer, and retries tree-kill', async () => {
   const manager = new ServerManager();
   let killCalls = 0;
+  let spawnCalls = 0;
   const killer = {
     handlers: {},
     once(event, callback) {
@@ -474,15 +475,25 @@ test('ServerManager Windows taskkill timeout resolves and kills a hanging killer
       killCalls += 1;
     },
   };
+  const retryKiller = {
+    once() { return this; },
+    removeListener() { return this; },
+    kill() {},
+    unref() {},
+  };
 
   await manager._killChild(
     { pid: 12345 },
     {
       platform: 'win32',
-      spawnFn: () => killer,
+      spawnFn: () => {
+        spawnCalls += 1;
+        return spawnCalls === 1 ? killer : retryKiller;
+      },
       timeoutMs: 20,
     }
   );
 
+  assert.strictEqual(spawnCalls, 2, 'timeout must spawn a second best-effort taskkill');
   assert.strictEqual(killCalls, 1, 'timeout must kill the hanging taskkill process');
 });

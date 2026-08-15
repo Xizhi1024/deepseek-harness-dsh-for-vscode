@@ -85,6 +85,58 @@ test('RuntimeInstaller.rollback without last-good removes the current pointer wi
   assert.strictEqual(fs.existsSync(path.join(stateRoot, 'last-good.json')), false);
 });
 
+test('RuntimeInstaller.rollback ignores a mismatched expected pointer', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-runtime-rollback-mismatch-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const storageRoot = path.join(root, 'storage');
+  const installer = new RuntimeInstaller({ storageRoot, platform: 'win32', arch: 'x64' });
+  const stateRoot = path.join(storageRoot, 'state');
+  fs.mkdirSync(stateRoot, { recursive: true });
+  const currentPath = path.join(stateRoot, 'current.json');
+  const current = { dshVersion: '1.0.0', platform: 'win32', arch: 'x64' };
+  fs.writeFileSync(currentPath, JSON.stringify(current));
+
+  await installer.rollback({ dshVersion: '2.0.0', platform: 'win32', arch: 'x64' });
+
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(currentPath, 'utf8')), current);
+});
+
+test('RuntimeInstaller.rollback with corrupt last-good removes current and throws', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-runtime-rollback-corrupt-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const storageRoot = path.join(root, 'storage');
+  const installer = new RuntimeInstaller({ storageRoot, platform: 'win32', arch: 'x64' });
+  const stateRoot = path.join(storageRoot, 'state');
+  fs.mkdirSync(stateRoot, { recursive: true });
+  const currentPath = path.join(stateRoot, 'current.json');
+  fs.writeFileSync(currentPath, JSON.stringify({ dshVersion: '1.0.0', platform: 'win32', arch: 'x64' }));
+  fs.writeFileSync(path.join(stateRoot, 'last-good.json'), '{bad json');
+
+  await assert.rejects(
+    installer.rollback({ dshVersion: '1.0.0', platform: 'win32', arch: 'x64' }),
+    /Expected property name|Unexpected token/
+  );
+  assert.strictEqual(fs.existsSync(currentPath), false, 'corrupt last-good must not leave the bad current in place');
+});
+
+test('RuntimeInstaller.cleanup rejects invalid pointer versions', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-runtime-cleanup-version-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const storageRoot = path.join(root, 'storage');
+  const installer = new RuntimeInstaller({ storageRoot, platform: 'win32', arch: 'x64' });
+  fs.mkdirSync(path.join(storageRoot, 'runtime'), { recursive: true });
+  fs.mkdirSync(path.join(storageRoot, 'state'), { recursive: true });
+  fs.writeFileSync(
+    path.join(storageRoot, 'state', 'current.json'),
+    JSON.stringify({ dshVersion: '../..', platform: 'win32', arch: 'x64' })
+  );
+
+  await assert.rejects(
+    installer.cleanup(),
+    /Cannot clean runtimes with an invalid current\.json pointer/
+  );
+});
+
 test('RuntimeInstaller fails closed for archive corruption, traversal, links, and cancellation', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-runtime-reject-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

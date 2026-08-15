@@ -149,6 +149,7 @@ test('activation registers the public host surface through injected dependencies
 
   await activateWithDependencies(context, {
     vscode: fake.api,
+    realpath: async (value) => value,
     async startTextDocumentBridge(options) {
       bridgeOptions = options;
       return {
@@ -479,6 +480,170 @@ test('openInBrowser does not open a fallback URL when connect fails', async () =
     fake.errorMessages.some((message) => message.includes('DSH: unavailable')),
     'must surface the unavailable state as an error message'
   );
+
+  await deactivate();
+});
+
+test('text-document bridge rejects a workspace symlink that resolves outside', async () => {
+  const fake = createFakeVscode();
+  fake.api.workspace.workspaceFolders = [
+    { uri: { fsPath: 'D:\\workspace' }, name: 'workspace', index: 0 },
+  ];
+  let openExternalCalls = 0;
+  fake.api.env.openExternal = async () => { openExternalCalls += 1; };
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-symlink-${process.pid}`) },
+    subscriptions: [],
+  };
+  let bridgeOptions = null;
+  const manager = {
+    cancelPending() {},
+    hasOwnedChild() { return false; },
+    async stop() {},
+  };
+
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    realpath: async (value) => {
+      const text = String(value);
+      if (text === 'D:\\workspace\\leak') return 'D:\\other\\secret.txt';
+      return text;
+    },
+    async startTextDocumentBridge(options) {
+      bridgeOptions = options;
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() { return manager; },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  await assert.rejects(
+    bridgeOptions.openTextDocument('D:\\workspace\\leak'),
+    /outside the workspace/
+  );
+  assert.strictEqual(fake.shownDocuments.length, 0, 'symlink escape must not open');
+
+  await bridgeOptions.openTextDocument('D:\\workspace\\ok.txt');
+  assert.strictEqual(fake.shownDocuments.length, 1, 'plain workspace file must open');
+
+  await deactivate();
+});
+
+test('webview openBrowser message is ignored when no server is connected', async () => {
+  const fake = createFakeVscode();
+  let openExternalCalls = 0;
+  fake.api.env.openExternal = async () => { openExternalCalls += 1; };
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-openmsg-${process.pid}`) },
+    subscriptions: [],
+  };
+  const manager = {
+    cancelPending() {},
+    hasOwnedChild() { return false; },
+    async stop() {},
+  };
+
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() { return manager; },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  let messageHandler = null;
+  const view = {
+    webview: {
+      options: null,
+      onDidReceiveMessage(handler) { messageHandler = handler; return disposable(); },
+      set html(_value) {},
+      get html() { return ''; },
+    },
+    onDidDispose() { return disposable(); },
+  };
+  fake.registrations.webview.provider.resolveWebviewView(view);
+
+  messageHandler({ type: 'openBrowser' });
+  assert.strictEqual(openExternalCalls, 0, 'openBrowser message without a server must be ignored');
+
+  await deactivate();
+});
+
+test('error status without a message still clears stale state and shows Retry', async () => {
+  const fake = createFakeVscode();
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-errnomessage-${process.pid}`) },
+    subscriptions: [],
+  };
+  let statusCallback = null;
+  let ensureServerCalls = 0;
+  const manager = {
+    setResolvedRuntime() {},
+    ensureServer(options) {
+      ensureServerCalls += 1;
+      return Promise.resolve({
+        url: `http://${options.host}:${options.port}`,
+        host: options.host,
+        port: options.port,
+        pid: 4242,
+        owned: true,
+      });
+    },
+    hasOwnedChild() { return false; },
+    cancelPending() {},
+    async stop() {},
+  };
+
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager(options) {
+      statusCallback = options.onStatus;
+      return manager;
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  let viewHtml = '';
+  const view = {
+    webview: {
+      options: null,
+      onDidReceiveMessage() { return disposable(); },
+      set html(value) { viewHtml = value; },
+      get html() { return viewHtml; },
+    },
+    onDidDispose() { return disposable(); },
+  };
+  fake.registrations.webview.provider.resolveWebviewView(view);
+  await waitFor(() => viewHtml.includes('iframe'));
+
+  statusCallback({ state: 'error' });
+  await waitFor(() => !viewHtml.includes('iframe') && viewHtml.includes('btn-retry'));
+
+  assert.ok(viewHtml.includes('DeepSeek Harness unavailable'), 'error page should be rendered without a message');
+  assert.ok(viewHtml.includes('btn-retry'), 'error page should offer Retry');
+
+  const before = ensureServerCalls;
+  await fake.commands.get('dsh.restartServer')();
+  assert.ok(ensureServerCalls > before, 'restart should re-ensure the server after a message-less error');
 
   await deactivate();
 });
