@@ -121,6 +121,20 @@ test('ServerManager preserves the standalone self-test behavior', async (t) => {
     /autoStart/
   );
 
+  const adoptManager = new ServerManager();
+  assert.deepStrictEqual(
+    await adoptManager.adoptRunningDsh('127.0.0.1', dshPort),
+    {
+      url: `http://127.0.0.1:${dshPort}`,
+      host: '127.0.0.1',
+      port: dshPort,
+      pid: null,
+      owned: false,
+    }
+  );
+  assert.strictEqual(await adoptManager.adoptRunningDsh('127.0.0.1', plainPort), null);
+  assert.strictEqual(await adoptManager.adoptRunningDsh('127.0.0.1', closedPort), null);
+
   const missingRegistry = path.join(os.tmpdir(), `dsh-stale-missing-${process.pid}-${Date.now()}.json`);
   assert.doesNotThrow(() => ServerManager.cleanupStalePid(missingRegistry));
   const corruptRegistry = path.join(os.tmpdir(), `dsh-stale-bad-${process.pid}-${Date.now()}.json`);

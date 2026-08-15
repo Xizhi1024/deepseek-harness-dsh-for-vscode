@@ -25,7 +25,7 @@ const {
   reconcileConfigChange,
 } = require("./serverManager");
 const { ensureManagedRuntime } = require("./runtimeProvisioner");
-const { framePage, statusPage } = require("./webviewHtml");
+const { framePage, statusPage, safeHttpUrl } = require("./webviewHtml");
 const {
   listSessions,
   createSession,
@@ -165,63 +165,96 @@ async function stopOwnedServer() {
  * onStartupFinished), the server is still ensured; render() simply has nothing
  * to paint and the view — resolved later — schedules another ensure to show it.
  */
+/**
+ * Bind the sidebar to one ready RunningServer handle: record it, optionally
+ * auto-bind an owned instance to the current workspace session, externalize
+ * its URL for the webview and update the status bar / iframe.
+ */
+async function bindServer(context, server, cwd) {
+  currentServer = server;
+  boundCwd = cwd;
+  // Owned instances are automatically bound to the current workspace root.
+  // Reused external instances are never touched. Binding is best-effort:
+  // failures/timeouts must not make the overall connect fail.
+  if (server.owned && cwd && !currentSessionId) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    try {
+      const sessionId = await ensureWorkspaceSessionFn(server.url, cwd, { signal: controller.signal });
+      currentSessionId = sessionIdFromValue(sessionId);
+    } catch (err) {
+      console.warn('dsh-vs-sidebar: auto workspace binding skipped:', err && err.message ? err.message : err);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  const url = await externalize(server.url);
+  currentExternalUrl = url;
+  const mode = loc(server.owned ? "managed" : "reused");
+  setStatusBar(
+      "$(radio-tower) " + loc("DSH: {port} ({mode})", { port: String(server.port), mode }),
+      loc("DSH server: {url}", { url: server.url }) + (cwd ? " | " + loc("workspace: {cwd}", { cwd }) : "")
+  );
+  renderFrame(context);
+}
+
 async function connectNow(context) {
   try {
     const cfg = hostContext.config();
     const cwd = hostContext.workspaceCwd();
     setStatusBar("$(radio-tower) " + loc("DSH: connecting…"));
     render(statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail: "", lang: vscode.env.language }));
+
+    let server = null;
     // autoStart spawns from the verified managed runtime only. Resolve (and,
     // when configured, provision) it first so a missing/corrupt runtime fails
     // closed through the status page — never by falling back to PATH `dsh`.
+    // One exception: when no managed runtime can be provided but a DSH
+    // instance is already serving the configured endpoint, adopt that
+    // instance as a reused external server instead of stranding the sidebar.
     if (cfg.autoStart) {
       render(statusPage({
         title: loc("Connecting to DeepSeek Harness…"),
         detail: loc("Resolving managed DSH runtime…"),
         lang: vscode.env.language,
       }));
-      const resolvedRuntime = await ensureRuntime({
-        storageRoot: runtimeStorageRoot,
-        platform: process.platform,
-        arch: process.arch,
-        manifestUrl: cfg.runtimeManifestUrl,
-        version: cfg.runtimeVersion,
-        signal: runtimeAbort.signal,
-      });
-      manager.setResolvedRuntime(resolvedRuntime);
+      let resolvedRuntime;
+      try {
+        resolvedRuntime = await ensureRuntime({
+          storageRoot: runtimeStorageRoot,
+          platform: process.platform,
+          arch: process.arch,
+          manifestUrl: cfg.runtimeManifestUrl,
+          version: cfg.runtimeVersion,
+          signal: runtimeAbort.signal,
+        });
+      } catch (runtimeError) {
+        const adopted = typeof manager.adoptRunningDsh === 'function'
+          ? await manager.adoptRunningDsh(cfg.host, cfg.port).catch(() => null)
+          : null;
+        if (!adopted) throw runtimeError;
+        manager.setResolvedRuntime(null);
+        console.warn(
+          'dsh-vs-sidebar: managed runtime unavailable; reusing running DSH instance:',
+          runtimeError && runtimeError.message ? runtimeError.message : runtimeError
+        );
+        server = adopted;
+      }
+      if (server === null) {
+        manager.setResolvedRuntime(resolvedRuntime);
+      }
     }
-    const server = await manager.ensureServer({
+
+    if (server === null) {
+      server = await manager.ensureServer({
         host: cfg.host,
         port: cfg.port,
         autoStart: cfg.autoStart,
         cwd,
         registryFile: hostContext.registryFilePath(),
-    });
-    currentServer = server;
-    boundCwd = cwd;
-    // Owned instances are automatically bound to the current workspace root.
-    // Reused external instances are never touched. Binding is best-effort:
-    // failures/timeouts must not make the overall connect fail.
-    if (server.owned && cwd && !currentSessionId) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 6000);
-      try {
-        const sessionId = await ensureWorkspaceSessionFn(server.url, cwd, { signal: controller.signal });
-        currentSessionId = sessionIdFromValue(sessionId);
-      } catch (err) {
-        console.warn('dsh-vs-sidebar: auto workspace binding skipped:', err && err.message ? err.message : err);
-      } finally {
-        clearTimeout(timer);
-      }
+      });
     }
-    const url = await externalize(server.url);
-    currentExternalUrl = url;
-    const mode = loc(server.owned ? "managed" : "reused");
-    setStatusBar(
-        "$(radio-tower) " + loc("DSH: {port} ({mode})", { port: String(server.port), mode }),
-        loc("DSH server: {url}", { url: server.url }) + (cwd ? " | " + loc("workspace: {cwd}", { cwd }) : "")
-    );
-    renderFrame(context);
+    await bindServer(context, server, cwd);
   } catch (err) {
       currentServer = null;
       boundCwd = null;
@@ -229,13 +262,13 @@ async function connectNow(context) {
       setStatusBar("$(error) " + loc("DSH: unavailable"));
       const cfg = hostContext.config();
       const url = "http://" + cfg.host + ":" + cfg.port;
-      currentExternalUrl = await externalize(url);
+      currentExternalUrl = safeHttpUrl(url) === "about:blank" ? null : await externalize(url);
       try {
         render(statusPage({
           title: loc("DeepSeek Harness unavailable"),
           detail: err && err.template ? loc(err.template, err.params) : String(err && err.message ? err.message : err),
           url,
-          showOpenBrowser: true,
+          showOpenBrowser: Boolean(currentExternalUrl),
           showRetry: true,
           openBrowserLabel: loc("Open in browser"),
           retryLabel: loc("Retry"),
@@ -555,8 +588,12 @@ async function activateWithDependencies(context, dependencies = {}) {
         // NOTE: onDidReceiveMessage lives on the Webview, not the WebviewView.
         view.webview.onDidReceiveMessage(createWebviewMessageHandler({
           openBrowser: () => {
-            if (currentServer && currentExternalUrl) {
-              vscode.env.openExternal(vscode.Uri.parse(currentExternalUrl));
+            // The status page also renders after a failed connect; in that
+            // state currentServer is null but currentExternalUrl points at
+            // the configured endpoint, so keep this handler usable there.
+            const candidate = currentExternalUrl && safeHttpUrl(currentExternalUrl);
+            if (candidate && candidate !== "about:blank") {
+              vscode.env.openExternal(vscode.Uri.parse(candidate));
             }
           },
           retry: () => scheduleConnect(context, resolvedViewGeneration).catch(() => {}),

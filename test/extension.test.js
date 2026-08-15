@@ -564,6 +564,136 @@ test('autoStart fails closed without spawning when managed runtime resolution fa
   await deactivate();
 });
 
+test('autoStart adopts a running DSH instance when managed runtime is unavailable', async () => {
+  const fake = createFakeVscode({ autoStart: true });
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-autostart-adopt-${process.pid}`) },
+    subscriptions: [],
+  };
+  let ensureRuntimeCalls = 0;
+  let adoptCalls = 0;
+  let ensureServerCalls = 0;
+  let setResolvedRuntimeArgs = [];
+  const manager = {
+    setResolvedRuntime(value) { setResolvedRuntimeArgs.push(value); },
+    async adoptRunningDsh(host, port) {
+      adoptCalls += 1;
+      return {
+        url: `http://${host}:${port}`,
+        host,
+        port,
+        pid: null,
+        owned: false,
+      };
+    },
+    ensureServer() {
+      ensureServerCalls += 1;
+      throw new Error('ensureServer must not be reached after adoption');
+    },
+    hasOwnedChild() { return false; },
+    cancelPending() {},
+    async stop() {},
+  };
+
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() { return manager; },
+    async ensureManagedRuntime() {
+      ensureRuntimeCalls += 1;
+      throw new Error('managed runtime unavailable');
+    },
+  });
+
+  let viewHtml = '';
+  const view = {
+    webview: {
+      options: null,
+      onDidReceiveMessage() { return disposable(); },
+      set html(value) { viewHtml = value; },
+      get html() { return viewHtml; },
+    },
+    onDidDispose() { return disposable(); },
+  };
+  fake.registrations.webview.provider.resolveWebviewView(view);
+  await waitFor(() => viewHtml.includes('iframe'));
+
+  assert.ok(ensureRuntimeCalls >= 1, 'managed runtime resolution must be attempted');
+  assert.ok(adoptCalls >= 1, 'the configured endpoint must be probed at least once');
+  assert.strictEqual(ensureServerCalls, 0, 'an adopted server must not re-enter ensureServer');
+  assert.ok(setResolvedRuntimeArgs.length >= 1, 'adoption must clear managed runtime state');
+  assert.ok(setResolvedRuntimeArgs.every((value) => value === null), 'adoption must never leave a managed runtime active');
+  assert.ok(viewHtml.includes('http://127.0.0.1:3080'), 'iframe must point at the adopted endpoint');
+  assert.ok(!viewHtml.includes('dsh_session='), 'adopted external instances must never be auto-bound');
+
+  await deactivate();
+});
+
+test('failed-connect status page can open the configured endpoint in browser', async () => {
+  const fake = createFakeVscode({ autoStart: true });
+  const openExternalCalls = [];
+  fake.api.env.openExternal = async (uri) => {
+    openExternalCalls.push(uri.toString());
+  };
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-status-open-${process.pid}`) },
+    subscriptions: [],
+  };
+  const manager = {
+    setResolvedRuntime() {},
+    async adoptRunningDsh() { return null; },
+    ensureServer() {
+      return Promise.reject(new Error('no dsh service'));
+    },
+    hasOwnedChild() { return false; },
+    cancelPending() {},
+    async stop() {},
+  };
+
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() { return manager; },
+    async ensureManagedRuntime() {
+      throw new Error('managed runtime unavailable');
+    },
+  });
+
+  let viewHtml = '';
+  let messageHandler = null;
+  const view = {
+    webview: {
+      options: null,
+      onDidReceiveMessage(handler) {
+        messageHandler = handler;
+        return disposable();
+      },
+      set html(value) { viewHtml = value; },
+      get html() { return viewHtml; },
+    },
+    onDidDispose() { return disposable(); },
+  };
+  fake.registrations.webview.provider.resolveWebviewView(view);
+  await waitFor(() => viewHtml.includes('DeepSeek Harness unavailable') && viewHtml.includes('btn-open-browser'));
+
+  assert.strictEqual(typeof messageHandler, 'function', 'status page message handler must be registered');
+  messageHandler({ type: 'openBrowser' });
+  await waitFor(() => openExternalCalls.length === 1);
+  assert.strictEqual(openExternalCalls[0], 'http://127.0.0.1:3080', 'status page must open the configured endpoint');
+
+  await deactivate();
+});
+
 test('openInBrowser does not open a fallback URL when connect fails', async () => {
   const fake = createFakeVscode();
   let openExternalCalls = 0;

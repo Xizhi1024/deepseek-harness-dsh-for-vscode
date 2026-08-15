@@ -2,7 +2,7 @@
   "name": "dsh-vs-sidebar",
   "displayName": "%dsh.displayName%",
   "description": "%dsh.ext.description%",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "Xizhi1024",
   "license": "MIT",
   "pricing": "Free",
@@ -116,8 +116,7 @@
       {
         "command": "dsh.focusSidebar",
         "title": "%dsh.cmd.focusSidebar%",
-        "category": "%dsh.cmd.category%",
-        "icon": "media/dsh.svg"
+        "category": "%dsh.cmd.category%"
       },
       {
         "command": "dsh.addActiveFile",
@@ -191,13 +190,6 @@
           "command": "dsh.diagnose",
           "when": "view == dsh.webview",
           "group": "navigation@7"
-        }
-      ],
-      "editor/title": [
-        {
-          "command": "dsh.focusSidebar",
-          "group": "navigation@100",
-          "when": "resourceScheme == file || resourceScheme == untitled"
         }
       ]
     },

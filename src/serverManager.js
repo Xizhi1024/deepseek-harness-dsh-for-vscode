@@ -281,6 +281,33 @@ class ServerManager {
   }
 
   /**
+   * Try to adopt a DSH instance that is already serving `host:port`.
+   *
+   * Unlike ensureServer()'s default autoStart path this is an explicit
+   * caller-requested fallback: it never spawns and never kills anything. It
+   * returns a non-owned reuse handle when the endpoint answers as DSH, or
+   * null when the endpoint is unreachable / non-DSH / probing fails.
+   * Status is emitted through the same lifecycle channel as ensureServer().
+   *
+   * @param {string} host - DSH endpoint host.
+   * @param {number} port - DSH endpoint port.
+   * @returns {Promise<object|null>} RunningServer handle, or null.
+   */
+  async adoptRunningDsh(host, port) {
+    try {
+      this._emit('probing', 'Probing DSH service: http://{host}:{port}…', { host, port });
+      const result = await this.probeWithRetry(host, port);
+      if (result && result.reachable && result.isDsh) {
+        this._emit('reusing', 'Found a running DSH instance at http://{host}:{port}, reusing', { host, port });
+        return this._reuseHandle(host, port);
+      }
+    } catch {
+      // The caller keeps its original error and decides whether to surface it.
+    }
+    return null;
+  }
+
+  /**
    * Report a lifecycle transition. template is an English l10n template with
    * {name} placeholders and params its values; the listener localizes it
    * (e.g. through vscode.l10n). An optional running-server handle is attached

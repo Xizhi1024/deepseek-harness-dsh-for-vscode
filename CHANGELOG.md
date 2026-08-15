@@ -3,10 +3,23 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-08-15
+
+### Fixed / 修复
+
+- **移除全局编辑器标题栏鲸鱼按钮（回退 PR #2 的 `editor/title` 注册）**：`dsh.focusSidebar` 不再出现在任意文件/untitled 编辑器的标题栏，DSH 操作按钮只注册在 DSH 自己的 `view/title`（`view == dsh.webview`），因此不会再泄漏到 Claude Code 等其他侧边栏/编辑器宿主。
+  Remove the global editor-title whale button (revert PR #2's `editor/title` registration): `dsh.focusSidebar` no longer appears in every file/untitled editor title bar, and DSH actions are only contributed to DSH's own `view/title` (`view == dsh.webview`), so they cannot leak into other sidebar/editor hosts such as Claude Code.
+
+- **托管运行时缺失时可复用已运行的 DSH 实例**：`dsh.autoStart=true` 且 managed runtime 解析/安装失败时，若配置端点（如浏览器已打开的 `http://127.0.0.1:3080`）探测为 DSH，扩展改为复用该外部实例并进入正常 iframe，而不是停在「请设置 dsh.runtime.manifestUrl」错误页；复用实例仍永不停止，也绝不回退 PATH 上的 `dsh`。
+  Reuse a running DSH instance when the managed runtime is unavailable: with `dsh.autoStart=true`, if runtime resolution/provisioning fails but the configured endpoint (e.g. `http://127.0.0.1:3080` already open in a browser) probes as DSH, the extension adopts it as a reused external instance and shows the iframe instead of the `dsh.runtime.manifestUrl` error page; adopted instances are still never stopped, and there is still no PATH `dsh` fallback.
+
+- **失败状态页的「在浏览器中打开」按钮可用**：连接失败后按钮真正打开配置端点（仅 http/https），无效 URL 不再渲染死按钮；`dsh.openInBrowser` 命令仍保持「未连接不打开」语义。
+  Make the failed-status-page "Open in browser" button work: after a failed connect the button opens the configured endpoint (http/https only), invalid URLs no longer render a dead button, and the `dsh.openInBrowser` command keeps its no-connection guard.
+
 ## [0.4.0] - 2026-08-15
 
-> 本节内容已实现，尚未在 Marketplace / Open VSX 发布。
-> This section is implemented but not yet published to the Marketplace / Open VSX.
+> 本节内容已随 0.4.0 发布；其中编辑器标题栏鲸鱼按钮已在 0.4.1 回退。
+> This section shipped with 0.4.0; the editor-title whale button was reverted in 0.4.1.
 
 ### Added / 新增
 
@@ -30,9 +43,6 @@ All notable changes to this project are documented here, following [Keep a Chang
 
 - **密钥扫描门禁（W6-4/W6-5 本地部分）**：新增 `scripts/check-secrets.js` 与 `npm run test:secrets`，扫描将进入 VSIX 的源码/文档（不扫 `node_modules`、`.git`、`.vscode-test`），检测硬编码 DSH 桥接 token 字面量、`Authorization: Bearer` 凭据、OpenAI/AWS key、私钥与密码字面量；示例/测试 fixture 使用显式 `// allow-secret-scan` 注释放行；`check:w0` 末尾纳入该门禁。
   Secret-scan gate (local part of W6-4/W6-5): add `scripts/check-secrets.js` and `npm run test:secrets` to scan the source/docs that will enter the VSIX (never `node_modules`, `.git`, or `.vscode-test`), detecting hardcoded DSH bridge token literals, `Authorization: Bearer` credentials, OpenAI/AWS keys, private keys, and password literals; example/test fixtures are released with an explicit `// allow-secret-scan` comment; `check:w0` now runs this gate.
-
-- **编辑器右上角鲸鱼按钮（PR #2）**：`dsh.focusSidebar` 命令新增 `media/dsh.svg` 图标，并注册到 `editor/title` 菜单；在编辑器标题栏点击鲸鱼图标即可聚焦 DSH 侧边栏。
-  Editor-corner whale button (PR #2): `dsh.focusSidebar` gains a `media/dsh.svg` icon and an `editor/title` menu entry, so the whale icon in the editor title bar focuses the DSH sidebar directly.
 
 - **自管实例自动绑定工作区（PR #2）**：扩展自管（owned）DSH 实例启动后自动通过 `ensureWorkspaceSession` 复用/创建当前工作区 cwd 的 blank 根会话，iframe 携带 `dsh_session` 打开正确工作区；reused 外部实例绝不触碰。绑定失败/超时仅跳过，不影响连接。
   Owned-instance workspace auto-binding (PR #2): after an owned DSH instance starts, the extension auto-reuses/creates a blank root session for the current workspace cwd via `ensureWorkspaceSession` and passes `dsh_session` to the iframe; reused external instances are never touched, and binding failures/timeouts only skip the binding.
