@@ -10,6 +10,14 @@ test('framePage allows clipboard-write on the embedded iframe', () => {
   assert.match(html, /<iframe[^>]*allow="clipboard-write"/);
 });
 
+test('framePage includes a CSP meta that permits inline assets and http(s) frames', () => {
+  const html = framePage({ url: 'http://127.0.0.1:3080' });
+  assert.match(html, /<meta http-equiv="Content-Security-Policy"[^>]*>/);
+  assert.ok(html.includes("default-src 'none'"));
+  assert.ok(html.includes("script-src 'unsafe-inline'"));
+  assert.ok(html.includes("frame-src http: https:"));
+});
+
 test('statusPage escapes user-provided script content', () => {
   const html = statusPage({
     title: '<script>alert(1)</script>',
@@ -18,6 +26,14 @@ test('statusPage escapes user-provided script content', () => {
   assert.ok(!html.includes('<script>alert(1)</script>'));
   assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
   assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt;'));
+});
+
+test('statusPage includes a CSP meta', () => {
+  const html = statusPage({ title: 'title', detail: 'detail' });
+  assert.match(html, /<meta http-equiv="Content-Security-Policy"[^>]*>/);
+  assert.ok(html.includes("default-src 'none'"));
+  assert.ok(html.includes("style-src 'unsafe-inline'"));
+  assert.ok(html.includes("frame-src http: https:"));
 });
 
 test('withVscodeEmbedMode adds dsh_embed and a valid dsh_session', () => {
@@ -37,4 +53,21 @@ test('withVscodeEmbedMode ignores over-long and NUL session ids', () => {
     new URL(withVscodeEmbedMode('http://127.0.0.1:3080/', 'bad\0id')).searchParams.get('dsh_session'),
     null
   );
+});
+
+test('withVscodeEmbedMode rejects non-http(s) schemes without adding embed markers', () => {
+  for (const bad of ['javascript:alert(1)', 'data:text/html,<h1>hi</h1>']) {
+    const out = withVscodeEmbedMode(bad, 's');
+    assert.strictEqual(out, bad);
+    assert.ok(!out.includes('dsh_embed'));
+  }
+});
+
+test('withVscodeEmbedMode accepts http and https URLs and adds markers', () => {
+  for (const input of ['http://127.0.0.1:3080/', 'https://example.test/path']) {
+    const out = withVscodeEmbedMode(input, 's');
+    const parsed = new URL(out);
+    assert.strictEqual(parsed.searchParams.get('dsh_embed'), 'vscode');
+    assert.strictEqual(parsed.searchParams.get('dsh_session'), 's');
+  }
 });

@@ -17,6 +17,25 @@ function escapeHtml(value) {
 }
 
 /**
+ * Content Security Policy meta tag used by both generated webview pages.
+ *
+ * The policy intentionally keeps the existing inline <style>/<script> blocks
+ * working while denying everything not needed by the webview shell:
+ *   - default-src 'none'  -> no network/image/font/connect/etc. by default
+ *   - base-uri 'none'     -> no <base> URL rewriting
+ *   - style-src 'unsafe-inline' -> inline styles used by the status/frame pages
+ *   - script-src 'unsafe-inline' -> inline script used to wire webview buttons
+ *   - frame-src http: https: -> the embedded DSH iframe must keep working in
+ *     local (http://127.0.0.1) and remote/asExternalUri (https://...) scenarios
+ *   - img-src data:       -> allow the minimal data-image case if a caller
+ *     supplies a data: image; the current pages do not rely on it
+ *
+ * This CSP governs only the webview shell document; it does not apply to the
+ * DSH content inside the iframe (the iframe has its own origin/response).
+ */
+const WEBVIEW_CSP_META = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; base-uri \'none\'; style-src \'unsafe-inline\'; script-src \'unsafe-inline\'; frame-src http: https:; img-src data:;">';
+
+/**
  * Adds the DSH compact-layout marker to an iframe URL while preserving any
  * existing query parameters and fragment. When a valid session id is supplied
  * the `dsh_session` query parameter is added as well; invalid session ids are
@@ -31,6 +50,9 @@ function escapeHtml(value) {
 function withVscodeEmbedMode(url, sessionId = undefined) {
   try {
     const parsed = new URL(String(url || ""));
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return String(url || "");
+    }
     parsed.searchParams.set("dsh_embed", "vscode");
     if (
       typeof sessionId === "string"
@@ -94,6 +116,7 @@ function statusPage({
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+${WEBVIEW_CSP_META}
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
@@ -184,6 +207,7 @@ function framePage({
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+${WEBVIEW_CSP_META}
 <style>
   html, body { margin: 0; padding: 0; height: 100%; }
   #frame { position: fixed; inset: 0; width: 100%; height: 100%; border: none; }
