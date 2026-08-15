@@ -4,7 +4,7 @@
   "dsh.cfg.title": "DeepSeek Harness 侧边栏 (DSH)",
   "dsh.cfg.port": "探测 / 启动 DSH Web 服务的端口。",
   "dsh.cfg.host": "绑定地址。请保持 127.0.0.1——webview 内 iframe 仅允许 127.0.0.1/localhost。",
-  "dsh.cfg.autoStart": "为当前 VS Code 窗口单独启动 DSH 进程（false = 仅复用配置端点上的用户自管实例）。",
+  "dsh.cfg.autoStart": "为当前 VS Code 窗口启动托管 DSH 进程。托管运行时不可用但配置端点已有 DSH 在运行时，改为复用该实例（false = 只复用配置端点上的用户自管实例）。",
   "dsh.cfg.closePolicy": "何时停止扩展自己拉起的 DSH 服务。onVscodeExit（默认）：仅在 VS Code 退出时停止。onViewClose：关闭侧边栏视图时也停止。never：永不自动停止——请使用「停止 DSH 服务」命令。被复用的（非自管）实例永不停止。",
   "dsh.cfg.runtime.manifestUrl": "运行时发布清单（schemaVersion 1，artifact 内嵌运行时 manifest）的 HTTPS URL。留空 = 仅使用 VS Code global storage 下已安装且校验通过的运行时。",
   "dsh.cfg.runtime.version": "可选的 DSH 运行时版本锁定。留空 = 使用已安装的当前版本；需要通过 manifest URL 安装时则选择最新的匹配 artifact。",

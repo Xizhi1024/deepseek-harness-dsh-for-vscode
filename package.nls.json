@@ -4,7 +4,7 @@
   "dsh.cfg.title": "DeepSeek Harness Sidebar (DSH)",
   "dsh.cfg.port": "Port to probe / start the DSH web server.",
   "dsh.cfg.host": "Bind address. Keep 127.0.0.1 — the webview iframe only allows 127.0.0.1/localhost.",
-  "dsh.cfg.autoStart": "Give this VS Code window its own DSH process (false = reuse only the configured user-managed endpoint).",
+  "dsh.cfg.autoStart": "Give this VS Code window its own managed DSH process. When the managed runtime is unavailable but a DSH is already serving the configured endpoint, that instance is reused instead (false = reuse only the configured user-managed endpoint).",
   "dsh.cfg.closePolicy": "When to stop the extension-owned DSH server. onVscodeExit (default): stop only when VS Code exits. onViewClose: also stop when the sidebar view is closed. never: never stop automatically — use the Stop DSH Server command. A reused (non-owned) instance is never stopped.",
   "dsh.cfg.runtime.manifestUrl": "HTTPS URL of a runtime release manifest (schemaVersion 1, artifacts with embedded runtime manifests). Empty = use only the already installed verified runtime under VS Code global storage.",
   "dsh.cfg.runtime.version": "Optional DSH runtime version pin. Empty = use the installed current version, or the newest matching artifact when a manifest URL must provision one.",
