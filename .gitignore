@@ -18,3 +18,6 @@ dsh-instances.json
 
 # smoke 测试的临时数据 / smoke-test scratch data
 .smoke-storage/
+
+# ---- Local agent workspace / 本地辅助目录 ----
+.agents/
