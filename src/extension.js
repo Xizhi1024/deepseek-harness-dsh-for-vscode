@@ -29,6 +29,7 @@ const { framePage, statusPage } = require("./webviewHtml");
 const {
   listSessions,
   createSession,
+  ensureWorkspaceSession,
   rootSessionItems,
   reuseBlankSession,
   buildQuickPickItems,
@@ -70,6 +71,7 @@ let editorContext = null; // per-window approved editor attachments backing vsco
 let embedPatchPath = null; // generated --patch overlay applied to managed DSH children
 let runtimeStorageRoot = null; // managed runtime storage under VS Code global storage
 let ensureRuntime = null; // resolves/verifies (and optionally provisions) the managed runtime
+let ensureWorkspaceSessionFn = null; // owned-instance automatic workspace session binding
 let runtimeAbort = new AbortController(); // cancels in-flight runtime provisioning on deactivate
 
 /**
@@ -197,6 +199,21 @@ async function connectNow(context) {
     });
     currentServer = server;
     boundCwd = cwd;
+    // Owned instances are automatically bound to the current workspace root.
+    // Reused external instances are never touched. Binding is best-effort:
+    // failures/timeouts must not make the overall connect fail.
+    if (server.owned && cwd && !currentSessionId) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
+      try {
+        const sessionId = await ensureWorkspaceSessionFn(server.url, cwd, { signal: controller.signal });
+        currentSessionId = sessionIdFromValue(sessionId);
+      } catch (err) {
+        console.warn('dsh-vs-sidebar: auto workspace binding skipped:', err && err.message ? err.message : err);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
     const url = await externalize(server.url);
     currentExternalUrl = url;
     const mode = loc(server.owned ? "managed" : "reused");
@@ -376,6 +393,7 @@ async function activateWithDependencies(context, dependencies = {}) {
   runtimeStorageRoot = path.join(context.globalStorageUri.fsPath, 'runtime');
   ensureRuntime = dependencies.ensureManagedRuntime
     || ((options) => ensureManagedRuntime(options));
+  ensureWorkspaceSessionFn = dependencies.ensureWorkspaceSession || ensureWorkspaceSession;
   editorContext = createEditorContext({
     vscode,
     onChange: (payload) => {
@@ -827,6 +845,11 @@ async function deactivate() {
       // status bar disposal is best-effort during extension shutdown
     }
     statusBar = null;
+    currentView = null;
+    currentServer = null;
+    currentExternalUrl = null;
+    currentSessionId = null;
+    boundCwd = null;
   }
 }
 

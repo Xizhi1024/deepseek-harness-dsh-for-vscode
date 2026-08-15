@@ -7,6 +7,7 @@ const {
   DshSessionError,
   listSessions,
   createSession,
+  ensureWorkspaceSession,
   rootSessionItems,
   reuseBlankSession,
   buildQuickPickItems,
@@ -210,6 +211,77 @@ test('createSession wraps business failures with the same error mapping', async 
     (err) => err instanceof DshSessionError
       && err.code === 'DSH_SESSION_API_BUSINESS_ERROR'
       && err.businessCode === 'CREATE_DENIED'
+  );
+});
+
+test('ensureWorkspaceSession reuses a blank root session for the same cwd', async () => {
+  const calls = [];
+  const sessionId = await ensureWorkspaceSession(BASE_URL, 'D:\\workspace', {
+    fetchImpl: async (url, init) => {
+      calls.push({ url, method: JSON.parse(init.body).method });
+      return jsonResponse(200, {
+        result: {
+          ok: true,
+          value: {
+            items: [
+              { sessionId: 'blank-1', cwd: 'D:\\workspace', blank: true, updatedAt: 1 },
+              { sessionId: 'other', cwd: 'D:\\other', blank: true, updatedAt: 2 },
+            ],
+          },
+        },
+      });
+    },
+  });
+
+  assert.strictEqual(sessionId, 'blank-1');
+  assert.deepStrictEqual(calls, [
+    { url: BASE_URL + '/api/session.list', method: 'session.list' },
+  ]);
+});
+
+test('ensureWorkspaceSession creates a session when no blank root session matches', async () => {
+  const calls = [];
+  const sessionId = await ensureWorkspaceSession(BASE_URL, '/home/me/project', {
+    fetchImpl: async (url, init) => {
+      const request = JSON.parse(init.body);
+      calls.push(request.method);
+      if (request.method === 'session.list') {
+        return jsonResponse(200, {
+          result: {
+            ok: true,
+            value: { items: [{ sessionId: 'other', cwd: '/tmp', blank: true, updatedAt: 1 }] },
+          },
+        });
+      }
+      return jsonResponse(200, { result: { ok: true, value: { sessionId: 'created-1' } } });
+    },
+  });
+
+  assert.strictEqual(sessionId, 'created-1');
+  assert.deepStrictEqual(calls, ['session.list', 'session.create']);
+});
+
+test('ensureWorkspaceSession returns null for empty or non-string cwd', async () => {
+  let called = false;
+  for (const cwd of ['', null, undefined, 42, false]) {
+    assert.strictEqual(
+      await ensureWorkspaceSession(BASE_URL, cwd, {
+        fetchImpl: async () => { called = true; },
+      }),
+      null
+    );
+  }
+  assert.strictEqual(called, false);
+});
+
+test('ensureWorkspaceSession propagates AbortError unchanged', async () => {
+  const abort = new Error('aborted');
+  abort.name = 'AbortError';
+  await assert.rejects(
+    ensureWorkspaceSession(BASE_URL, '/ws', {
+      fetchImpl: async () => { throw abort; },
+    }),
+    (err) => err === abort
   );
 });
 

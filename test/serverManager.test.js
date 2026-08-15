@@ -458,6 +458,31 @@ test('ServerManager passes the generated embed overlay through as --patch', (t) 
   );
 });
 
+test('ServerManager never reuses the last spawned port within the same instance', async () => {
+  class FreshOriginManager extends ServerManager {
+    constructor() {
+      super();
+      this.starts = [];
+      this.probeWithRetry = async () => ({ reachable: false });
+    }
+
+    async _findFreePort(host, startPort) {
+      this.starts.push(startPort);
+      return startPort;
+    }
+
+    async _spawnAndWait(host, port) {
+      return { url: `http://${host}:${port}`, host, port, pid: 4242, owned: true };
+    }
+  }
+
+  const manager = new FreshOriginManager();
+  await manager.ensureServer({ host: '127.0.0.1', port: 4000, autoStart: true });
+  await manager.ensureServer({ host: '127.0.0.1', port: 4000, autoStart: true });
+
+  assert.deepStrictEqual(manager.starts, [4000, 4001]);
+});
+
 test('ServerManager Windows taskkill timeout resolves, kills the hanging killer, and retries tree-kill', async () => {
   const manager = new ServerManager();
   let killCalls = 0;

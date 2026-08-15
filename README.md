@@ -23,6 +23,7 @@ Embeds the local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 ## Usage
 
 - `Ctrl+Alt+B` opens the auxiliary sidebar → **DeepSeek Harness (DSH)** tab
+- The whale icon in the editor title bar focuses the DSH sidebar directly
 - Commands (all 11): **Open DSH in Browser** · **New Session** · **Switch Session** · **Restart DSH Server** · **Stop DSH Server** · **Focus DSH Sidebar** · **Add Active File to DSH Context** · **Add Active Selection to DSH Context** · **Add Problems to DSH Context** · **Capabilities and Integrations** · **Diagnose**
 - With `dsh.autoStart` on, the server is started at VS Code startup even if the sidebar is never opened
 

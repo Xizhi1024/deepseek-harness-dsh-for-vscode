@@ -386,6 +386,132 @@ test('autoStart resolves the managed runtime before spawn and hands it to Server
   assert.strictEqual(ensureRuntimeOptions.signal.aborted, true, 'deactivate must abort in-flight provisioning');
 });
 
+test('owned autoStart instance auto-binds workspace session and iframe carries dsh_session', async () => {
+  const fake = createFakeVscode({ autoStart: true });
+  fake.api.workspace.workspaceFolders = [
+    { uri: { fsPath: 'D:\\workspace' }, name: 'workspace', index: 0 },
+  ];
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-autobind-${process.pid}`) },
+    subscriptions: [],
+  };
+  let ensureWorkspaceCalls = 0;
+  const manager = {
+    setResolvedRuntime() {},
+    ensureServer(options) {
+      return Promise.resolve({
+        url: `http://${options.host}:${options.port}`,
+        host: options.host,
+        port: options.port,
+        pid: 4242,
+        owned: true,
+      });
+    },
+    hasOwnedChild() { return false; },
+    cancelPending() {},
+    async stop() {},
+  };
+
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() { return manager; },
+    async ensureManagedRuntime() { return {}; },
+    async ensureWorkspaceSession(baseUrl, cwd, options) {
+      ensureWorkspaceCalls += 1;
+      assert.ok(options && options.signal, 'workspace binding must receive an abort signal');
+      assert.strictEqual(baseUrl, 'http://127.0.0.1:3080', 'binding must use the raw loopback URL');
+      assert.strictEqual(cwd, 'D:\\workspace');
+      return 'sid-1';
+    },
+  });
+
+  let viewHtml = '';
+  const view = {
+    webview: {
+      options: null,
+      onDidReceiveMessage() { return disposable(); },
+      set html(value) { viewHtml = value; },
+      get html() { return viewHtml; },
+    },
+    onDidDispose() { return disposable(); },
+  };
+  fake.registrations.webview.provider.resolveWebviewView(view);
+  await waitFor(() => viewHtml.includes('dsh_session=sid-1'));
+
+  assert.ok(ensureWorkspaceCalls >= 1, 'owned autoStart must attempt workspace binding');
+  assert.ok(viewHtml.includes('iframe'), 'owned connect should render the DSH iframe');
+
+  await deactivate();
+});
+
+test('reused external instance never auto-binds a workspace session', async () => {
+  const fake = createFakeVscode();
+  fake.api.workspace.workspaceFolders = [
+    { uri: { fsPath: 'D:\\workspace' }, name: 'workspace', index: 0 },
+  ];
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-nobind-${process.pid}`) },
+    subscriptions: [],
+  };
+  let ensureWorkspaceCalls = 0;
+  const manager = {
+    cancelPending() {},
+    hasOwnedChild() { return false; },
+    async stop() {},
+    ensureServer(options) {
+      return Promise.resolve({
+        url: `http://${options.host}:${options.port}`,
+        host: options.host,
+        port: options.port,
+        pid: null,
+        owned: false,
+      });
+    },
+  };
+
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() { return manager; },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+    async ensureWorkspaceSession() {
+      ensureWorkspaceCalls += 1;
+      return 'sid-1';
+    },
+  });
+
+  let viewHtml = '';
+  const view = {
+    webview: {
+      options: null,
+      onDidReceiveMessage() { return disposable(); },
+      set html(value) { viewHtml = value; },
+      get html() { return viewHtml; },
+    },
+    onDidDispose() { return disposable(); },
+  };
+  fake.registrations.webview.provider.resolveWebviewView(view);
+  await waitFor(() => viewHtml.includes('iframe'));
+
+  assert.strictEqual(ensureWorkspaceCalls, 0, 'reused instances must never be auto-bound');
+  assert.ok(!viewHtml.includes('dsh_session=sid-1'), 'reused iframe must not carry an auto-bound session');
+
+  await deactivate();
+});
+
 test('autoStart fails closed without spawning when managed runtime resolution fails', async () => {
   const fake = createFakeVscode({ autoStart: true });
   const context = {

@@ -219,6 +219,7 @@ class ServerManager {
     this._stopping = false; // true while a deliberate stop() is in progress
     this._ownedServer = null; // last ready endpoint backed by this._child
     this._cancelGeneration = 0; // invalidates an in-flight ensure/spawn operation
+    this._lastSpawnPort = null; // last port spawned by THIS instance (fresh origin)
   }
 
   /**
@@ -450,9 +451,16 @@ class ServerManager {
     }
 
     // Step 4: any occupied port belongs to another owner and must not be
-    // reused; a dead port can host this window's new child.
-    const scanStart = r.reachable ? port + 1 : port;
+    // reused; a dead port can host this window's new child. Within one
+    // ServerManager instance, never reuse the last port this instance
+    // spawned (fresh origin) so DSH does not cache the previous workspace
+    // under the same origin.
+    let scanStart = r.reachable ? port + 1 : port;
+    if (this._lastSpawnPort !== null && scanStart <= this._lastSpawnPort) {
+      scanStart = this._lastSpawnPort + 1;
+    }
     const freePort = await this._findFreePort(host, scanStart);
+    this._lastSpawnPort = freePort;
     this._throwIfCancelled(generation);
     return this._spawnAndWait(host, freePort, cwd, registryFile, generation);
   }
