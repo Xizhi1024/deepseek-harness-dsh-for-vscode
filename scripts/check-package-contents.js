@@ -43,7 +43,6 @@ for (const required of [
   'src/runtimeArtifact.js',
   'src/runtimeArchive.js',
   'src/runtimeDownloader.js',
-  'src/runtimeEnvironment.js',
   'src/runtimeInstaller.js',
   'src/managedRuntimeLaunch.js',
   'src/embedOverlay.js',

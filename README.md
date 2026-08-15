@@ -82,7 +82,6 @@ A reused (non-owned) instance is never stopped by any policy or command.
 - The iframe receives `dsh_embed=vscode`, which supported DSH builds use to hide their internal sidebar, details column, and resize handles; **Open in Browser** keeps the normal full layout
 - Managed children also receive a generated `--patch` overlay (under VS Code global storage) that disables third-party plugins known to re-add sidebar/panel chrome inside the embed (`better-sidebar`, `ui-dsh-aionui-panel`). If those plugins are not installed the overlay is inert; the patch never edits DSH sources, profiles, or `cordis.patch.yml`
 - Managed autoStart resolves/verifies the runtime before every spawn (pointer, manifest, payload SHA-256). Missing manifest, hash mismatch, no platform artifact, and a missing `dsh.runtime.manifestUrl` all fail closed through the sidebar status page — the extension **never falls back to a `dsh` executable on PATH**
-- PATH fallback when VS Code is GUI-launched with a trimmed PATH: `%APPDATA%\npm` (Windows); existing npm-global bins (POSIX) — only relevant to `dsh.autoStart=false` reuse mode
 - Cleanup: `taskkill /T /F` tree-kill (Windows — force-terminated, not a graceful stop); detached spawn + `kill(-pid)` process-group SIGTERM (POSIX)
 - Untrusted / virtual workspaces **unsupported** (spawns local processes, touches workspace files) — declared via `capabilities`
 - Container/view IDs `dsh-sidebar` / `dsh.webview` are **persistent contracts** — never change them in a release (resets the user's sidebar layout)
@@ -107,7 +106,6 @@ A reused (non-owned) instance is never stopped by any policy or command.
 | `src/bridgeWorkspace.js` | bridge workspace identity and trust classification |
 | `src/embedOverlay.js` | generated `--patch` overlay for the managed DSH child |
 | `src/lifecycle.js` | serialized lifecycle queue and shutdown gate |
-| `src/runtimeEnvironment.js` | GUI-launch PATH repair |
 | `src/managedRuntimeLaunch.js` | verified managed-runtime launch spec, profile/path normalization, `--patch` passthrough |
 | `src/runtimeResolver.js` | managed runtime resolution with current/last-good pointer verification |
 | `src/runtimeProvisioner.js` | release-manifest parse, artifact selection, resolve-or-provision orchestration |
