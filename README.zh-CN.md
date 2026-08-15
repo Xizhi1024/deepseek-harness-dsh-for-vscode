@@ -8,6 +8,12 @@
 
 **在扩展自管的 DSH 会话中，模型输出的“复制”使用 VS Code 剪贴板，`Read …` 文件（包括共享旧会话中位于当前工作区之外的绝对路径）在拥有该 DSH 进程的 VS Code 窗口中打开，HTTP/HTTPS 链接在 VS Code Simple Browser 中打开。Markdown 文件不再回退到 Typora 等 Windows 默认关联程序。在编辑器中选中代码并右键“添加到 DSH 对话”，只会向当前 DSH 草稿追加紧凑的文件名/行号 Markdown 链接，不再粘贴代码正文；消息渲染后点击链接，会在所属 VS Code 窗口重新打开并选中该附件。扩展绝不会自动发送。**
 
+## 选区链接示例
+
+选中一个或多个代码范围，右键选择 **添加到 DSH 对话**，DSH 草稿会收到紧凑的文件名/行号 Markdown 链接，而不是粘贴代码正文。下图演示了在同一草稿中连续附加两个选区。
+
+![将 VS Code 选区以紧凑链接添加到 DSH 对话](media/add-to-dsh-thread-example.png)
+
 ## 🚨 **重要警告：隔离模式会让原有模块看起来全部“消失”**
 
 > [!IMPORTANT]

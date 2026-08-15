@@ -8,6 +8,12 @@ Embeds the local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 **In an extension-owned DSH session, model-output Copy uses the VS Code clipboard, `Read …` files—including absolute paths from shared older sessions outside the current workspace—open in the exact owning VS Code window, and HTTP/HTTPS links open in VS Code Simple Browser. Markdown files no longer fall through to Windows file associations such as Typora. Select code and right-click `Add to DSH Thread` to append only a compact Markdown file-and-line link to the active DSH draft—never the selected source text; clicking the rendered link reopens that approved selection in the owning VS Code window. It is never auto-sent.**
 
+## Selection-link example
+
+Select one or more code ranges, right-click **Add to DSH Thread**, and the DSH draft receives compact file-and-line Markdown links instead of pasted source code. The screenshot shows two selections queued in the same draft.
+
+![Add selected VS Code ranges to a DSH conversation as compact links](media/add-to-dsh-thread-example.png)
+
 ## 🚨 **IMPORTANT: ISOLATED MODE CAN MAKE ALL EXISTING MODULES APPEAR TO DISAPPEAR**
 
 > [!IMPORTANT]
