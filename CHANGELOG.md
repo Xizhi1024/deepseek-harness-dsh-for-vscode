@@ -3,6 +3,22 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-08-15
+
+### Changed / 变更
+
+- **VS Code 启动时自动拉起本机官方 DSH**：`dsh.autoStart=true` 现在默认自动发现 npm 全局安装的 `@deepseek-ai/dsh` 与 Node.js，不再要求预先下载托管 runtime；每次都以扩展专属的持久化 `.dsh` 和固定 `web` profile 启动。首次激活即创建 `.dsh`，官方 DSH 首次启动时用内置 `web` 模板生成仅含官方插件的默认配置，后续由用户维护并被扩展持续复用。非标准安装可用 `dsh.local.packageRoot` / `dsh.local.nodePath` 指定。
+  Auto-start the local official DSH with VS Code: `dsh.autoStart=true` now discovers the globally installed npm `@deepseek-ai/dsh` and Node.js by default instead of requiring a pre-downloaded managed runtime. Every launch uses the extension-owned persistent `.dsh` and fixed `web` profile. The extension creates `.dsh` on first activation; official DSH seeds the first profile from its bundled official-only `web` template, after which the user maintains it and the extension keeps reusing it. Non-standard installs can use `dsh.local.packageRoot` / `dsh.local.nodePath`.
+
+- **所有扩展入口统一使用 DeepSeek 官方标识**：Marketplace/扩展列表图标使用 DeepSeek 官网 `favicon.ico` 中鲸鱼的透明度遮罩二值化生成纯黑 PNG，Activity Bar、Secondary Sidebar 与编辑器标题栏使用同一鲸鱼轮廓的主题自适应 SVG；旧 DSH 虎鲸素材不再打包。
+  Every extension entry now uses the DeepSeek brand mark: the Marketplace/extension-list icon is a pure-black PNG produced by binarizing the whale alpha mask from DeepSeek's official-site `favicon.ico`, while the Activity Bar, Secondary Sidebar, and editor-title actions use the same whale silhouette as a theme-aware SVG. The former DSH orca assets are no longer packaged.
+
+- **编辑器标题栏只保留一个常驻 DSH 图标入口**：`editor/title` 仅注册 `dsh.focusSidebar` 一条（`navigation@40`），并为该命令配置 `media/deepseek.svg` 图标，因此标题栏只显示鲸鱼图标而不显示文字。`navigation` 组整体排在 VS Code 内置 `4_split`（拆分编辑器）组之前，使图标尽可能位于 Claude Code / Codex 等第三方图标之后、拆分编辑器按钮之前。
+  Editor title bar keeps one persistent icon-only DSH entry: `editor/title` registers only `dsh.focusSidebar` (`navigation@40`) with the `media/deepseek.svg` icon, so the title bar shows just the whale icon and no text. The `navigation` group as a whole sorts before VS Code's built-in `4_split` (split editor) group, placing the icon as close as VS Code ordering permits after Claude Code / Codex third-party icons and before the split-editor button.
+
+- **七个上下文命令不再占用任何标题栏**：`Add Active File` / `Add Active Selection` / `Add Problems` / `New Session` / `Switch Session` / `Capabilities and Integrations` / `Diagnose` 从 `view/title` 移除，仅保留在命令面板，不会再以长文本按钮铺在 DSH 视图顶部。点击 DSH 图标复用现有 `dsh.focusSidebar` 实现（打开并聚焦已有的 DSH 视图容器/视图，不创建重复视图）。
+  The seven context commands no longer occupy any title bar: Add Active File / Add Active Selection / Add Problems / New Session / Switch Session / Capabilities and Integrations / Diagnose are removed from `view/title` and remain available from the command palette, so they cannot render as long text buttons above the DSH view. The DSH icon reuses the existing `dsh.focusSidebar` implementation, which reveals and focuses the existing DSH view container/view without creating duplicates.
+
 ## [0.4.2] - 2026-08-15
 
 ### Changed / 变更

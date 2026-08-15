@@ -2,7 +2,7 @@
   "name": "dsh-vs-sidebar",
   "displayName": "%dsh.displayName%",
   "description": "%dsh.ext.description%",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "publisher": "Xizhi1024",
   "license": "MIT",
   "pricing": "Free",
@@ -30,7 +30,7 @@
     "color": "#0e639c",
     "theme": "dark"
   },
-  "icon": "media/dsh.png",
+  "icon": "media/deepseek.png",
   "engines": {
     "vscode": "^1.106.0"
   },
@@ -84,7 +84,7 @@
         {
           "id": "dsh-sidebar",
           "title": "%dsh.view.title%",
-          "icon": "media/dsh.svg"
+          "icon": "media/deepseek.svg"
         }
       ]
     },
@@ -117,7 +117,7 @@
         "command": "dsh.focusSidebar",
         "title": "%dsh.cmd.focusSidebar%",
         "category": "%dsh.cmd.category%",
-        "icon": "media/dsh.svg"
+        "icon": "media/deepseek.svg"
       },
       {
         "command": "dsh.addActiveFile",
@@ -156,48 +156,10 @@
       }
     ],
     "menus": {
-      "view/title": [
-        {
-          "command": "dsh.addActiveFile",
-          "when": "view == dsh.webview",
-          "group": "navigation@1"
-        },
-        {
-          "command": "dsh.addActiveSelection",
-          "when": "view == dsh.webview",
-          "group": "navigation@2"
-        },
-        {
-          "command": "dsh.addProblems",
-          "when": "view == dsh.webview",
-          "group": "navigation@3"
-        },
-        {
-          "command": "dsh.newSession",
-          "when": "view == dsh.webview",
-          "group": "navigation@4"
-        },
-        {
-          "command": "dsh.switchSession",
-          "when": "view == dsh.webview",
-          "group": "navigation@5"
-        },
-        {
-          "command": "dsh.capabilities",
-          "when": "view == dsh.webview",
-          "group": "navigation@6"
-        },
-        {
-          "command": "dsh.diagnose",
-          "when": "view == dsh.webview",
-          "group": "navigation@7"
-        }
-      ],
       "editor/title": [
         {
           "command": "dsh.focusSidebar",
-          "group": "navigation@40",
-          "when": "resourceScheme == file || resourceScheme == untitled"
+          "group": "navigation@40"
         }
       ]
     },
@@ -233,6 +195,16 @@
           ],
           "default": "onVscodeExit",
           "description": "%dsh.cfg.closePolicy%"
+        },
+        "dsh.local.packageRoot": {
+          "type": "string",
+          "default": "",
+          "description": "%dsh.cfg.local.packageRoot%"
+        },
+        "dsh.local.nodePath": {
+          "type": "string",
+          "default": "",
+          "description": "%dsh.cfg.local.nodePath%"
         },
         "dsh.runtime.manifestUrl": {
           "type": "string",

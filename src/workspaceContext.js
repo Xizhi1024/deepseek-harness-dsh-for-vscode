@@ -21,6 +21,8 @@ function createWorkspaceContext(vscode, extensionContext) {
         closePolicy: normalizeClosePolicy(settings.get('closePolicy')),
         runtimeManifestUrl: String(settings.get('runtime.manifestUrl', '') || ''),
         runtimeVersion: String(settings.get('runtime.version', '') || ''),
+        localPackageRoot: String(settings.get('local.packageRoot', '') || ''),
+        localNodePath: String(settings.get('local.nodePath', '') || ''),
       };
     },
 

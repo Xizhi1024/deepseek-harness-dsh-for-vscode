@@ -25,6 +25,7 @@ const {
   reconcileConfigChange,
 } = require("./serverManager");
 const { ensureManagedRuntime } = require("./runtimeProvisioner");
+const { resolveLocalDshRuntime } = require("./localRuntimeResolver");
 const { framePage, statusPage, safeHttpUrl } = require("./webviewHtml");
 const {
   listSessions,
@@ -68,8 +69,9 @@ let viewGeneration = 0; // invalidates delayed connects for disposed/replaced vi
 let textDocumentBridge = null; // per-window authenticated DSH -> vscode.window bridge
 let versionedBridge = null; // per-window versioned JSON-RPC bridge
 let editorContext = null; // per-window approved editor attachments backing vscode/editor methods
-let embedPatchPath = null; // generated --patch overlay applied to managed DSH children
+let embedPatchPath = null; // generated --patch overlay applied to extension-owned DSH children
 let runtimeStorageRoot = null; // managed runtime storage under VS Code global storage
+let localDshHome = null; // persistent extension-owned .dsh configuration home
 let ensureRuntime = null; // resolves/verifies (and optionally provisions) the managed runtime
 let ensureWorkspaceSessionFn = null; // owned-instance automatic workspace session binding
 let runtimeAbort = new AbortController(); // cancels in-flight runtime provisioning on deactivate
@@ -206,16 +208,16 @@ async function connectNow(context) {
     render(statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail: "", lang: vscode.env.language }));
 
     let server = null;
-    // autoStart spawns from the verified managed runtime only. Resolve (and,
-    // when configured, provision) it first so a missing/corrupt runtime fails
-    // closed through the status page — never by falling back to PATH `dsh`.
+    // autoStart uses the locally installed official DSH package by default and
+    // an explicitly configured verified release manifest as an opt-in path.
+    // Both launch with the extension-owned persistent .dsh home and web profile.
     // One exception: when no managed runtime can be provided but a DSH
     // instance is already serving the configured endpoint, adopt that
     // instance as a reused external server instead of stranding the sidebar.
     if (cfg.autoStart) {
       render(statusPage({
         title: loc("Connecting to DeepSeek Harness…"),
-        detail: loc("Resolving managed DSH runtime…"),
+        detail: loc("Resolving official DSH runtime…"),
         lang: vscode.env.language,
       }));
       let resolvedRuntime;
@@ -226,6 +228,9 @@ async function connectNow(context) {
           arch: process.arch,
           manifestUrl: cfg.runtimeManifestUrl,
           version: cfg.runtimeVersion,
+          dshHome: localDshHome,
+          packageRoot: cfg.localPackageRoot,
+          nodePath: cfg.localNodePath,
           signal: runtimeAbort.signal,
         });
       } catch (runtimeError) {
@@ -235,7 +240,7 @@ async function connectNow(context) {
         if (!adopted) throw runtimeError;
         manager.setResolvedRuntime(null);
         console.warn(
-          'dsh-vs-sidebar: managed runtime unavailable; reusing running DSH instance:',
+          'dsh-vs-sidebar: configured runtime unavailable; reusing running DSH instance:',
           runtimeError && runtimeError.message ? runtimeError.message : runtimeError
         );
         server = adopted;
@@ -391,6 +396,8 @@ function scheduleConfigReconcile(context) {
     const runtimeChanged = next.autoStart && (
       String(prev.runtimeManifestUrl || '') !== String(next.runtimeManifestUrl || '')
       || String(prev.runtimeVersion || '') !== String(next.runtimeVersion || '')
+      || String(prev.localPackageRoot || '') !== String(next.localPackageRoot || '')
+      || String(prev.localNodePath || '') !== String(next.localNodePath || '')
     );
 
     if (decision.shouldReconnect || runtimeChanged) {
@@ -424,8 +431,12 @@ async function activateWithDependencies(context, dependencies = {}) {
   runtimeAbort = new AbortController();
   const realpath = dependencies.realpath || require('node:fs').promises.realpath;
   runtimeStorageRoot = path.join(context.globalStorageUri.fsPath, 'runtime');
-  ensureRuntime = dependencies.ensureManagedRuntime
-    || ((options) => ensureManagedRuntime(options));
+  localDshHome = path.join(context.globalStorageUri.fsPath, '.dsh');
+  ensureRuntime = dependencies.ensureRuntime
+    || dependencies.ensureManagedRuntime
+    || ((options) => options.manifestUrl
+      ? ensureManagedRuntime(options)
+      : resolveLocalDshRuntime(options));
   ensureWorkspaceSessionFn = dependencies.ensureWorkspaceSession || ensureWorkspaceSession;
   editorContext = createEditorContext({
     vscode,
@@ -821,7 +832,9 @@ async function activateWithDependencies(context, dependencies = {}) {
         e.affectsConfiguration("dsh.autoStart") ||
         e.affectsConfiguration("dsh.closePolicy") ||
         e.affectsConfiguration("dsh.runtime.manifestUrl") ||
-        e.affectsConfiguration("dsh.runtime.version")
+        e.affectsConfiguration("dsh.runtime.version") ||
+        e.affectsConfiguration("dsh.local.packageRoot") ||
+        e.affectsConfiguration("dsh.local.nodePath")
       ) {
         scheduleConfigReconcile(context);
       }

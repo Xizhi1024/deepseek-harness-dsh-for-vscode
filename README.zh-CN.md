@@ -4,21 +4,26 @@
 
 把本地 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）Web 界面嵌入 VS Code 辅助侧边栏（右侧栏，与 Copilot Chat 同排）。默认情况下，每个 VS Code 窗口都会以当前工作区为 cwd 单独启动并持有一个 `dsh web` 子进程，再以紧凑的全屏 iframe 渲染。
 
+> [!IMPORTANT]
+> **VS Code 启动时自动拉起 `dsh web` 是预期行为，不是 bug。** `dsh.autoStart` 默认为 `true`：扩展会查找本机通过 npm 安装的官方 `@deepseek-ai/dsh`，自动创建并始终使用扩展专属的持久化 `.dsh`（profile 固定为 `web`）。首次启动由官方 DSH 的 `web` 模板生成默认配置；扩展不注入第三方插件。此后该目录由用户维护，扩展只复用它，从而保持侧边栏的 DSH 配置与会话状态。Windows 默认位置为 `%APPDATA%\Code\User\globalStorage\Xizhi1024.dsh-vs-sidebar\.dsh`（VS Code 变体/远程宿主路径可能不同）。
+>
+> 若尚未安装 DSH，扩展仍会先创建自己的 `.dsh`，随后提示运行 `npm install -g @deepseek-ai/dsh`；配置目录可以自建，但 DSH 可执行程序不能凭空生成。若本机 npm/Node 安装在非标准位置，请设置 `dsh.local.packageRoot` / `dsh.local.nodePath`。
+
 ## 安装需求
 
 | 项 | 要求 |
 |---|---|
 | VS Code | ≥ 1.106，仅桌面版 |
-| 托管运行时（`dsh.autoStart=true`） | VS Code global storage 下已有校验通过的运行时，或配置 `dsh.runtime.manifestUrl` 进行安装 |
-| DSH CLI（仅 `dsh.autoStart=false`） | 全局安装 `dsh` |
-| DSH profile（复用模式） | 已配置，`dsh web` 可启动 |
+| DSH（默认自动启动） | `npm install -g @deepseek-ai/dsh`；扩展自动发现官方包 |
+| Node.js | 可被自动发现；非标准位置可设置 `dsh.local.nodePath` |
+| DSH 配置 | 无需预建；扩展自动创建专属 `.dsh` 与官方 `web` profile |
 
 ## 安装
 
 - 开发调试：打开本仓库 → `F5` → **Run Extension**
 - 验证：`npm ci` → `npm run check:w0` → `npm run test:extension-host`
 - 密钥扫描：`npm run test:secrets` 扫描将进入 VSIX 的源码/文档（不扫 `node_modules`、`.git`、`.vscode-test`），命中硬编码桥接 token、`Authorization: Bearer` 凭据、API key、私钥或密码字面量时以 1 退出；示例/测试 fixture 使用显式 `// allow-secret-scan` 注释放行。
-- 打包安装：`npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension dsh-vs-sidebar-0.4.1.vsix`
+- 打包安装：`npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension dsh-vs-sidebar-0.4.3.vsix`
 
 ## 使用
 
@@ -59,10 +64,12 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 |---|---|---|
 | `dsh.port` | 3080 | 探测/启动 DSH Web 服务的端口 |
 | `dsh.host` | 127.0.0.1 | 当前 DSH Web profile 要求使用的固定回环地址 |
-| `dsh.autoStart` | true | 为当前 VS Code 窗口启动托管 DSH 子进程；托管运行时不可用但配置端点已有 DSH 在运行时，则改为复用该外部实例（false = 只复用配置端点上的用户自管实例）；开启时 VS Code 启动即拉起 |
+| `dsh.autoStart` | true | VS Code 启动时用扩展专属 `.dsh` / `web` profile 拉起本机官方 DSH；找不到本机包但配置端点已有 DSH 时复用该实例（false = 仅复用） |
 | `dsh.closePolicy` | `onVscodeExit` | 何时停止扩展自己拉起的服务（见下表） |
-| `dsh.runtime.manifestUrl` | （空） | 运行时发布清单（`schemaVersion: 1`，`artifacts` 内嵌运行时 manifest）的 HTTPS URL。留空 = 仅使用 VS Code global storage 下已安装且校验通过的运行时 |
-| `dsh.runtime.version` | （空） | 可选的 DSH 运行时版本锁定。留空 = 使用已安装的当前版本；需要通过 manifest URL 安装时则选择最新的匹配 artifact |
+| `dsh.local.packageRoot` | （空） | 官方 `@deepseek-ai/dsh` 包根目录的可选绝对路径；留空时自动探测 npm 全局安装 |
+| `dsh.local.nodePath` | （空） | Node.js 可执行文件的可选绝对路径；留空时自动探测 |
+| `dsh.runtime.manifestUrl` | （空） | 可选的 HTTPS 运行时发布清单；留空使用本机官方 npm DSH，非空时改用带 manifest/SHA-256 校验的托管 runtime 安装 |
+| `dsh.runtime.version` | （空） | 托管 runtime 的可选版本锁定；仅在配置 manifest URL 时生效 |
 
 `dsh.closePolicy` 取值：
 
@@ -81,7 +88,7 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 - 每个扩展自管 DSH 子进程都会收到经鉴权的回环桥接 URL/token；支持此约定的 DSH 版本会把配置路径 POST 回所属扩展宿主，再由 `vscode.window.showTextDocument` 在该扇窗口内打开。`DSH_TEXT_EDITOR=vscode` 仅保留为旧版 DSH 的 CLI 回退；被复用的外部服务仍遵循自身编辑器策略
 - iframe 会收到 `dsh_embed=vscode`；支持此约定的 DSH 版本会隐藏内部侧边栏、详情栏和拖动手柄，而「在浏览器中打开」仍保持普通完整布局
 - 自管子进程还会收到扩展在 VS Code global storage 下动态生成的 `--patch` overlay，用于禁用已知会在嵌入模式重复叠加侧边栏/右面板的第三方插件（`better-sidebar`、`ui-dsh-aionui-panel`）。未安装这些插件时 overlay 不产生效果；该补丁不修改 DSH 源码、profile 或 `cordis.patch.yml`
-- 托管 autoStart 每次 spawn 前都会解析并校验运行时（指针、manifest、payload SHA-256）。清单缺失、哈希错误、无平台匹配、`dsh.runtime.manifestUrl` 为空且未安装等默认 fail closed，通过侧边栏状态页展示错误——但配置端点已有 DSH 在运行时会改为复用该实例；扩展**绝不回退到 PATH 上的 `dsh`**
+- 默认 autoStart 只接受身份为 `@deepseek-ai/dsh` 的本机 npm 包，并解析真实 package/entrypoint/Node 绝对路径；不会执行 PATH 中身份不明的 `dsh` shim。显式配置 manifest URL 时，托管 runtime 仍执行指针、manifest 与 payload SHA-256 校验。两条路径失败都会先尝试复用配置端点已有的 DSH，再在状态页显示错误
 - 进程清理：`taskkill /T /F` 树杀（Windows——强制终止，非优雅停止）；detached 启动 + `kill(-pid)` 进程组 SIGTERM（POSIX）
 - 不受信任 / 虚拟工作区**不支持**（会启动本地进程并操作工作区文件）——已通过 `capabilities` 声明
 - 容器/视图 ID `dsh-sidebar` / `dsh.webview` 是**持久化契约**——发布版不可变更（否则用户侧边栏布局重置）
@@ -91,6 +98,7 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 ## 已知限制
 
 - **真实 browser provider 尚未接入**：能力目录当前仅列出 `browser-provider-placeholder`，provider 选定与验证留待 W5。
+- **部分 DSH 复制按钮仍可能失败**：扩展 iframe 已声明 `allow="clipboard-write"`；若右键复制可用但按钮无效，原因是上游 DSH UI 在 `navigator.clipboard.writeText()` 被 Webview/系统策略拒绝后只返回失败，没有 `execCommand` 等兼容回退。该行为属于 DSH UI，不应通过扩大扩展 Webview 权限规避。
 - **Extension Host smoke 版本**：smoke 测试默认运行在 VS Code 1.106 上。
 
 ## 实现原理
@@ -106,6 +114,7 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 | `src/bridgeWorkspace.js` | 桥接工作区身份与信任分类 |
 | `src/embedOverlay.js` | 为自管 DSH 子进程动态生成 `--patch` overlay |
 | `src/lifecycle.js` | 生命周期串行队列与停用门禁 |
+| `src/localRuntimeResolver.js` | 自动发现并验证本机官方 npm DSH，创建扩展专属 `.dsh` |
 | `src/managedRuntimeLaunch.js` | 已验证托管运行时启动规格、profile/路径归一化、`--patch` 透传 |
 | `src/runtimeResolver.js` | 托管运行时解析与 current/last-good 指针校验 |
 | `src/runtimeProvisioner.js` | 发布清单解析、artifact 选择、解析或安装编排 |
@@ -124,8 +133,8 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 关键行为：
 
 - 探测 `GET /` 响应中的 `__DSH_BOOT__` 标记（3s 超时、3 次重试——DSH 忙时不会误判为不存在而重复拉起）
-- 每次 autoStart spawn 前，`connectNow` 都会解析并校验托管运行时（缺失时按 `dsh.runtime.manifestUrl` 安装、版本锁定不匹配时重新安装），再通过 `ServerManager.setResolvedRuntime()` 交给启动器；每次连接都重新校验。运行时解析失败时，若配置端点已有 DSH 在运行则先复用该实例，确认无实例可复用才在状态页显示错误
-- 默认 `autoStart` 模式在托管运行时可用时不接管其他窗口的进程：端口被占用时最多顺延扫描 50 个端口，每个扩展宿主持有自己的子进程；`dsh-instances.json` 仅保留用于陈旧条目清理与诊断
+- 每次 autoStart spawn 前，`connectNow` 默认重新定位并验证本机官方 `@deepseek-ai/dsh`，创建/复用 global storage 下的 `.dsh`，再以 `--profile web` 启动；只有显式配置 `dsh.runtime.manifestUrl` 时才走带 SHA-256 校验的托管 runtime 安装路径
+- 默认 `autoStart` 模式不接管其他窗口的进程：端口被占用时最多顺延扫描 50 个端口，每个扩展宿主持有自己的子进程；只有本机 DSH 解析失败时才尝试复用配置端点已有的实例
 - cwd = 当前工作区（多根取活动编辑器所在目录；无工作区则继承父进程目录，不回退用户主目录）
 - 远程（WSL / Remote-SSH）：`vscode.env.asExternalUri` 端口转发
 - 浏览器命令与 iframe 使用同一个 externalized URL，远程会话和连接失败页同样适用

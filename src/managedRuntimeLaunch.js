@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const MANAGED_PROFILE = 'vscode';
+const MANAGED_PROFILE = 'web';
 
 function samePath(left, right, platform = process.platform) {
   const normalizedLeft = path.resolve(left);
@@ -41,7 +41,7 @@ function normalizeResolvedRuntime(input, platform = process.platform) {
     throw new Error('Managed DSH profileHome must be absolute');
   }
   if (!samePath(profileHome, expectedProfileHome, platform)) {
-    throw new Error('Managed DSH profileHome does not match dshHome/profiles/vscode');
+    throw new Error('Managed DSH profileHome does not match dshHome/profiles/web');
   }
   if (!Array.isArray(entrypointArgs) || entrypointArgs.length > 1) {
     throw new Error('Managed DSH entrypointArgs must contain at most one verified script path');

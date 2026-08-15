@@ -31,7 +31,7 @@
   "Invalid dsh.port \"{port}\"; expected an integer from 1 to 65535": "dsh.port“{port}”无效；应为 1 到 65535 之间的整数",
   "No free port found within {limit} ports starting from {start}": "从 {start} 起 {limit} 个端口内未找到空闲端口",
   "Managed DSH runtime is unavailable; install or verify it before auto-start": "托管 DSH 运行时不可用；请先安装或校验后再自动启动",
-  "Resolving managed DSH runtime…": "正在解析托管 DSH 运行时…",
+  "Resolving official DSH runtime…": "正在解析官方 DSH 运行时…",
   "Managed DSH runtime is not installed; set dsh.runtime.manifestUrl to provision it": "托管 DSH 运行时未安装；请设置 dsh.runtime.manifestUrl 进行安装",
   "Managed DSH runtime could not be verified: {reason}": "托管 DSH 运行时校验失败：{reason}",
   "Managed DSH runtime {version} is not installed; set dsh.runtime.manifestUrl to provision it": "托管 DSH 运行时 {version} 未安装；请设置 dsh.runtime.manifestUrl 进行安装",

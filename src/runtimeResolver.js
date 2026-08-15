@@ -85,9 +85,9 @@ class RuntimeResolver {
       entrypointArgs: Object.freeze(entrypointArgs),
       manifestPath,
       manifest,
-      profileHome: path.join(this.storageRoot, 'profiles', 'vscode'),
+      profileHome: path.join(this.storageRoot, 'profiles', 'web'),
       dshHome: this.storageRoot,
-      profileName: 'vscode',
+      profileName: 'web',
     });
   }
 }

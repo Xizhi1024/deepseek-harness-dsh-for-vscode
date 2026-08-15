@@ -31,18 +31,18 @@ function fixture(t, extension = process.platform === 'win32' ? '.exe' : '') {
     entrypointArgs: [entryScript],
     payloadRoot: root,
     dshHome: root,
-    profileHome: path.join(root, 'profiles', 'vscode'),
-    profileName: 'vscode',
+    profileHome: path.join(root, 'profiles', 'web'),
+    profileName: 'web',
   };
 }
 
-test('managed launch uses an absolute verified executable and fixed vscode args', (t) => {
+test('managed launch uses an absolute verified executable and fixed web-profile args', (t) => {
   const runtime = fixture(t, '.exe');
   const launch = buildManagedLaunchSpec(runtime, '127.0.0.1', 4321, 'win32');
   assert.strictEqual(launch.command, runtime.executablePath);
   assert.deepStrictEqual(launch.args, [
     runtime.entrypointArgs[0],
-    '--profile', 'vscode', '--host', '127.0.0.1', '--port', '4321',
+    '--profile', 'web', '--host', '127.0.0.1', '--port', '4321',
   ]);
   assert.deepStrictEqual(launch.env, {
     DSH_HOME: runtime.dshHome,
@@ -59,8 +59,8 @@ test('managed launch rejects PATH lookup, profile drift, and non-native Windows 
     /absolute.*PATH lookup/
   );
   assert.throws(
-    () => normalizeResolvedRuntime({ ...runtime, profileName: 'web' }),
-    /profile must be vscode/
+    () => normalizeResolvedRuntime({ ...runtime, profileName: 'vscode' }),
+    /profile must be web/
   );
   assert.throws(
     () => normalizeResolvedRuntime({ ...runtime, profileHome: path.join(runtime.dshHome, 'profiles', 'other') }),
@@ -94,7 +94,7 @@ test('managed launch appends a verified embed --patch before --profile', (t) => 
   assert.deepStrictEqual(launch.args, [
     runtime.entrypointArgs[0],
     '--patch', overlayPath,
-    '--profile', 'vscode',
+    '--profile', 'web',
     '--host', '127.0.0.1',
     '--port', '4321',
   ]);

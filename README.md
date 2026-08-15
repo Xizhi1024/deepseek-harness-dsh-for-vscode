@@ -4,21 +4,26 @@
 
 Embeds the local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) web UI in the VS Code auxiliary sidebar (right rail, alongside Copilot Chat). By default, every VS Code window starts and owns one `dsh web` child with the current workspace as cwd, then renders it in a compact full-screen iframe.
 
+> [!IMPORTANT]
+> **Starting `dsh web` when VS Code starts is intentional, not a bug.** `dsh.autoStart` defaults to `true`: the extension finds the official npm-installed `@deepseek-ai/dsh`, creates and always uses an extension-owned persistent `.dsh` with the fixed `web` profile. On first launch, official DSH seeds that profile from its bundled `web` template; the extension injects no third-party plugins. You maintain this directory afterward, and the extension keeps reusing it so the sidebar retains its DSH configuration and session state. The default Windows location is `%APPDATA%\Code\User\globalStorage\Xizhi1024.dsh-vs-sidebar\.dsh` (VS Code variants and remote extension hosts may use another global-storage root).
+>
+> If DSH is not installed yet, the extension still creates its `.dsh`, then tells you to run `npm install -g @deepseek-ai/dsh`; a configuration directory can be created automatically, but the DSH executable cannot. For non-standard npm/Node locations, set `dsh.local.packageRoot` / `dsh.local.nodePath`.
+
 ## Requirements
 
 | Item | Requirement |
 |---|---|
 | VS Code | ≥ 1.106, desktop only |
-| Managed runtime (`dsh.autoStart=true`) | verified runtime under VS Code global storage, or `dsh.runtime.manifestUrl` to provision one |
-| DSH CLI (`dsh.autoStart=false` only) | globally installed `dsh` |
-| DSH profile (reuse mode) | configured; `dsh web` starts |
+| DSH (default auto-start) | `npm install -g @deepseek-ai/dsh`; the extension detects the official package |
+| Node.js | auto-detected; set `dsh.local.nodePath` for non-standard locations |
+| DSH configuration | no pre-creation needed; the extension creates its own `.dsh` and official `web` profile |
 
 ## Install
 
 - Dev: open this repo → `F5` → **Run Extension**
 - Verify: `npm ci` → `npm run check:w0` → `npm run test:extension-host`
 - Secret scan: `npm run test:secrets` scans the source/docs that would enter the VSIX (never `node_modules`, `.git`, or `.vscode-test`) and exits 1 on hardcoded bridge tokens, `Authorization: Bearer` credentials, API keys, private keys, or password literals; example/test fixtures are released with an explicit `// allow-secret-scan` comment.
-- Package: `npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension dsh-vs-sidebar-0.4.1.vsix`
+- Package: `npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension dsh-vs-sidebar-0.4.3.vsix`
 
 ## Usage
 
@@ -59,10 +64,12 @@ Provider state is refreshed through `vscode.extensions.onDidChange`, which emits
 |---|---|---|
 | `dsh.port` | 3080 | Port to probe/start the DSH web server on |
 | `dsh.host` | 127.0.0.1 | Fixed loopback bind required by the current DSH Web profile |
-| `dsh.autoStart` | true | Start a managed DSH child for this VS Code window; when the managed runtime is unavailable but a DSH is already serving the configured endpoint, that instance is adopted as a reused external server (false = reuse only the configured user-managed endpoint); also starts at VS Code startup |
+| `dsh.autoStart` | true | At VS Code startup, launch the local official DSH with the extension-owned `.dsh` / `web` profile; if no local package is found but DSH already serves the configured endpoint, reuse it (false = reuse only) |
 | `dsh.closePolicy` | `onVscodeExit` | When to stop the extension-owned server (see below) |
-| `dsh.runtime.manifestUrl` | (empty) | HTTPS URL of a runtime release manifest (`schemaVersion: 1`, `artifacts` with embedded runtime manifests). Empty = use only the already installed verified runtime under VS Code global storage |
-| `dsh.runtime.version` | (empty) | Optional DSH runtime version pin. Empty = installed current version, or the newest matching artifact when provisioning from a manifest URL |
+| `dsh.local.packageRoot` | (empty) | Optional absolute official `@deepseek-ai/dsh` package root; empty auto-detects the global npm installation |
+| `dsh.local.nodePath` | (empty) | Optional absolute Node.js executable path; empty auto-detects it |
+| `dsh.runtime.manifestUrl` | (empty) | Optional HTTPS runtime release manifest; empty uses the local official npm DSH, non-empty opts into manifest/SHA-256-verified managed-runtime provisioning |
+| `dsh.runtime.version` | (empty) | Optional managed-runtime version pin; only applies with a manifest URL |
 
 `dsh.closePolicy` values:
 
@@ -81,7 +88,7 @@ A reused (non-owned) instance is never stopped by any policy or command.
 - Each managed DSH child receives an authenticated loopback bridge URL/token; supported DSH builds POST configuration paths back to the owning extension host, which opens them through `vscode.window.showTextDocument` in that exact window. `DSH_TEXT_EDITOR=vscode` remains only as an older-DSH CLI fallback; reused external servers keep their own editor policy
 - The iframe receives `dsh_embed=vscode`, which supported DSH builds use to hide their internal sidebar, details column, and resize handles; **Open in Browser** keeps the normal full layout
 - Managed children also receive a generated `--patch` overlay (under VS Code global storage) that disables third-party plugins known to re-add sidebar/panel chrome inside the embed (`better-sidebar`, `ui-dsh-aionui-panel`). If those plugins are not installed the overlay is inert; the patch never edits DSH sources, profiles, or `cordis.patch.yml`
-- Managed autoStart resolves/verifies the runtime before every spawn (pointer, manifest, payload SHA-256). Missing manifest, hash mismatch, no platform artifact, and a missing `dsh.runtime.manifestUrl` all fail closed through the sidebar status page — except that a DSH already serving the configured endpoint is adopted and reused instead; the extension **never falls back to a `dsh` executable on PATH**
+- Default autoStart accepts only a local npm package whose identity is `@deepseek-ai/dsh`, resolving the real package, entrypoint, and Node executable to absolute paths; it never executes an identity-unknown `dsh` shim from PATH. With an explicit manifest URL, the managed runtime still verifies its pointer, manifest, and payload SHA-256. Either path tries to reuse a DSH already serving the configured endpoint before showing an error
 - Cleanup: `taskkill /T /F` tree-kill (Windows — force-terminated, not a graceful stop); detached spawn + `kill(-pid)` process-group SIGTERM (POSIX)
 - Untrusted / virtual workspaces **unsupported** (spawns local processes, touches workspace files) — declared via `capabilities`
 - Container/view IDs `dsh-sidebar` / `dsh.webview` are **persistent contracts** — never change them in a release (resets the user's sidebar layout)
@@ -91,6 +98,7 @@ A reused (non-owned) instance is never stopped by any policy or command.
 ## Known limitations
 
 - **Real browser provider not integrated**: the capability catalog only lists `browser-provider-placeholder`; provider selection and verification are deferred to W5.
+- **Some DSH copy buttons may still fail**: the extension iframe already declares `allow="clipboard-write"`. If context-menu copy works but the button does not, the upstream DSH UI returns failure when `navigator.clipboard.writeText()` is rejected by Webview/system policy and has no `execCommand`-style compatibility fallback. This belongs in the DSH UI rather than being worked around with broader Webview permissions.
 - **Extension Host smoke version**: the smoke test currently runs against VS Code 1.106 by default.
 
 ## Implementation
@@ -106,6 +114,7 @@ A reused (non-owned) instance is never stopped by any policy or command.
 | `src/bridgeWorkspace.js` | bridge workspace identity and trust classification |
 | `src/embedOverlay.js` | generated `--patch` overlay for the managed DSH child |
 | `src/lifecycle.js` | serialized lifecycle queue and shutdown gate |
+| `src/localRuntimeResolver.js` | discovers/verifies the local official npm DSH and creates the extension-owned `.dsh` |
 | `src/managedRuntimeLaunch.js` | verified managed-runtime launch spec, profile/path normalization, `--patch` passthrough |
 | `src/runtimeResolver.js` | managed runtime resolution with current/last-good pointer verification |
 | `src/runtimeProvisioner.js` | release-manifest parse, artifact selection, resolve-or-provision orchestration |
@@ -124,8 +133,8 @@ A reused (non-owned) instance is never stopped by any policy or command.
 Key behaviors:
 
 - Probe `GET /` for the `__DSH_BOOT__` marker (3s timeout, 3 retries — a busy DSH is never misjudged as absent)
-- Before every autoStart spawn, `connectNow` resolves/verifies the managed runtime (and provisions it from `dsh.runtime.manifestUrl` when missing or version-pinned) and hands it to `ServerManager.setResolvedRuntime()`; the runtime is re-verified on every connect. When runtime resolution fails, a DSH already serving the configured endpoint is adopted as reused, and only then is the error shown on the status page
-- Default `autoStart` mode never adopts another window's process when its own managed runtime is available: occupied ports are scanned forward (up to 50) and each extension host owns its child; `dsh-instances.json` is retained only for stale-entry cleanup and diagnostics
+- Before every autoStart spawn, `connectNow` re-discovers and verifies the local official `@deepseek-ai/dsh`, creates/reuses `.dsh` under global storage, then launches it with `--profile web`; the SHA-256-verified managed-runtime path is used only when `dsh.runtime.manifestUrl` is explicitly configured
+- Default `autoStart` mode does not adopt another window's process: occupied ports are scanned forward (up to 50) and each extension host owns its child; only a local-runtime resolution failure triggers reuse of an existing configured endpoint
 - cwd = current workspace (multi-root: active editor's folder; none: inherit parent cwd, no home fallback)
 - Remote (WSL / Remote-SSH): `vscode.env.asExternalUri` port forwarding
 - Browser commands use the same externalized URL as the iframe, including remote sessions and connection-error fallback pages

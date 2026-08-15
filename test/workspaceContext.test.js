@@ -38,6 +38,8 @@ test('workspace context reads normalized settings and stable storage path', () =
     closePolicy: 'never',
     runtimeManifestUrl: '',
     runtimeVersion: '',
+    localPackageRoot: '',
+    localNodePath: '',
   });
   assert.strictEqual(context.registryFilePath(), path.join('D:\\state', 'dsh-instances.json'));
 });

@@ -31,7 +31,7 @@
   "Invalid dsh.port \"{port}\"; expected an integer from 1 to 65535": "Invalid dsh.port \"{port}\"; expected an integer from 1 to 65535",
   "No free port found within {limit} ports starting from {start}": "No free port found within {limit} ports starting from {start}",
   "Managed DSH runtime is unavailable; install or verify it before auto-start": "Managed DSH runtime is unavailable; install or verify it before auto-start",
-  "Resolving managed DSH runtime…": "Resolving managed DSH runtime…",
+  "Resolving official DSH runtime…": "Resolving official DSH runtime…",
   "Managed DSH runtime is not installed; set dsh.runtime.manifestUrl to provision it": "Managed DSH runtime is not installed; set dsh.runtime.manifestUrl to provision it",
   "Managed DSH runtime could not be verified: {reason}": "Managed DSH runtime could not be verified: {reason}",
   "Managed DSH runtime {version} is not installed; set dsh.runtime.manifestUrl to provision it": "Managed DSH runtime {version} is not installed; set dsh.runtime.manifestUrl to provision it",

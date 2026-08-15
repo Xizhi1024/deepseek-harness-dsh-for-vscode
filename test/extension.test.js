@@ -315,7 +315,7 @@ test('crash after ready clears stale state and restart reconnects', async () => 
   await deactivate();
 });
 
-test('autoStart resolves the managed runtime before spawn and hands it to ServerManager', async () => {
+test('autoStart resolves the configured runtime before spawn and hands it to ServerManager', async () => {
   const fake = createFakeVscode({ autoStart: true });
   const context = {
     globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-autostart-${process.pid}`) },
@@ -375,6 +375,12 @@ test('autoStart resolves the managed runtime before spawn and hands it to Server
   assert.strictEqual(ensureRuntimeOptions.version, '');
   assert.strictEqual(ensureRuntimeOptions.platform, process.platform);
   assert.strictEqual(ensureRuntimeOptions.arch, process.arch);
+  assert.strictEqual(
+    ensureRuntimeOptions.dshHome,
+    path.join(context.globalStorageUri.fsPath, '.dsh')
+  );
+  assert.strictEqual(ensureRuntimeOptions.packageRoot, '');
+  assert.strictEqual(ensureRuntimeOptions.nodePath, '');
   assert.strictEqual(
     ensureRuntimeOptions.storageRoot,
     path.join(context.globalStorageUri.fsPath, 'runtime')
@@ -512,7 +518,7 @@ test('reused external instance never auto-binds a workspace session', async () =
   await deactivate();
 });
 
-test('autoStart fails closed without spawning when managed runtime resolution fails', async () => {
+test('autoStart fails closed without spawning when runtime resolution fails', async () => {
   const fake = createFakeVscode({ autoStart: true });
   const context = {
     globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-autostart-fail-${process.pid}`) },
