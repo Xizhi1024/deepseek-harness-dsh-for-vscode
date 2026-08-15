@@ -463,7 +463,6 @@ async function activateWithDependencies(context, dependencies = {}) {
     // ignore stale controller abort errors during repeated activation
   }
   runtimeAbort = new AbortController();
-  const realpath = dependencies.realpath || require('node:fs').promises.realpath;
   runtimeStorageRoot = path.join(context.globalStorageUri.fsPath, 'runtime');
   const initialConfig = hostContext.config();
   const initialSharedHome = resolveDshHome({
@@ -513,42 +512,11 @@ async function activateWithDependencies(context, dependencies = {}) {
       if (vscode.workspace.isTrusted === false) {
         throw new Error("Text document bridge requires a trusted workspace");
       }
-      const folders = vscode.workspace.workspaceFolders;
-      if (!Array.isArray(folders) || folders.length === 0) {
-        throw new Error("Text document bridge requires an open workspace folder");
-      }
-      const resolved = path.resolve(absolutePath);
-      // Resolve symlinks before the containment check: a path that lexically
-      // looks like it is inside the workspace must not escape through a link
-      // to another directory (e.g. a workspace symlink pointing outside).
-      let candidateReal = resolved;
-      try {
-        candidateReal = await realpath(resolved);
-      } catch {
-        const parentReal = await realpath(path.dirname(resolved)).catch(() => path.resolve(path.dirname(resolved)));
-        candidateReal = path.join(parentReal, path.basename(resolved));
-      }
-      let insideWorkspace = false;
-      for (const folder of folders) {
-        const folderPath = folder && folder.uri && folder.uri.fsPath
-          ? folder.uri.fsPath
-          : null;
-        if (!folderPath) continue;
-        let folderReal = path.resolve(folderPath);
-        try {
-          folderReal = await realpath(folderPath);
-        } catch {
-          folderReal = path.resolve(folderPath);
-        }
-        const relative = path.relative(folderReal, candidateReal);
-        if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
-          insideWorkspace = true;
-          break;
-        }
-      }
-      if (!insideWorkspace) {
-        throw new Error(`Refusing to open path outside the workspace: ${absolutePath}`);
-      }
+      // Shared DSH homes intentionally expose older sessions whose cwd may be
+      // outside the folder currently open in this VS Code window. The bridge
+      // is loopback-only and authenticated with a per-process bearer token
+      // known only to this extension-owned DSH child, so retain the absolute
+      // path and workspace-trust gates without rejecting shared-session files.
       const document = await vscode.workspace.openTextDocument(vscode.Uri.file(absolutePath));
       await vscode.window.showTextDocument(document, { preview: false, preserveFocus: false });
     },

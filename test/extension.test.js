@@ -220,11 +220,8 @@ test('activation registers the public host surface through injected dependencies
     options: { preview: false, preserveFocus: false },
   }]);
 
-  await assert.rejects(
-    bridgeOptions.openTextDocument('D:\\other\\secret.txt'),
-    /outside the workspace/
-  );
-  assert.strictEqual(fake.shownDocuments.length, 1, 'outside-workspace path must not be opened');
+  await bridgeOptions.openTextDocument('D:\\other\\shared-session.txt');
+  assert.strictEqual(fake.shownDocuments.length, 2, 'shared-session paths outside the current workspace must open');
 
   await fake.commands.get('dsh.focusSidebar')();
   assert.strictEqual(CONTAINER_ID, 'dsh-sidebar');
@@ -752,7 +749,7 @@ test('openInBrowser does not open a fallback URL when connect fails', async () =
   await deactivate();
 });
 
-test('text-document bridge rejects a workspace symlink that resolves outside', async () => {
+test('text-document bridge opens authenticated absolute paths from shared sessions', async () => {
   const fake = createFakeVscode();
   fake.api.workspace.workspaceFolders = [
     { uri: { fsPath: 'D:\\workspace' }, name: 'workspace', index: 0 },
@@ -772,11 +769,6 @@ test('text-document bridge rejects a workspace symlink that resolves outside', a
 
   await activateWithDependencies(context, {
     vscode: fake.api,
-    realpath: async (value) => {
-      const text = String(value);
-      if (text === 'D:\\workspace\\leak') return 'D:\\other\\secret.txt';
-      return text;
-    },
     async startTextDocumentBridge(options) {
       bridgeOptions = options;
       return { env: {}, async close() {} };
@@ -790,14 +782,11 @@ test('text-document bridge rejects a workspace symlink that resolves outside', a
     },
   });
 
-  await assert.rejects(
-    bridgeOptions.openTextDocument('D:\\workspace\\leak'),
-    /outside the workspace/
-  );
-  assert.strictEqual(fake.shownDocuments.length, 0, 'symlink escape must not open');
+  await bridgeOptions.openTextDocument('D:\\other\\shared-session.txt');
+  assert.strictEqual(fake.shownDocuments.length, 1, 'shared-session file must open in the owning VS Code window');
 
-  await bridgeOptions.openTextDocument('D:\\workspace\\ok.txt');
-  assert.strictEqual(fake.shownDocuments.length, 1, 'plain workspace file must open');
+  await assert.rejects(bridgeOptions.openTextDocument('relative.txt'), /absolute path/);
+  assert.strictEqual(fake.shownDocuments.length, 1, 'relative paths must remain rejected');
 
   await deactivate();
 });

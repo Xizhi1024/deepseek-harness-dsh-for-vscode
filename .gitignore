@@ -8,6 +8,7 @@ dist/
 
 # ---- Tests / 测试 ----
 .vscode-test/
+.playwright-cli/
 *.log
 
 # ---- DeepSeek Harness Sidebar runtime state / 扩展运行时状态 ----

@@ -24,6 +24,9 @@ All notable changes to this project are documented here, following [Keep a Chang
 
 ### Fixed / 修复
 
+- **修复共享旧会话的文件链接**：经进程级随机令牌认证的 `Read …` 绝对路径，即使其会话 cwd 位于当前 VS Code 工作区之外，也会在拥有 DSH 子进程的 VS Code 窗口中打开；F5 调试宿主不再静默拒绝这类路径。
+  Fix file links from shared older sessions: an absolute `Read …` path authenticated by the per-process random token now opens in the VS Code window that owns the DSH child even when that session's cwd is outside the current VS Code workspace. F5 development hosts no longer reject those paths silently.
+
 - **修复模型输出交互**：复制通过 VS Code 剪贴板完成；`Read …` 文件通过带认证的 owning-window 文档桥打开，不再进入 Typora 等系统默认程序；HTTP/HTTPS 链接在 VS Code Simple Browser 中打开。
   Fix model-output interactions: Copy uses the VS Code clipboard, `Read …` files use the authenticated owning-window document bridge instead of default applications such as Typora, and HTTP/HTTPS links open in VS Code Simple Browser.
 
