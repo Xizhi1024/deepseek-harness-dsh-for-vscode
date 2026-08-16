@@ -3,22 +3,18 @@
 const crypto = require('node:crypto');
 const net = require('node:net');
 
+const {
+  METHODS_BY_VERSION,
+  NOTIFICATIONS_BY_VERSION,
+  PROTOCOL_VERSIONS,
+  V2_NOTIFICATION_SCHEMA,
+} = require('./protocol/ch1');
+
 const VSCODE_PROTOCOL_VERSION = 1;
 const VSCODE_MAX_FRAME_BYTES = 1024 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
-const REQUEST_METHODS = Object.freeze([
-  'vscode/editor/getContext',
-  'vscode/editor/open',
-  'vscode/editor/openDiff',
-  'vscode/workspace/getDiagnostics',
-  'vscode/extensions/getProviderStates',
-  'vscode/extensions/openDetails',
-]);
-const NOTIFICATION_METHODS = Object.freeze([
-  'vscode/contextChanged',
-  'vscode/providerStatesChanged',
-  'vscode/workspaceChanged',
-]);
+const REQUEST_METHODS = Object.freeze([...METHODS_BY_VERSION[1]]);
+const NOTIFICATION_METHODS = Object.freeze([...NOTIFICATIONS_BY_VERSION[1]]);
 
 function isRecord(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -37,20 +33,37 @@ function bridgeError(code, message) {
   return error;
 }
 
+function normalizeProtocolVersions(protocolVersions) {
+  if (!Array.isArray(protocolVersions) || protocolVersions.length === 0) {
+    throw new Error('VersionedBridgeServer protocolVersions must be a non-empty array');
+  }
+  const normalized = [];
+  for (const version of protocolVersions) {
+    if (!Number.isInteger(version) || version < 1) {
+      throw new Error('VersionedBridgeServer protocolVersions must contain positive integers');
+    }
+    if (!normalized.includes(version)) normalized.push(version);
+  }
+  return Object.freeze(normalized.sort((a, b) => a - b));
+}
+
 class VersionedBridgeServer {
   constructor({
     handlers = {},
     workspace,
     serverVersion = '0.0.0',
     token = crypto.randomBytes(32).toString('hex'),
-    protocolVersion = VSCODE_PROTOCOL_VERSION,
+    protocolVersion,
+    protocolVersions,
     maxFrameBytes = VSCODE_MAX_FRAME_BYTES,
     requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   } = {}) {
     if (!isRecord(handlers)) throw new Error('VersionedBridgeServer handlers must be an object');
-    if (!Number.isInteger(protocolVersion) || protocolVersion < 1) {
-      throw new Error('VersionedBridgeServer protocolVersion must be a positive integer');
+    if (protocolVersions === undefined) {
+      protocolVersions = protocolVersion === undefined ? PROTOCOL_VERSIONS : [protocolVersion];
     }
+    this.protocolVersions = normalizeProtocolVersions(protocolVersions);
+    this.protocolVersion = this.protocolVersions[this.protocolVersions.length - 1];
     if (!Number.isSafeInteger(maxFrameBytes) || maxFrameBytes < 256) {
       throw new Error('VersionedBridgeServer maxFrameBytes must be at least 256');
     }
@@ -70,7 +83,6 @@ class VersionedBridgeServer {
     };
     this.serverVersion = String(serverVersion);
     this.token = token;
-    this.protocolVersion = protocolVersion;
     this.maxFrameBytes = maxFrameBytes;
     this.requestTimeoutMs = requestTimeoutMs;
     this.server = null;
@@ -124,12 +136,26 @@ class VersionedBridgeServer {
   }
 
   notify(method, params) {
-    if (!NOTIFICATION_METHODS.includes(method)) throw new Error(`Unsupported VS Code bridge notification: ${method}`);
+    const supported = Object.values(NOTIFICATIONS_BY_VERSION).some((methods) => methods.includes(method));
+    if (!supported) throw new Error(`Unsupported VS Code bridge notification: ${method}`);
     for (const connection of this.connections) {
-      if (connection.initialized && !connection.socket.destroyed) {
-        this._write(connection.socket, { jsonrpc: '2.0', method, params });
-      }
+      if (!connection.initialized || connection.socket.destroyed) continue;
+      const methods = NOTIFICATIONS_BY_VERSION[connection.protocolVersion];
+      if (!methods || !methods.includes(method)) continue;
+      this._write(connection.socket, { jsonrpc: '2.0', method, params });
     }
+  }
+
+  hasProtocolVersion(protocolVersion) {
+    return [...this.connections].some((connection) => (
+      connection.initialized
+      && connection.protocolVersion === protocolVersion
+      && !connection.socket.destroyed
+    ));
+  }
+
+  hasV2Clients() {
+    return this.hasProtocolVersion(2);
   }
 
   _accept(socket) {
@@ -143,6 +169,7 @@ class VersionedBridgeServer {
       socket,
       buffer: Buffer.alloc(0),
       initialized: false,
+      protocolVersion: null,
       pending: new Map(),
     };
     this.sockets.add(socket);
@@ -258,8 +285,13 @@ class VersionedBridgeServer {
       connection.socket.end();
       return;
     }
-    if (params.protocolVersion !== this.protocolVersion) {
-      this._writeError(connection.socket, id, -32003, 'VSCODE_PROTOCOL_MISMATCH', `VS Code bridge requires protocol ${this.protocolVersion}`);
+    const requestedProtocolVersion = params.protocolVersion;
+    const acceptedProtocolVersion = Number.isInteger(requestedProtocolVersion)
+      && this.protocolVersions.includes(requestedProtocolVersion)
+      ? requestedProtocolVersion
+      : null;
+    if (acceptedProtocolVersion === null) {
+      this._writeError(connection.socket, id, -32003, 'VSCODE_PROTOCOL_MISMATCH', `VS Code bridge requires protocol ${this.protocolVersions.join(' or ')}`);
       connection.socket.end();
       return;
     }
@@ -268,17 +300,22 @@ class VersionedBridgeServer {
       return;
     }
     connection.initialized = true;
+    connection.protocolVersion = acceptedProtocolVersion;
+    const result = {
+      protocolVersion: acceptedProtocolVersion,
+      serverInfo: { name: 'dsh-vs-sidebar', version: this.serverVersion },
+      workspace: this.workspace,
+      methods: METHODS_BY_VERSION[acceptedProtocolVersion].filter((method) => typeof this.handlers[method] === 'function'),
+      notifications: [...NOTIFICATIONS_BY_VERSION[acceptedProtocolVersion]],
+      maxFrameBytes: this.maxFrameBytes,
+    };
+    if (acceptedProtocolVersion > 1) {
+      result.acceptedProtocolVersion = acceptedProtocolVersion;
+    }
     this._write(connection.socket, {
       jsonrpc: '2.0',
       id,
-      result: {
-        protocolVersion: this.protocolVersion,
-        serverInfo: { name: 'dsh-vs-sidebar', version: this.serverVersion },
-        workspace: this.workspace,
-        methods: Object.keys(this.handlers),
-        notifications: [...NOTIFICATION_METHODS],
-        maxFrameBytes: this.maxFrameBytes,
-      },
+      result,
     });
     const waiters = [...this.initializedWaiters];
     this.initializedWaiters.clear();
@@ -330,8 +367,12 @@ class VersionedBridgeServer {
 
 module.exports = {
   DEFAULT_REQUEST_TIMEOUT_MS,
+  METHODS_BY_VERSION,
   NOTIFICATION_METHODS,
+  NOTIFICATIONS_BY_VERSION,
+  PROTOCOL_VERSIONS,
   REQUEST_METHODS,
+  V2_NOTIFICATION_SCHEMA,
   VSCODE_MAX_FRAME_BYTES,
   VSCODE_PROTOCOL_VERSION,
   VersionedBridgeServer,
