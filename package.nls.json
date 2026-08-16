@@ -24,6 +24,7 @@
   "dsh.cmd.addActiveFile": "Add Active File to DSH Context",
   "dsh.cmd.addActiveSelection": "Add Active Selection to DSH Context",
   "dsh.cmd.addSelectionToThread": "Add to DSH Thread",
+  "dsh.cmd.addFileToThread": "Add File to DSH Thread",
   "dsh.cmd.addProblems": "Add Problems to DSH Context",
   "dsh.cmd.newSession": "New Session",
   "dsh.cmd.switchSession": "Switch Session",

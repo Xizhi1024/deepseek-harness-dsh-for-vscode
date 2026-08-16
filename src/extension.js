@@ -46,7 +46,13 @@ const { createVscodeFacade } = require("./vscodeFacade");
 const { createWebviewMessageHandler } = require("./webviewMessages");
 const { handleInteractionRequest } = require('./interactionBridge');
 const { installDshIntegration } = require('./dshIntegration');
-const { ThreadAttachmentCoordinator, formatSelectionAttachment } = require('./threadAttachment');
+const {
+  ThreadAttachmentCoordinator,
+  formatFileAttachment,
+  formatSelectionAttachment,
+} = require('./threadAttachment');
+const { createCommandShell, NullAdapter } = require('./commands/shell');
+const { createAddFileToThreadCommand } = require('./commands/addFileToThread');
 const { createWorkspaceContext } = require("./workspaceContext");
 const { createEditorContext } = require("./editorContext");
 const {
@@ -696,6 +702,16 @@ async function activateWithDependencies(context, dependencies = {}) {
     }
   }
 
+  // 0.6 command shell: this batch wires only dsh.addFileToThread through the
+  // router gate. Existing commands stay direct until the later migration batch.
+  const commandShell = createCommandShell({
+    router: {
+      get(capabilityId) {
+        return capabilityId === 'dsh.addFileToThread' ? { id: 'dsh.addFileToThread' } : NullAdapter;
+      },
+    },
+  });
+
   context.subscriptions.push(
     vscode.commands.registerCommand("dsh.openInBrowser", async () => {
       return lifecycle.enqueue("open in browser", async () => {
@@ -755,6 +771,23 @@ async function activateWithDependencies(context, dependencies = {}) {
         }));
       }
     }),
+    commandShell.register(
+      vscode,
+      "dsh.addFileToThread",
+      "dsh.addFileToThread",
+      createAddFileToThreadCommand({
+        vscode,
+        editorContext,
+        coordinator: threadAttachmentCoordinator,
+        formatFileAttachment,
+        waitForResolvedView,
+        ensureConnected: async () => {
+          if (!currentServer) await scheduleConnect(context);
+          return Boolean(currentServer);
+        },
+        loc,
+      })
+    ),
     vscode.commands.registerCommand("dsh.addProblems", () => {
       runEditorAttachment(() => editorContext.attachProblems(), "Editor context attached ({kind})");
     }),

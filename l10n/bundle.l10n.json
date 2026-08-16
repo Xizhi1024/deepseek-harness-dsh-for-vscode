@@ -52,6 +52,8 @@
   "Editor context attach failed: {message}": "Editor context attach failed: {message}",
   "DSH sidebar is unavailable": "DSH sidebar is unavailable",
   "Selection added to the DSH conversation": "Selection added to the DSH conversation",
+  "File added to the DSH conversation": "File added to the DSH conversation",
+  "Capability unavailable": "Capability unavailable",
   "Add to DSH conversation failed: {message}": "Add to DSH conversation failed: {message}",
   "Session created: {sessionId}": "Session created: {sessionId}",
   "Session switched: {sessionId}": "Session switched: {sessionId}",

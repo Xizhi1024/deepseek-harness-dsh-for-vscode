@@ -1,0 +1,84 @@
+'use strict';
+
+const { VIEW_ID, CONTAINER_ID } = require('../types');
+
+/**
+ * Minimal l10n fallback for tests and non-localized hosts.
+ */
+function defaultLoc(template, params = {}) {
+  return String(template).replace(/\{(\w+)\}/g, (_, key) => String(params[key] ?? `{${key}}`));
+}
+
+/**
+ * Build the `dsh.addFileToThread` command body.
+ *
+ * Flow:
+ *  1. Attach the active file to the editor context pool.
+ *  2. Reveal and focus the DSH sidebar so the draft is visible.
+ *  3. Format a clickable file link (no line range) and hand it to the
+ *     thread attachment coordinator.
+ *
+ * The command intentionally does not promise DSH-side @mention rendering;
+ * this batch only guarantees the draft contains a file link that opens in
+ * the current VS Code window.
+ *
+ * @param {object} deps - Injected dependencies.
+ * @param {object} deps.vscode - VS Code facade.
+ * @param {object} deps.editorContext - Editor context with attachActiveFile().
+ * @param {object} deps.coordinator - ThreadAttachmentCoordinator with request().
+ * @param {Function} deps.formatFileAttachment - Formats an active-file attachment.
+ * @param {Function} deps.waitForResolvedView - Resolves the current sidebar view.
+ * @param {Function} deps.ensureConnected - Ensures a DSH server is connected.
+ * @param {Function} [deps.loc] - Localization helper.
+ * @returns {Function} Async command body.
+ */
+function createAddFileToThreadCommand({
+  vscode,
+  editorContext,
+  coordinator,
+  formatFileAttachment,
+  waitForResolvedView,
+  ensureConnected,
+  loc = defaultLoc,
+}) {
+  if (!vscode || !vscode.commands || typeof vscode.commands.executeCommand !== 'function') {
+    throw new TypeError('vscode.commands.executeCommand is required');
+  }
+  if (!editorContext || typeof editorContext.attachActiveFile !== 'function') {
+    throw new TypeError('editorContext.attachActiveFile is required');
+  }
+  if (!coordinator || typeof coordinator.request !== 'function') {
+    throw new TypeError('coordinator.request is required');
+  }
+  if (typeof formatFileAttachment !== 'function') {
+    throw new TypeError('formatFileAttachment must be a function');
+  }
+  if (typeof waitForResolvedView !== 'function') {
+    throw new TypeError('waitForResolvedView must be a function');
+  }
+  if (typeof ensureConnected !== 'function') {
+    throw new TypeError('ensureConnected must be a function');
+  }
+
+  return async function addFileToThread() {
+    try {
+      const attachment = editorContext.attachActiveFile();
+      await vscode.commands.executeCommand('workbench.view.extension.' + CONTAINER_ID);
+      await vscode.commands.executeCommand(VIEW_ID + '.focus');
+      const view = await waitForResolvedView();
+      if (!view) throw new Error(loc('DSH sidebar is unavailable'));
+      if (!(await ensureConnected())) throw new Error(loc('DSH: unavailable'));
+      const text = formatFileAttachment(attachment, attachment.document.uri);
+      await coordinator.request(view.webview, text);
+      await vscode.window.showInformationMessage(loc('File added to the DSH conversation'));
+    } catch (err) {
+      await vscode.window.showErrorMessage(loc('Add to DSH conversation failed: {message}', {
+        message: err && err.message ? err.message : String(err),
+      }));
+    }
+  };
+}
+
+module.exports = {
+  createAddFileToThreadCommand,
+};

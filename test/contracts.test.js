@@ -18,6 +18,7 @@ test('published sidebar and Webview IDs remain stable across manifest and runtim
     [VIEW_ID]
   );
   assert.ok(manifest.activationEvents.includes(`onView:${VIEW_ID}`));
+  assert.ok(manifest.activationEvents.includes('onCommand:dsh.addFileToThread'));
 });
 
 test('editor title exposes one persistent icon and DSH view title exposes no primary actions', () => {
@@ -33,6 +34,22 @@ test('editor title exposes one persistent icon and DSH view title exposes no pri
     command: 'dsh.addSelectionToThread',
     when: 'editorHasSelection && resourceScheme == file',
     group: 'dsh@10'
+  }]);
+
+  assert.deepStrictEqual(manifest.contributes.keybindings, [{
+    command: 'dsh.focusSidebar',
+    key: 'ctrl+alt+b',
+    when: '!terminalFocus'
+  }]);
+  assert.deepStrictEqual(menus['editor/title/context'], [{
+    command: 'dsh.addFileToThread',
+    group: 'dsh@1',
+    when: 'resourceScheme == file'
+  }]);
+  assert.deepStrictEqual(menus['explorer/context'], [{
+    command: 'dsh.addFileToThread',
+    group: 'dsh@1',
+    when: '!explorerResourceIsFolder && resourceScheme == file'
   }]);
 
   const focusCommand = manifest.contributes.commands.find(
@@ -54,6 +71,7 @@ test('editor title exposes one persistent icon and DSH view title exposes no pri
     'dsh.addActiveFile',
     'dsh.addActiveSelection',
     'dsh.addSelectionToThread',
+    'dsh.addFileToThread',
     'dsh.addProblems',
     'dsh.newSession',
     'dsh.switchSession',

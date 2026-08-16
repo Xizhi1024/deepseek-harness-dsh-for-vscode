@@ -7,6 +7,7 @@ const {
   CHANNEL,
   VERSION,
   ThreadAttachmentCoordinator,
+  formatFileAttachment,
   formatSelectionAttachment,
   parseThreadResult,
 } = require('../src/threadAttachment');
@@ -21,6 +22,32 @@ test('selection attachment becomes a compact clickable Markdown reference', () =
   }, 'file:///D:/work/app.js');
   assert.strictEqual(text, '[app.js:5-8](https://dsh-vscode.invalid/attachment/ctx-7)');
   assert.doesNotMatch(text, /const value/);
+});
+
+test('file attachment becomes a compact clickable Markdown reference without a line range', () => {
+  const text = formatFileAttachment({
+    id: 'ctx-7',
+    kind: 'active-file',
+    document: { languageId: 'javascript' },
+    content: 'full file text',
+  }, 'file:///D:/work/app.js');
+  assert.strictEqual(text, '[app.js](https://dsh-vscode.invalid/attachment/ctx-7)');
+  assert.doesNotMatch(text, /full file text/);
+});
+
+test('file attachment formatter rejects non-active-file attachments', () => {
+  assert.throws(
+    () => formatFileAttachment({ id: 'ctx-1', kind: 'selection', content: 'x' }, 'file:///a.js'),
+    TypeError
+  );
+  assert.throws(
+    () => formatFileAttachment({ id: 'ctx-1', kind: 'active-file' }, 'file:///a.js'),
+    TypeError
+  );
+  assert.throws(
+    () => formatFileAttachment({ id: 'bad', kind: 'active-file', content: 'x' }, 'file:///a.js'),
+    TypeError
+  );
 });
 
 test('thread coordinator posts one versioned request and resolves its acknowledgement', async () => {

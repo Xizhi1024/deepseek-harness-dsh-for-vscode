@@ -6,6 +6,15 @@ const CHANNEL = 'dsh-vscode-thread';
 const VERSION = 1;
 const REQUEST_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
+function attachmentFileName(label, fallback) {
+  let fileName = String(label || fallback);
+  try {
+    const pathname = new URL(fileName).pathname;
+    fileName = decodeURIComponent(pathname.slice(pathname.lastIndexOf('/') + 1)) || fileName;
+  } catch { /* keep the supplied label */ }
+  return fileName;
+}
+
 function formatSelectionAttachment(attachment, label) {
   if (!attachment || attachment.kind !== 'selection' || typeof attachment.content !== 'string') {
     throw new TypeError('A selection attachment is required');
@@ -15,13 +24,22 @@ function formatSelectionAttachment(attachment, label) {
   }
   const start = attachment.range && attachment.range.start ? attachment.range.start.line + 1 : null;
   const end = attachment.range && attachment.range.end ? attachment.range.end.line + 1 : null;
-  let fileName = String(label || 'selection');
-  try {
-    const pathname = new URL(fileName).pathname;
-    fileName = decodeURIComponent(pathname.slice(pathname.lastIndexOf('/') + 1)) || fileName;
-  } catch { /* keep the supplied label */ }
+  const fileName = attachmentFileName(label, 'selection');
   const linkLabel = `${fileName}${start === null || end === null ? '' : `:${start}-${end}`}`
     .replace(/([\\\[\]])/g, '\\$1');
+  const target = `https://dsh-vscode.invalid/attachment/${encodeURIComponent(attachment.id)}`;
+  return `[${linkLabel}](${target})`;
+}
+
+function formatFileAttachment(attachment, label) {
+  if (!attachment || attachment.kind !== 'active-file' || typeof attachment.content !== 'string') {
+    throw new TypeError('An active-file attachment is required');
+  }
+  if (typeof attachment.id !== 'string' || !/^ctx-[1-9][0-9]*$/.test(attachment.id)) {
+    throw new TypeError('A valid active-file attachment id is required');
+  }
+  const fileName = attachmentFileName(label, 'file');
+  const linkLabel = fileName.replace(/([\\\[\]])/g, '\\$1');
   const target = `https://dsh-vscode.invalid/attachment/${encodeURIComponent(attachment.id)}`;
   return `[${linkLabel}](${target})`;
 }
@@ -94,6 +112,7 @@ module.exports = {
   CHANNEL,
   VERSION,
   ThreadAttachmentCoordinator,
+  formatFileAttachment,
   formatSelectionAttachment,
   parseThreadResult,
 };
