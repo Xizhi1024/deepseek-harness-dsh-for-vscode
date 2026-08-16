@@ -37,8 +37,8 @@
   "main": "src/extension.js",
   "scripts": {
     "lint": "node scripts/lint.js",
-    "test": "node --test \"test/*.test.js\"",
-    "test:unit": "node --test \"test/*.test.js\"",
+    "test": "node --test \"test/*.test.js\" \"test/unit/*.test.js\"",
+    "test:unit": "node --test \"test/*.test.js\" \"test/unit/*.test.js\"",
     "test:package": "node scripts/check-package-contents.js",
     "test:secrets": "node scripts/check-secrets.js",
     "test:extension-host": "node test/extension-host/run.js",
