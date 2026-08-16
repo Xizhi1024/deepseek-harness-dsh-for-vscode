@@ -2,8 +2,15 @@
 
 const crypto = require('node:crypto');
 
-const CHANNEL = 'dsh-vscode-thread';
-const VERSION = 1;
+const {
+  CHANNELS,
+  MESSAGE_TYPES,
+  VERSIONS,
+  isThreadResult,
+} = require('./protocol/webview');
+
+const CHANNEL = CHANNELS.THREAD;
+const VERSION = VERSIONS.THREAD;
 const REQUEST_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
 function formatSelectionAttachment(attachment, label) {
@@ -27,8 +34,7 @@ function formatSelectionAttachment(attachment, label) {
 }
 
 function parseThreadResult(message) {
-  if (!message || typeof message !== 'object' || message.type !== 'dshThreadAttachResult') return null;
-  if (message.channel !== CHANNEL || message.version !== VERSION) return null;
+  if (!isThreadResult(message)) return null;
   if (typeof message.requestId !== 'string' || !REQUEST_ID.test(message.requestId)) return null;
   if (typeof message.ok !== 'boolean') return null;
   return {
@@ -56,7 +62,11 @@ class ThreadAttachmentCoordinator {
       this.pending.set(requestId, { resolve, reject, timer });
     });
     const delivered = await webview.postMessage({
-      type: 'dshThreadAttach', channel: CHANNEL, version: VERSION, requestId, text,
+      type: MESSAGE_TYPES.THREAD_ATTACH,
+      channel: CHANNEL,
+      version: VERSION,
+      requestId,
+      text,
     });
     if (!delivered) {
       const waiter = this.pending.get(requestId);

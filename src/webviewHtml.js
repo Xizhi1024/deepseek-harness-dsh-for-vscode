@@ -1,5 +1,11 @@
 "use strict";
 
+const {
+  CHANNELS,
+  MESSAGE_TYPES,
+  VERSIONS,
+} = require("./protocol/webview");
+
 /**
  * Escapes a value for safe interpolation into HTML text content or an
  * attribute value (prevents markup injection from server-provided strings).
@@ -14,6 +20,14 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+/**
+ * JSON string suitable for embedding in an inline <script> block. `<` is
+ * escaped so a constant value can never terminate the script element.
+ */
+function safeScriptJson(value) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
 /**
@@ -203,6 +217,11 @@ ${WEBVIEW_CSP_META}
  *   - a "retry" button that reloads the whole page via location.reload(),
  *     which re-creates the iframe and restarts the load timer.
  *
+ * The shell performs an optional Webview handshake: after the iframe loads,
+ * the shell sends dshWebviewReady. A modern DSH client answers with
+ * dshWebviewHello; the handshake is an enhancement and never a gate, so a
+ * v1 client that does not send hello keeps the original passthrough behavior.
+ *
  * @param {object} options
  * @param {string} options.url - DSH web URL to embed in the iframe.
  * @param {string} [options.sessionId] - Optional DSH session id for the iframe URL.
@@ -225,6 +244,9 @@ function framePage({
   let frameOrigin = 'null';
   try { frameOrigin = new URL(safeHttpUrl(url)).origin; } catch { /* null sentinel */ }
   const safeFrameOriginScript = JSON.stringify(frameOrigin).replace(/</g, '\\u003c');
+  const channelsScript = safeScriptJson(CHANNELS);
+  const versionsScript = safeScriptJson(VERSIONS);
+  const messageTypesScript = safeScriptJson(MESSAGE_TYPES);
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(lang)}">
 <head>
@@ -269,13 +291,18 @@ ${WEBVIEW_CSP_META}
     const vscode = acquireVsCodeApi();
     const frame = document.getElementById("frame");
     const fallback = document.getElementById("fallback");
+    const CHANNELS = ${channelsScript};
+    const VERSIONS = ${versionsScript};
+    const MESSAGE_TYPES = ${messageTypesScript};
     const DSH_ORIGIN = ${safeFrameOriginScript};
-    const BRIDGE_CHANNEL = "dsh-vscode-interaction";
-    const BRIDGE_VERSION = 1;
-    const THREAD_CHANNEL = "dsh-vscode-thread";
-    const THREAD_VERSION = 1;
+    const BRIDGE_CHANNEL = CHANNELS.INTERACTION;
+    const BRIDGE_VERSION = VERSIONS.INTERACTION;
+    const THREAD_CHANNEL = CHANNELS.THREAD;
+    const THREAD_VERSION = VERSIONS.THREAD;
     const LOAD_TIMEOUT_MS = 10000;
     let loaded = false;
+    let helloReceived = false;
+    let handshakeMismatch = false;
     const pendingThreadAttachments = new Map();
 
     function forwardThreadAttachments() {
@@ -291,12 +318,46 @@ ${WEBVIEW_CSP_META}
       fallback.classList.add("show");
     }
 
-    frame.addEventListener("load", () => { loaded = true; forwardThreadAttachments(); });
+    function postReady() {
+      if (!frame.contentWindow) return;
+      frame.contentWindow.postMessage({
+        type: MESSAGE_TYPES.READY,
+        channel: CHANNELS.INTERACTION,
+        version: VERSIONS.INTERACTION,
+        capabilities: {},
+      }, DSH_ORIGIN);
+    }
+
+    frame.addEventListener("load", () => {
+      loaded = true;
+      postReady();
+      forwardThreadAttachments();
+    });
     frame.addEventListener("error", showFallback);
     setTimeout(showFallback, LOAD_TIMEOUT_MS);
 
     window.addEventListener("message", (event) => {
       const message = event.data;
+      if (
+        event.source === frame.contentWindow
+        && event.origin === DSH_ORIGIN
+        && message && message.type === MESSAGE_TYPES.HELLO
+        && message.channel === CHANNELS.INTERACTION
+      ) {
+        if (message.version === VERSIONS.INTERACTION) {
+          helloReceived = true;
+        } else {
+          handshakeMismatch = true;
+          vscode.postMessage({
+            type: MESSAGE_TYPES.HELLO,
+            channel: CHANNELS.INTERACTION,
+            version: message.version,
+            ok: false,
+            error: "Webview 桥版本不匹配",
+          });
+        }
+        return;
+      }
       if (
         event.source === frame.contentWindow
         && event.origin === DSH_ORIGIN
@@ -356,4 +417,12 @@ ${WEBVIEW_CSP_META}
 </html>`;
 }
 
-module.exports = { statusPage, framePage, safeHttpUrl, withVscodeEmbedMode };
+module.exports = {
+  statusPage,
+  framePage,
+  safeHttpUrl,
+  withVscodeEmbedMode,
+  CHANNELS,
+  MESSAGE_TYPES,
+  VERSIONS,
+};
