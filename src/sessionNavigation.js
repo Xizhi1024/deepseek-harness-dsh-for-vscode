@@ -297,8 +297,11 @@ async function listSessions(baseUrl, options = {}) {
  * @param {string} baseUrl - Loopback base URL (`http://127.0.0.1:<port>` or
  *   `http://localhost:<port>`).
  * @param {object} [options]
+ * @param {string} [options.workspaceId] - DSH workspace id; when provided the
+ *   payload uses `{ workspaceId }` and takes precedence over `cwd`.
  * @param {string} [options.cwd] - Workspace root for the new session; only
- *   included in the payload when it is a non-empty string.
+ *   included in the payload when it is a non-empty string and no workspaceId
+ *   was supplied.
  * @param {Function} [options.fetchImpl] - Fetch-compatible function; defaults
  *   to `globalThis.fetch`.
  * @param {AbortSignal} [options.signal] - Optional abort signal.
@@ -309,7 +312,9 @@ async function createSession(baseUrl, options = {}) {
   const fetchImpl = resolveFetchImpl(options);
   const parsed = assertLoopbackBaseUrl(baseUrl);
   const payload = {};
-  if (typeof options.cwd === "string" && options.cwd.length > 0) {
+  if (typeof options.workspaceId === "string" && options.workspaceId.length > 0) {
+    payload.workspaceId = options.workspaceId;
+  } else if (typeof options.cwd === "string" && options.cwd.length > 0) {
     payload.cwd = options.cwd;
   }
   const response = await postJson(
@@ -575,6 +580,12 @@ function sessionIdFromValue(value) {
 
 module.exports = {
   DshSessionError,
+  assertLoopbackBaseUrl,
+  clientRequest,
+  postJson,
+  readJsonBody,
+  assertServerResponse,
+  resolveFetchImpl,
   listSessions,
   createSession,
   ensureWorkspaceSession,

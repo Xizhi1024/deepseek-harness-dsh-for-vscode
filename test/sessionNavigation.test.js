@@ -177,6 +177,22 @@ test('createSession posts session.create, returns sessionId and includes cwd whe
   assert.deepStrictEqual(capturedBody.payload, { cwd: 'D:\\workspace' });
 });
 
+test('createSession posts workspaceId when provided and never mixes in cwd', async () => {
+  let capturedBody;
+  const sessionId = await createSession(BASE_URL, {
+    workspaceId: 'w-1',
+    cwd: 'D:\\ignored',
+    fetchImpl: async (url, init) => {
+      capturedBody = JSON.parse(init.body);
+      return jsonResponse(200, { result: { ok: true, value: { sessionId: 's-ws' } } });
+    },
+  });
+
+  assert.strictEqual(sessionId, 's-ws');
+  assert.strictEqual(capturedBody.method, 'session.create');
+  assert.deepStrictEqual(capturedBody.payload, { workspaceId: 'w-1' });
+});
+
 test('createSession omits cwd from the payload when it is empty or not a string', async () => {
   for (const cwd of [undefined, '', null, 42]) {
     let capturedBody;

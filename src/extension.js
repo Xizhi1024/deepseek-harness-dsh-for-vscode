@@ -48,6 +48,7 @@ const { handleInteractionRequest } = require('./interactionBridge');
 const { installDshIntegration } = require('./dshIntegration');
 const { ThreadAttachmentCoordinator, formatSelectionAttachment } = require('./threadAttachment');
 const { createWorkspaceContext } = require("./workspaceContext");
+const { createWorkspaceBinding, BINDING_STATES } = require("./context/workspaceBinding");
 const { createEditorContext } = require("./editorContext");
 const {
   createExtensionBridgeHandlers,
@@ -83,7 +84,8 @@ let runtimeStorageRoot = null; // managed runtime storage under VS Code global s
 let activeDshHome = null; // effective shared/isolated DSH user-data home
 let activeDshHomeInfo = null; // effective mode/path/source for diagnostics
 let ensureRuntime = null; // resolves/verifies (and optionally provisions) the managed runtime
-let ensureWorkspaceSessionFn = null; // owned-instance automatic workspace session binding
+let ensureWorkspaceSessionFn = null; // retained injection seam; defaults to workspaceBinding.resolve
+let workspaceBinding = null; // SM-2 workspace registry binding (created in activate)
 let runtimeAbort = new AbortController(); // cancels in-flight runtime provisioning on deactivate
 let threadAttachmentCoordinator = null; // owning-window request/ack bridge into the DSH composer
 
@@ -215,21 +217,6 @@ async function stopOwnedServer() {
 async function bindServer(context, server, cwd) {
   currentServer = server;
   boundCwd = cwd;
-  // Owned instances are automatically bound to the current workspace root.
-  // Reused external instances are never touched. Binding is best-effort:
-  // failures/timeouts must not make the overall connect fail.
-  if (server.owned && cwd && !currentSessionId) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 6000);
-    try {
-      const sessionId = await ensureWorkspaceSessionFn(server.url, cwd, { signal: controller.signal });
-      currentSessionId = sessionIdFromValue(sessionId);
-    } catch (err) {
-      console.warn('dsh-vs-sidebar: auto workspace binding skipped:', err && err.message ? err.message : err);
-    } finally {
-      clearTimeout(timer);
-    }
-  }
   const url = await externalize(server.url);
   currentExternalUrl = url;
   const mode = loc(server.owned ? "managed" : "reused");
@@ -237,6 +224,29 @@ async function bindServer(context, server, cwd) {
       "$(radio-tower) " + loc("DSH: {port} ({mode})", { port: String(server.port), mode }),
       loc("DSH server: {url}", { url: server.url }) + (cwd ? " | " + loc("workspace: {cwd}", { cwd }) : "")
   );
+
+  let sessionId = null;
+  if (cwd) {
+    // SM-2: bind through the DSH workspace registry. This works for both
+    // owned and reused servers and never stops an owned child on workspace
+    // switches; consent is requested before creating a workspace on reused
+    // instances.
+    sessionId = await workspaceBinding.resolve(server, cwd);
+    currentSessionId = sessionId ? sessionIdFromValue(sessionId) : null;
+    const bindingState = workspaceBinding.state();
+    if (bindingState.state === BINDING_STATES.ERROR) {
+      render(statusPage({
+        title: loc("DSH workspace binding failed"),
+        detail: bindingState.error || loc("Unknown workspace binding error"),
+        showRetry: true,
+        retryLabel: loc("Retry"),
+        lang: vscode.env.language,
+      }));
+      return;
+    }
+  } else {
+    currentSessionId = null;
+  }
   renderFrame(context);
 }
 
@@ -380,20 +390,42 @@ async function rebindToWorkspace(context) {
   const cwd = hostContext.workspaceCwd();
   if (hostContext.sameRoot(cwd, boundCwd)) return; // no effective workspace change
 
-  await stopOwnedServer();
-  currentServer = null;
-  currentExternalUrl = null;
-  currentSessionId = null;
-  boundCwd = cwd;
   // Approved editor attachments are workspace-scoped; a root change must
   // never leak the previous workspace's content into the new DSH instance.
   editorContext?.clearAttachments();
+  boundCwd = cwd;
   render(statusPage({
     title: loc("Connecting to DeepSeek Harness…"),
     detail: loc("Workspace changed — rebinding to the new workspace…"),
     lang: vscode.env.language,
   }));
-  await connectNow(context);
+
+  // Recovery path: if there is no server handle at all, or the owned child
+  // process no longer exists, fall back to the full connect/ensure flow.
+  if (!currentServer || (currentServer.owned && !manager.hasOwnedChild())) {
+    currentServer = null;
+    currentExternalUrl = null;
+    currentSessionId = null;
+    await connectNow(context);
+    return;
+  }
+
+  // Workspace switch must not kill the DSH child: rebind the existing server
+  // to the new workspace through the workspace registry.
+  const sessionId = await workspaceBinding.resolve(currentServer, cwd);
+  currentSessionId = sessionId ? sessionIdFromValue(sessionId) : null;
+  const bindingState = workspaceBinding.state();
+  if (bindingState.state === BINDING_STATES.ERROR) {
+    render(statusPage({
+      title: loc("DSH workspace binding failed"),
+      detail: bindingState.error || loc("Unknown workspace binding error"),
+      showRetry: true,
+      retryLabel: loc("Retry"),
+      lang: vscode.env.language,
+    }));
+    return;
+  }
+  renderFrame(context);
 }
 
 /**
@@ -467,6 +499,10 @@ async function activateWithDependencies(context, dependencies = {}) {
   vscode = createVscodeFacade(dependencies.vscode || require("vscode"));
   hostContext = createWorkspaceContext(vscode, context);
   lifecycle = new LifecycleQueue();
+  workspaceBinding = (dependencies.createWorkspaceBinding || createWorkspaceBinding)({
+    vscode,
+    baseUrlProvider: () => currentServer && currentServer.url,
+  });
   try {
     runtimeAbort?.abort?.();
   } catch {
@@ -496,7 +532,10 @@ async function activateWithDependencies(context, dependencies = {}) {
     || ((options) => options.manifestUrl
       ? ensureManagedRuntime(options)
       : resolveLocalDshRuntime(options));
-  ensureWorkspaceSessionFn = dependencies.ensureWorkspaceSession || ensureWorkspaceSession;
+  ensureWorkspaceSessionFn = dependencies.ensureWorkspaceSession || ((baseUrl, cwd, options) => {
+    const server = currentServer || { url: baseUrl, owned: true };
+    return workspaceBinding.resolve(server, cwd);
+  });
   editorContext = createEditorContext({
     vscode,
     onChange: (payload) => {
@@ -848,6 +887,7 @@ async function activateWithDependencies(context, dependencies = {}) {
           server: currentServer,
           bridge: versionedBridge,
           home: activeDshHomeInfo,
+          binding: workspaceBinding && workspaceBinding.state() || null,
         });
         const installed = snapshot.providers.filter((provider) => provider.installed).length;
         vscode.window.showInformationMessage(loc(
@@ -964,6 +1004,8 @@ async function deactivate() {
       // status bar disposal is best-effort during extension shutdown
     }
     statusBar = null;
+    workspaceBinding?.dispose();
+    workspaceBinding = null;
     currentView = null;
     currentServer = null;
     currentExternalUrl = null;
