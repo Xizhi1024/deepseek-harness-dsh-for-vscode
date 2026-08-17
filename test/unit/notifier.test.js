@@ -36,8 +36,8 @@ test('notifier coalesces rapid same method+uri pushes into one send', async () =
 test('notifier keeps different uri buckets and flushes them all', () => {
   const sink = collect();
   const notifier = createNotifier({ send: sink.send, windowMs: 1000, maxPending: 64 });
-  notifier.push('vscode/editor/selectionChanged', { uri: 'file:///a.ts', attachmentIds: ['a'] });
-  notifier.push('vscode/editor/selectionChanged', { uri: 'file:///b.ts', attachmentIds: ['b'] });
+  notifier.push('vscode/editor/selectionChanged', { uri: 'file:///a.ts', version: 1, attachmentIds: ['a'] });
+  notifier.push('vscode/editor/selectionChanged', { uri: 'file:///b.ts', version: 1, attachmentIds: ['b'] });
   notifier.flush();
   assert.strictEqual(sink.calls.length, 2);
   assert.deepStrictEqual(sink.calls.map((call) => call.params.uri), [
@@ -50,7 +50,7 @@ test('notifier keeps different uri buckets and flushes them all', () => {
 test('notifier flush is idempotent', () => {
   const sink = collect();
   const notifier = createNotifier({ send: sink.send, windowMs: 1000, maxPending: 64 });
-  notifier.push('vscode/editor/selectionChanged', { uri: 'file:///a.ts' });
+  notifier.push('vscode/editor/selectionChanged', { uri: 'file:///a.ts', version: 1, attachmentIds: [] });
   notifier.flush();
   notifier.flush();
   notifier.flush();
@@ -61,8 +61,8 @@ test('notifier flush is idempotent', () => {
 test('notifier flushes immediately when maxPending distinct buckets are reached', () => {
   const sink = collect();
   const notifier = createNotifier({ send: sink.send, windowMs: 1000, maxPending: 2 });
-  notifier.push('vscode/editor/selectionChanged', { uri: 'file:///a.ts' });
-  notifier.push('vscode/editor/selectionChanged', { uri: 'file:///b.ts' });
+  notifier.push('vscode/editor/selectionChanged', { uri: 'file:///a.ts', version: 1, attachmentIds: [] });
+  notifier.push('vscode/editor/selectionChanged', { uri: 'file:///b.ts', version: 1, attachmentIds: [] });
   assert.strictEqual(sink.calls.length, 2, 'maxPending must trigger an immediate flush');
   assert.strictEqual(notifier.pendingCount, 0);
   notifier.dispose();
@@ -75,7 +75,7 @@ test('notifier swallows send failures and exposes the failure count', () => {
       throw new Error('send failed');
     },
   });
-  notifier.push('vscode/editor/selectionChanged', { uri: 'file:///a.ts' });
+  notifier.push('vscode/editor/selectionChanged', { uri: 'file:///a.ts', version: 1, attachmentIds: [] });
   notifier.flush();
   assert.strictEqual(notifier.stats.sendFailures, 1);
   assert.strictEqual(notifier.stats.flushCount, 1);
@@ -85,7 +85,7 @@ test('notifier swallows send failures and exposes the failure count', () => {
 test('notifier dispose clears pending without sending', () => {
   const sink = collect();
   const notifier = createNotifier({ send: sink.send, windowMs: 1000, maxPending: 64 });
-  notifier.push('vscode/editor/selectionChanged', { uri: 'file:///a.ts' });
+  notifier.push('vscode/editor/selectionChanged', { uri: 'file:///a.ts', version: 1, attachmentIds: [] });
   notifier.dispose();
   notifier.flush();
   assert.strictEqual(sink.calls.length, 0);

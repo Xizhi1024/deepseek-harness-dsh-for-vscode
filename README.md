@@ -4,9 +4,9 @@
 
 Embeds the local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) web UI in the VS Code auxiliary sidebar (right rail, alongside Copilot Chat). By default, every VS Code window starts and owns one `dsh web` child with the current workspace as cwd, then renders it in a compact full-screen iframe.
 
-## **VS CODE INTERACTION GUARANTEE (0.5.3)**
+## **VS CODE INTERACTION GUARANTEE (0.6.0)**
 
-**In an extension-owned DSH session, model-output Copy uses the VS Code clipboard, `Read …` files—including absolute paths from shared older sessions outside the current workspace—open in the exact owning VS Code window, and HTTP/HTTPS links open in VS Code Simple Browser. Markdown files no longer fall through to Windows file associations such as Typora. Select code and right-click `Add to DSH Thread` to append only a compact Markdown file-and-line link to the active DSH draft—never the selected source text; clicking the rendered link reopens that approved selection in the owning VS Code window. It is never auto-sent.**
+**In an extension-owned DSH session, model-output Copy uses the VS Code clipboard, `Read …` files—including absolute paths from shared older sessions outside the current workspace—open in the exact owning VS Code window, and HTTP/HTTPS links open in VS Code Simple Browser. Markdown files no longer fall through to Windows file associations such as Typora. Right-click the editor body to add either the whole file (`Add File to DSH Thread`, no selection required) or the current selection (`Add to DSH Thread`); both append only a compact Markdown file/link to the active DSH draft—never the selected source text. Clicking the rendered link reopens that approved file/selection in the owning VS Code window. Nothing is ever auto-sent.**
 
 ## Selection-link example
 
@@ -17,7 +17,7 @@ Select one or more code ranges, right-click **Add to DSH Thread**, and the DSH d
 ## 🚨 **IMPORTANT: ISOLATED MODE CAN MAKE ALL EXISTING MODULES APPEAR TO DISAPPEAR**
 
 > [!IMPORTANT]
-> **Version 0.5.3 defaults to `dsh.home.mode: shared` and directly uses the official DSH home (`DSH_HOME`, otherwise `~/.dsh`). Existing modules, skills, providers, credentials, presets, and sessions are therefore shared with standalone DSH.**
+> **Version 0.6.0 defaults to `dsh.home.mode: shared` and directly uses the official DSH home (`DSH_HOME`, otherwise `~/.dsh`). Existing modules, skills, providers, credentials, presets, and sessions are therefore shared with standalone DSH.**
 >
 > Set `dsh.home.mode` to `isolated` only when this VS Code extension needs a completely separate module configuration. Isolated mode uses the extension's private `globalStorage/.dsh`, initially containing only the official `web` profile. Switching modes can therefore make every module appear to disappear, but nothing is deleted—the data remains in the other DSH home. The extension never copies or merges the two homes.
 >
@@ -39,12 +39,12 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 - Dev: open this repo → `F5` → **Run Extension**
 - Verify: `npm ci` → `npm run check:w0` → `npm run test:extension-host`
 - Secret scan: `npm run test:secrets` scans the source/docs that would enter the VSIX (never `node_modules`, `.git`, or `.vscode-test`) and exits 1 on hardcoded bridge tokens, `Authorization: Bearer` credentials, API keys, private keys, or password literals; example/test fixtures are released with an explicit `// allow-secret-scan` comment.
-- Package: `npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.5.3.vsix`
+- Package: `npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.6.0.vsix`
 
 ## Usage
 
 - `Ctrl+Alt+B` opens the auxiliary sidebar → **DeepSeek Harness (DSH)** tab
-- Commands (all 12): **Open DSH in Browser** · **New Session** · **Switch Session** · **Restart DSH Server** · **Stop DSH Server** · **Focus DSH Sidebar** · **Add to DSH Thread** · **Add Active File to DSH Context** · **Add Active Selection to DSH Context** · **Add Problems to DSH Context** · **Capabilities and Integrations** · **Diagnose**
+- Commands (all 13): **Open DSH in Browser** · **New Session** · **Switch Session** · **Restart DSH Server** · **Stop DSH Server** · **Focus DSH Sidebar** · **Add File to DSH Thread** · **Add to DSH Thread** · **Add Active File to DSH Context** · **Add Active Selection to DSH Context** · **Add Problems to DSH Context** · **Capabilities and Integrations** · **Diagnose**
 - With `dsh.autoStart` on, the server is started at VS Code startup even if the sidebar is never opened
 
 ## Session navigation
@@ -53,14 +53,16 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 
 ## Editor context (explicit attachment)
 
-For the compact-link path, select code in a trusted workspace editor and right-click **Add to DSH Thread**. The extension focuses the DSH sidebar and appends only a Markdown link such as `[app.js:5-8](…)`; the selected source text is not pasted into the draft. After the message is rendered, clicking the link reopens the approved file range in the owning VS Code window. Existing draft text is preserved, and the extension does not send automatically.
+Right-click the editor body and choose **Add File to DSH Thread** (no selection required) or, with a selection, **Add to DSH Thread**. Both focus the DSH sidebar and append only a Markdown link such as `[app.js](…)` / `[app.js:5-8](…)`; no source text is pasted into the draft. After the message is rendered, clicking the link reopens the approved file range in the owning VS Code window. Existing draft text is preserved, and the extension does not send automatically.
 
-The extension never sends editor content implicitly. The active file, selection, and Problems stay out of DSH until you run one of the **Add … to DSH Context** commands; the resulting attachment is the only thing the `vscode_editor` tool can read back through the versioned bridge.
+**Add File to DSH Thread** is the only command that may attach a trusted `file://` document located outside the open workspace folders (for example a file opened via `File > Open File…`). That explicit-user-action approval only applies to the command itself and to the produced attachment link; the versioned bridge's `open`, `openDiff`, and wire-supplied diagnostics requests remain workspace-only, and `Add Active File / Selection / Problems` keep their implicit-attachment workspace gate.
+
+The extension never sends editor content implicitly. The active file, selection, and Problems stay out of DSH until you run one of the **Add …** commands; the resulting attachment is the only thing the `vscode_editor` tool can read back through the versioned bridge.
 
 - File, selection, and Problems attachments are window-memory only and are cleared when the workspace root changes.
 - Attachments over 1 MiB (UTF-8) are rejected instead of silently truncated; diagnostics are capped at 1000 items and 2000 chars per message.
-- Only `file` URIs inside an open, trusted workspace folder can be attached, opened, diffed, or queried for diagnostics — the bridge exposes no arbitrary command, URI, or file read.
-- DSH receives `vscode/contextChanged` notifications carrying revision and attachment ids only, never content.
+- Bridge `open`/`openDiff`/wire-supplied diagnostics only accept `file` URIs inside an open, trusted workspace folder — the bridge exposes no arbitrary command, URI, or file read.
+- DSH receives `vscode/contextChanged` notifications carrying revision and attachment ids only, never content. CH1 v2 adds metadata-only `selectionChanged` / `activeEditorChanged` / `diagnosticsChanged` notifications, validated against `V2_NOTIFICATION_SCHEMA` at the host boundary.
 
 ## Capabilities & diagnostics
 
@@ -73,6 +75,13 @@ The extension never sends editor content implicitly. The active file, selection,
 The extension never installs third-party providers. **Every third-party provider is `manual-assist` in this round**; none is marked `integrated` because the stable-interface audit (G3) is still open. `vscode/extensions/openDetails` only opens the catalog-controlled VS Code extension details page or an official `https://` documentation page — there is no install code path.
 
 **Diagnose** reads the `dsh.*` configuration, server state, bridge state, catalog revision, and provider detection results, then shows a single summary message. Full diagnostics output and an OutputChannel are intentionally deferred to a later W4 slice.
+
+## 0.6 capabilities
+
+- **Plugin catalog** (`src/catalog/*`, `src/detection/*`, `src/diagnose/*`): a schema-validated catalog contract describes DSH plugin categories/entries, and the L3 probe detects installed plugins in the selected DSH home. `Diagnose` includes the plugin summary.
+- **Workspace registry** (`src/context/workspaceBinding.js`, `src/ch2/workspaceClient.js`): the sidebar binds VS Code workspace roots through DSH's `workspace.list/create` API. Switching the active workspace root rebinds the DSH session through the registry — the owned child process is **not** killed or restarted. Owned servers auto-create the workspace record; reused servers ask for consent.
+- **CH1 v2** (`src/protocol/ch1.js`, `src/ch1/notifier.js`): the versioned bridge negotiates protocol v1/v2 and adds metadata-only `selectionChanged` / `activeEditorChanged` / `diagnosticsChanged` notifications, coalesced by a 150 ms notifier and validated against `V2_NOTIFICATION_SCHEMA`.
+- **Command shell** (`src/commands/shell.js`, `src/commands/addFileToThread.js`): a capability-router gate for commands; `dsh.addFileToThread` is the first command wired through it.
 
 Provider state is refreshed through `vscode.extensions.onDidChange`, which emits `vscode/providerStatesChanged` notifications on the versioned bridge. Detection re-reads `vscode.extensions` on every call and never caches state across workspaces.
 
@@ -186,8 +195,10 @@ A reused (non-owned) instance is never stopped by any policy or command.
 
 - **Real browser provider not integrated**: the capability catalog only lists `browser-provider-placeholder`; provider selection and verification are deferred to W5.
 - **Extension Host smoke version**: the smoke test currently runs against VS Code 1.106 by default.
-- **Configured local paths are trusted verbatim (cross-platform validation gap)**: `dsh.local.packageRoot` / `dsh.local.nodePath` accept any value that passes `path.isAbsolute`. On win32 a POSIX absolute path (`/Users/…/nvm/…`) also passes, and a configured root replaces automatic discovery entirely — a value synced from another machine then reports "Official DSH is not installed" even when the package IS installed. The configured-root error now names the offending path (0.5.3 hardening); the durable fix — win32 drive-letter validation (`/^[A-Za-z]:[\\/]/`) for configured absolute paths — is tracked in Troubleshooting.
-- **Startup failures are free-text, not classified**: runtime resolution / connect / home failures at startup are still distinguished by message text. The plan is stable per-class error codes consumed by a switch-case at startup, so every class gets its own message, diagnose entry, and Retry behavior.
+- **Configured local paths are trusted verbatim (cross-platform validation gap)**: `dsh.local.packageRoot` / `dsh.local.nodePath` accept any value that passes `path.isAbsolute`. On win32 a POSIX absolute path (`/Users/…/nvm/…`) also passes, and a configured root replaces automatic discovery entirely — a value synced from another machine then reports "Official DSH is not installed" even when the package IS installed. The configured-root error now names the offending path (0.5.3 hardening); the durable fix — win32 drive-letter validation (`/^[A-Za-z]:[\\/]/`) for configured absolute paths and `scope: "machine"` — is tracked in Troubleshooting.
+- **Startup failures are only partially classified**: 0.6.0 gives configuration-only failures (host/port invalid, `autoStart=false` with no server, invalid configured root/node/home) stable codes and hides the Retry button because retrying cannot help. Runtime/spawn/download failures remain free-text with Retry. The full per-class switch-case startup detection (stable codes + per-class messages + Retry behavior for every failure class) is tracked in Troubleshooting.
+- **Version-manager discovery is not exhaustive**: nvm (POSIX), fnm (macOS), asdf, and n are discovered; Volta, fnm on Windows, and nvm-windows custom roots are not yet in the candidate list. Use `dsh.local.packageRoot` / `dsh.local.nodePath` on those layouts.
+- **Some DSH copy buttons may still fail**: the bridge only replaces `navigator.clipboard.writeText`; a DSH UI fallback that uses `document.execCommand('copy')` writes to the webview clipboard instead of the VS Code clipboard and belongs to the DSH UI side. Model-output Copy through the standard clipboard API works.
 
 ## Implementation
 
@@ -217,6 +228,20 @@ A reused (non-owned) instance is never stopped by any policy or command.
 | `src/vscodeFacade.js` | injectable VS Code API surface |
 | `src/webviewHtml.js` | iframe + status pages |
 | `src/webviewMessages.js` | fixed Webview message routing |
+| `src/protocol/webview.js` | webview bridge constants/validators (request-id rule shared by shell, host, client) |
+| `src/protocol/ch1.js` | CH1 v1/v2 method/notification contract and `V2_NOTIFICATION_SCHEMA` enforcement |
+| `src/ch1/notifier.js` | metadata notification coalescer with v2 schema validation |
+| `src/ch2/workspaceClient.js` | DSH workspace registry API client |
+| `src/context/workspaceBinding.js` | workspace registry binding state machine |
+| `src/commands/shell.js` | capability-router command shell |
+| `src/commands/addFileToThread.js` | `dsh.addFileToThread` command body |
+| `src/catalog/catalogSchema.js` | plugin catalog schema validation |
+| `src/catalog/pluginCatalog.js` | installed-plugin catalog snapshot |
+| `src/detection/pluginDetector.js` | L3 installed-plugin probe |
+| `src/detection/profileProbe.js` | DSH profile/entry probing |
+| `src/detection/probeTypes.js` | probe result/state contracts |
+| `src/diagnose/pluginSummary.js` | diagnose plugin summary |
+| `src/adapters/contract.js` | capability adapter contract |
 | `src/workspaceContext.js` | settings, workspace root, registry path |
 | `src/types.js` | contract constants (port, boot marker, view ID) |
 
@@ -229,7 +254,7 @@ Key behaviors:
 - Remote (WSL / Remote-SSH): `vscode.env.asExternalUri` port forwarding
 - Browser commands use the same externalized URL as the iframe, including remote sessions and connection-error fallback pages
 - Only the iframe URL gains the `dsh_embed=vscode` compact-layout marker; browser URLs remain unmodified
-- Workspace switch: stop only the owned instance for the old root, re-probe for the new one
+- Workspace switch: rebind the DSH session through the workspace registry without killing or restarting the owned child (PID stays the same)
 - `onStartupFinished` activation: with `dsh.autoStart` on, the server starts at VS Code startup (null-safe when no webview is open)
 - With the default `onVscodeExit` policy, extension deactivation cancels pending startup, waits for the serialized lifecycle queue, and tree-kills any child that appeared; closing one VS Code window does not affect another window's child
 - Lifecycle transitions (connect / stop / workspace rebind / config reconcile) run through one serialized queue, so a dispose arriving during connect cannot kill a process a rebind just started
@@ -261,9 +286,10 @@ Fix: remove `dsh.local.packageRoot` and `dsh.local.nodePath` from the affected m
 
 Planned hardening (recorded here, not yet implemented):
 
-- **Switch-case startup detection**: extension startup / `connectNow` failures must be classified by stable error codes — one branch per class (`not-installed` / `configured-package-root-invalid` / `node-missing` / `connect-timeout` / …) — each with its own message, diagnose entry, and Retry behavior. No free-text matching.
+- **Complete switch-case startup classification**: 0.6.0 already codes configuration-only failures and hides Retry for them. Runtime resolution / connect / spawn / health failures still need stable per-class codes, messages, diagnose entries, and Retry behavior — no free-text matching.
 - **`scope: "machine"`** for `dsh.local.packageRoot` / `dsh.local.nodePath`, so Settings Sync stops shipping machine paths across devices (matching `dsh.home.path`).
 - **win32 drive-letter validation** for configured absolute paths (`/^[A-Za-z]:[\\/]/`), rejecting POSIX-style paths before candidate search instead of after search falls through.
+- **Version-manager discovery parity**: add Volta (`~/.volta/tools/image/node/*`), fnm on Windows (`%APPDATA%\fnm\node-versions`), and nvm-windows custom roots.
 
 ## License
 

@@ -4,9 +4,9 @@
 
 把本地 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）Web 界面嵌入 VS Code 辅助侧边栏（右侧栏，与 Copilot Chat 同排）。默认情况下，每个 VS Code 窗口都会以当前工作区为 cwd 单独启动并持有一个 `dsh web` 子进程，再以紧凑的全屏 iframe 渲染。
 
-## **VS CODE 交互保证（0.5.3）**
+## **VS CODE 交互保证（0.6.0）**
 
-**在扩展自管的 DSH 会话中，模型输出的“复制”使用 VS Code 剪贴板，`Read …` 文件（包括共享旧会话中位于当前工作区之外的绝对路径）在拥有该 DSH 进程的 VS Code 窗口中打开，HTTP/HTTPS 链接在 VS Code Simple Browser 中打开。Markdown 文件不再回退到 Typora 等 Windows 默认关联程序。在编辑器中选中代码并右键“添加到 DSH 对话”，只会向当前 DSH 草稿追加紧凑的文件名/行号 Markdown 链接，不再粘贴代码正文；消息渲染后点击链接，会在所属 VS Code 窗口重新打开并选中该附件。扩展绝不会自动发送。**
+**在扩展自管的 DSH 会话中，模型输出的“复制”使用 VS Code 剪贴板，`Read …` 文件（包括共享旧会话中位于当前工作区之外的绝对路径）在拥有该 DSH 进程的 VS Code 窗口中打开，HTTP/HTTPS 链接在 VS Code Simple Browser 中打开。Markdown 文件不再回退到 Typora 等 Windows 默认关联程序。在编辑器正文右键，无需选中文字即可“将文件添加到 DSH 对话”，选中代码后也可“添加到 DSH 对话”；两者都只向当前 DSH 草稿追加紧凑的文件名/行号 Markdown 链接，不粘贴代码正文；消息渲染后点击链接，会在所属 VS Code 窗口重新打开并选中该附件。扩展绝不会自动发送。**
 
 ## 选区链接示例
 
@@ -17,11 +17,11 @@
 ## 🚨 **重要警告：隔离模式会让原有模块看起来全部“消失”**
 
 > [!IMPORTANT]
-> **0.5.3 默认使用 `dsh.home.mode: shared`，直接采用 DSH 官方用户目录（优先 `DSH_HOME`，否则 `~/.dsh`）。独立 DSH 原有的模块、skills、providers、凭据、预设和会话会直接共享到 VS Code 侧栏。**
+> **0.6.0 默认使用 `dsh.home.mode: shared`，直接采用 DSH 官方用户目录（优先 `DSH_HOME`，否则 `~/.dsh`）。独立 DSH 原有的模块、skills、providers、凭据、预设和会话会直接共享到 VS Code 侧栏。**
 >
 > 只有需要为本扩展单独维护一套模块配置时，才应设置 `dsh.home.mode: isolated`。隔离模式使用扩展私有的 `globalStorage/.dsh`，首次只有官方 `web` profile。切换模式后，所有模块可能看起来突然消失，但数据没有被删除，只是仍在另一套 DSH_HOME 中；扩展绝不会自动复制或合并两个目录。
 >
-> 首次从 0.4.x 升级时，如果旧隔离目录非空且用户尚未明确选择模式，0.5.0 会自动保留旧隔离模式以保护模块与会话。执行 **DSH：诊断** 可查看当前实际模式和路径，确认后再显式切换为 `shared`。
+> 首次从 0.4.x 升级时，如果旧隔离目录非空且用户尚未明确选择模式，扩展会自动保留旧隔离模式以保护模块与会话。执行 **DSH：诊断** 可查看当前实际模式和路径，确认后再显式切换为 `shared`。
 
 `dsh.autoStart=true` 时 VS Code 自动拉起 `dsh web` 是预期行为。runtime 程序与 DSH 用户数据已经解耦：无论使用本机官方 npm 包，还是 manifest/SHA-256 校验的托管 runtime，都会使用选定的共享或隔离目录。
 
@@ -39,12 +39,12 @@
 - 开发调试：打开本仓库 → `F5` → **Run Extension**
 - 验证：`npm ci` → `npm run check:w0` → `npm run test:extension-host`
 - 密钥扫描：`npm run test:secrets` 扫描将进入 VSIX 的源码/文档（不扫 `node_modules`、`.git`、`.vscode-test`），命中硬编码桥接 token、`Authorization: Bearer` 凭据、API key、私钥或密码字面量时以 1 退出；示例/测试 fixture 使用显式 `// allow-secret-scan` 注释放行。
-- 打包安装：`npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.5.3.vsix`
+- 打包安装：`npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.6.0.vsix`
 
 ## 使用
 
 - `Ctrl+Alt+B` 打开辅助侧边栏 → **DeepSeek Harness (DSH)** 标签
-- 命令（全部 12 条）：**在浏览器中打开 DSH** · **新建会话** · **切换会话** · **重启 DSH 服务** · **停止 DSH 服务** · **聚焦 DSH 侧边栏** · **添加到 DSH 对话** · **将活动文件添加到 DSH 上下文** · **将活动选区添加到 DSH 上下文** · **将 Problems 添加到 DSH 上下文** · **能力与集成** · **诊断**
+- 命令（全部 13 条）：**在浏览器中打开 DSH** · **新建会话** · **切换会话** · **重启 DSH 服务** · **停止 DSH 服务** · **聚焦 DSH 侧边栏** · **将文件添加到 DSH 对话** · **添加到 DSH 对话** · **将活动文件添加到 DSH 上下文** · **将活动选区添加到 DSH 上下文** · **将 Problems 添加到 DSH 上下文** · **能力与集成** · **诊断**
 - `dsh.autoStart` 开启时，VS Code 启动即拉取服务，即使侧边栏从未打开
 
 ## 会话切换
@@ -53,14 +53,16 @@
 
 ## 编辑器上下文（显式附加）
 
-若要使用紧凑链接方式，请在受信任工作区的编辑器中选中代码，再右键选择 **添加到 DSH 对话**。扩展会聚焦 DSH 侧栏，并只追加类似 `[app.js:5-8](…)` 的 Markdown 链接，不把选中代码正文粘进输入框；消息渲染后点击链接，会在所属 VS Code 窗口打开文件并选中对应范围。原有草稿会保留，消息不会自动发送。
+在编辑器正文右键：无需选中文字即可选择 **将文件添加到 DSH 对话**，选中代码后可选择 **添加到 DSH 对话**。两条命令都会聚焦 DSH 侧栏，并只追加类似 `[app.js](…)` / `[app.js:5-8](…)` 的 Markdown 链接，不把代码正文粘进输入框；消息渲染后点击链接，会在所属 VS Code 窗口打开文件并选中对应范围。原有草稿会保留，消息不会自动发送。
+
+**将文件添加到 DSH 对话** 是唯一允许附加工作区之外受信任 `file://` 文档的命令（例如通过 `文件 > 打开文件…` 打开的外部文件）。该显式用户许可只作用于命令本身及其产生的附件链接；版本化桥的 `open`、`openDiff` 与显式传入的 diagnostics 请求仍保持工作区内限制，而「将活动文件 / 选区 / Problems 添加到上下文」继续使用隐式附件的工作区门禁。
 
 扩展不会隐式发送任何编辑器内容。活动文件、选区与 Problems 只有在你执行「将 … 添加到 DSH 上下文」命令后才进入 DSH；之后 `vscode_editor` 工具只能经版本化桥读回这些已批准的附件。
 
 - 文件、选区与 Problems 附件只存在于窗口内存，工作区根目录变化时自动清空。
 - 超过 1 MiB（UTF-8）的附件直接拒绝而不是静默截断；诊断上限为 1000 条、每条消息 2000 字符。
-- 只有受信任且位于已打开工作区文件夹内的 `file` URI 才能被附加、打开、Diff 或查询诊断——桥不暴露任意命令、URI 或文件读取。
-- 发往 DSH 的 `vscode/contextChanged` 通知只携带 revision 与 attachment id，永不携带内容。
+- 桥的 `open` / `openDiff` / 显式 diagnostics 只接受受信任且位于已打开工作区内的 `file` URI——桥不暴露任意命令、URI 或文件读取。
+- 发往 DSH 的 `vscode/contextChanged` 通知只携带 revision 与 attachment id，永不携带内容。CH1 v2 新增的 `selectionChanged` / `activeEditorChanged` / `diagnosticsChanged` 同样是纯元数据通知，并在宿主边界按 `V2_NOTIFICATION_SCHEMA` 校验。
 
 ## 能力与诊断
 
@@ -73,6 +75,13 @@
 扩展从不安装第三方 provider。**本轮所有第三方 provider 均为 `manual-assist`**；由于稳定接口审计（G3）尚未关闭，任何条目都不会被标记为 `integrated`。`vscode/extensions/openDetails` 只会打开目录受控的 VS Code 扩展详情页或官方 `https://` 文档页——不存在任何安装代码路径。
 
 **诊断** 会读取 `dsh.*` 配置、服务状态、桥接状态、目录 revision 与 provider 检测结果，并显示一条摘要消息。完整诊断输出与 OutputChannel 有意留到后续 W4 切片。
+
+## 0.6 能力
+
+- **插件目录**（`src/catalog/*`、`src/detection/*`、`src/diagnose/*`）：经 schema 校验的 catalog 契约描述 DSH 插件分类/条目，L3 探针在选定 DSH home 内检测已安装插件，诊断结果包含插件摘要。
+- **工作区注册表**（`src/context/workspaceBinding.js`、`src/ch2/workspaceClient.js`）：侧边栏通过 DSH 的 `workspace.list/create` API 绑定 VS Code 工作区根。切换活动工作区根时经注册表重绑会话——**不会 kill 或重启自管子进程**。自管服务自动创建工作区记录，复用服务会先征求同意。
+- **CH1 v2**（`src/protocol/ch1.js`、`src/ch1/notifier.js`）：版本化桥协商 v1/v2 协议，新增纯元数据 `selectionChanged` / `activeEditorChanged` / `diagnosticsChanged` 通知，经 150ms 合并器发送，并按 `V2_NOTIFICATION_SCHEMA` 校验。
+- **命令薄壳**（`src/commands/shell.js`、`src/commands/addFileToThread.js`）：命令先经 capability-router 门禁再执行；`dsh.addFileToThread` 是首个接入薄壳的命令。
 
 provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化桥上发送 `vscode/providerStatesChanged` 通知。检测器每次调用都会重新读取 `vscode.extensions`，绝不跨工作区缓存状态。
 
@@ -186,6 +195,10 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 
 - **真实 browser provider 尚未接入**：能力目录当前仅列出 `browser-provider-placeholder`，provider 选定与验证留待 W5。
 - **Extension Host smoke 版本**：smoke 测试默认运行在 VS Code 1.106 上。
+- **配置的本地路径被原样信任（跨平台校验缺口）**：`dsh.local.packageRoot` / `dsh.local.nodePath` 接受任何通过 `path.isAbsolute` 的值。在 win32 上 POSIX 绝对路径（`/Users/…/nvm/…`）也会通过，且配置根会完全取代自动探测——从另一台机器同步过来的值会误报 “Official DSH is not installed”，即使包确实已安装。配置根错误现在会指明出错路径（0.5.3 加固）；持久修复（win32 盘符校验 `/^[A-Za-z]:[\\/]/` 与 `scope: "machine"`）见 Troubleshooting。
+- **启动失败只做了部分分类**：0.6.0 给纯配置类失败（host/port 非法、`autoStart=false` 且无服务、配置根/node/home 无效）分配了稳定 code 并隐藏 Retry（重试无意义）。runtime/启动/下载失败仍是自由文本 + Retry。完整的逐类 switch-case 启动检测（稳定 code、逐类消息与 Retry 行为）见 Troubleshooting。
+- **版本管理器探测不完整**：已支持 nvm（POSIX）、fnm（macOS）、asdf、n；Volta、Windows 上的 fnm 与 nvm-windows 自定义根尚未纳入候选列表，这些布局请使用 `dsh.local.packageRoot` / `dsh.local.nodePath`。
+- **部分 DSH 复制按钮仍可能失败**：桥只替换 `navigator.clipboard.writeText`；DSH UI 若走 `document.execCommand('copy')` 兜底，会写入 webview 剪贴板而不是 VS Code 剪贴板，该项属于 DSH UI 侧。模型输出经标准 clipboard API 的复制正常工作。
 
 ## 实现原理
 
@@ -215,6 +228,20 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 | `src/vscodeFacade.js` | 可注入的 VS Code API 表面 |
 | `src/webviewHtml.js` | iframe 页与状态页 |
 | `src/webviewMessages.js` | 固定 Webview 消息路由 |
+| `src/protocol/webview.js` | Webview 桥常量/校验器（外壳、宿主、客户端共享 request-id 规则） |
+| `src/protocol/ch1.js` | CH1 v1/v2 方法/通知契约与 `V2_NOTIFICATION_SCHEMA` 运行时校验 |
+| `src/ch1/notifier.js` | 元数据通知合并器（含 v2 schema 校验） |
+| `src/ch2/workspaceClient.js` | DSH 工作区注册表 API 客户端 |
+| `src/context/workspaceBinding.js` | 工作区注册表绑定状态机 |
+| `src/commands/shell.js` | capability-router 命令薄壳 |
+| `src/commands/addFileToThread.js` | `dsh.addFileToThread` 命令体 |
+| `src/catalog/catalogSchema.js` | 插件目录 schema 校验 |
+| `src/catalog/pluginCatalog.js` | 已安装插件目录快照 |
+| `src/detection/pluginDetector.js` | L3 已安装插件探针 |
+| `src/detection/profileProbe.js` | DSH profile/入口探测 |
+| `src/detection/probeTypes.js` | 探针结果/状态契约 |
+| `src/diagnose/pluginSummary.js` | 诊断用插件摘要 |
+| `src/adapters/contract.js` | capability 适配器契约 |
 | `src/workspaceContext.js` | 设置、工作区根与注册表路径 |
 | `src/types.js` | 契约常量（端口、BOOT 标记、视图 ID） |
 
@@ -227,7 +254,7 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 - 远程（WSL / Remote-SSH）：`vscode.env.asExternalUri` 端口转发
 - 浏览器命令与 iframe 使用同一个 externalized URL，远程会话和连接失败页同样适用
 - 仅 iframe URL 增加 `dsh_embed=vscode` 紧凑布局标记；浏览器 URL 不作修改
-- 工作区切换：只停旧根下本扩展拉起的实例，再按新 cwd 重新探测
+- 工作区切换：经工作区注册表重绑 DSH 会话，不 kill、不重启自管子进程（PID 保持不变）
 - `onStartupFinished` 激活：`dsh.autoStart` 开启时 VS Code 启动即拉取服务（未打开 webview 时同样安全）
 - 默认 `onVscodeExit` 策略下，扩展停用会取消待启动操作、等待串行生命周期队列结算，并树杀期间可能刚出现的子进程；关闭一个 VS Code 窗口不会影响另一个窗口的子进程
 - 生命周期流转（连接 / 停止 / 工作区重绑 / 配置协调）统一走一条串行队列，连接期间到来的视图销毁不会误杀刚重绑拉起的进程
@@ -239,6 +266,30 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 
 - **DSH 设置里「DeepSeek 官方 API」的密钥是只读的？**
   这是 DSH 的设计：启动环境提供的 `DEEPSEEK_API_KEY` 被视为只读（否则写入会被环境变量静默覆盖）。修复：在启动 dsh web（或 VS Code）的终端里 unset 该变量后重启——`~/.dsh/.credentials.yaml` 中已存的密钥会接管，设置项即可编辑。
+
+## 疑难排查
+
+### 全局已装 DSH 却提示 “Official DSH is not installed”（2026-08-17）
+
+现象：侧边栏提示 `Official DSH is not installed …`（状态页显示 `http://127.0.0.1:3080`），而 `npm ls -g` 能列出 `@deepseek-ai/dsh`。
+
+原因：Settings Sync 把 Mac 上的机器相关值同步到了 Windows 用户设置：
+
+```json
+"dsh.local.packageRoot": "/Users/zhengduojie/.nvm/versions/node/v24.18.1/lib/node_modules/@deepseek-ai/dsh",
+"dsh.local.nodePath": "/Users/zhengduojie/.nvm/versions/node/v24.18.1/bin/node",
+```
+
+在 win32 上这些 POSIX 路径能通过 `path.isAbsolute`（drive-relative），解析器因此把配置根视为权威，只搜索它、找不到，最终落到通用安装提示；自动探测（`%APPDATA%\npm\node_modules\@deepseek-ai\dsh`）从未被咨询。
+
+修复：在受影响机器上删除用户设置中的 `dsh.local.packageRoot` 与 `dsh.local.nodePath`（或改成该机器正确的值），然后重载窗口。自动探测会重新从 PATH 找到已安装的包与 Node。
+
+计划中的加固（记录于此，尚未实现）：
+
+- **完整 switch-case 启动分类**：0.6.0 已为纯配置类失败分配稳定 code 并隐藏 Retry；runtime 解析 / 连接 / 启动 / 健康失败仍需逐类稳定 code、消息、诊断条目与 Retry 行为，不再做自由文本匹配。
+- **`scope: "machine"`**：`dsh.local.packageRoot` / `dsh.local.nodePath` 改为机器级，避免 Settings Sync 跨设备搬运机器路径（与 `dsh.home.path` 一致）。
+- **win32 盘符校验**：配置绝对路径需匹配 `/^[A-Za-z]:[\\/]/`，在候选搜索之前拒绝 POSIX 风格路径，而不是搜索落空后才发现。
+- **版本管理器探测补齐**：新增 Volta（`~/.volta/tools/image/node/*`）、Windows fnm（`%APPDATA%\fnm\node-versions`）与 nvm-windows 自定义根。
 
 ## License
 

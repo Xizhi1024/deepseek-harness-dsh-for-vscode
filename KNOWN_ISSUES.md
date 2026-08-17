@@ -3,7 +3,14 @@
 > 记录日期：2026-08-17
 > 环境：macOS 本地 VS Code 扩展开发宿主测试
 > 对应分支：`master`（已合入 0.6 B0-B4 与两个修复分支）
-> 状态：open / 待处理
+> 状态：**下面两个问题已在 0.6.0 修复（release/0.6.0），修复后行为待 F5 人工验收；0.6 新特性验收项仍在下文待办。**
+
+## 修复汇总（0.6.0）
+
+| 问题 | 修复方式 | 测试 |
+|---|---|---|
+| 编辑器空白行右键没有 `dsh.addFileToThread` | `package.json` 的 `menus.editor/context` 增加 `dsh.addFileToThread`，`when: resourceScheme == file`（不依赖 `editorHasSelection`），分组 `dsh@1`；契约测试同步更新 | `test/contracts.test.js` |
+| 工作区之外的文件无法添加 | `attachActiveFile({ allowOutsideWorkspace: true })` 仅对 `dsh.addFileToThread` 放开受信任 `file://` URI；已批准的显式附件可经 `openAttachment` 在本窗口重新打开；桥的 `open`/`openDiff`/显式 diagnostics 仍保持工作区内限制 | `test/editorContext.test.js`、`test/unit/addFileToThread.test.js` |
 
 ## 1. 文件无法通过右键菜单添加到对话内（空行右键 / 未选中文字时）
 
@@ -31,6 +38,8 @@
   - 注意与 `dsh.addSelectionToThread` 在菜单中的分组/排序，避免两个入口混淆。
   - 补充 contract/unit 测试，断言编辑器正文右键菜单在无选区时也注册文件添加入口。
 
+- **状态：0.6.0 已修复** —— `editor/context` 现有两条 DSH 入口：`dsh.addFileToThread`（`dsh@1`，仅要求 `resourceScheme == file`）与 `dsh.addSelectionToThread`（`dsh@10`，要求选区）。
+
 ## 2. 工作区之外的文件无法被添加
 
 - **复现步骤**
@@ -52,6 +61,8 @@
   - 单独为 `dsh.addFileToThread` 建立“显式用户操作”路径，允许 workspace 外的 `file://` URI，但仍拒绝 `untitled`、`git`、`vscode` 等非 `file` scheme。
   - 保持 `Add Active File / Add Active Selection / Add Problems` 的 workspace 内限制不变，避免扩大隐式附件的安全面。
   - 补充测试：workspace 外 `file://` URI 可添加；非 `file://` scheme 仍被拒绝。
+
+- **状态：0.6.0 已修复** —— 仅 `dsh.addFileToThread` 使用 `allowOutsideWorkspace: true`；该显式附件被标记并可经草稿链接在本窗口重新打开；非 `file` scheme 与不受信任工作区仍拒绝；`open`/`openDiff`/显式 diagnostics 保持工作区门禁。
 
 ---
 

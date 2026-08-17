@@ -5,13 +5,13 @@ const crypto = require('node:crypto');
 const {
   CHANNELS,
   MESSAGE_TYPES,
+  REQUEST_ID,
   VERSIONS,
   isThreadResult,
 } = require('./protocol/webview');
 
 const CHANNEL = CHANNELS.THREAD;
 const VERSION = VERSIONS.THREAD;
-const REQUEST_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
 function attachmentFileName(label, fallback) {
   let fileName = String(label || fallback);
@@ -53,7 +53,7 @@ function formatFileAttachment(attachment, label) {
 
 function parseThreadResult(message) {
   if (!isThreadResult(message)) return null;
-  if (typeof message.requestId !== 'string' || !REQUEST_ID.test(message.requestId)) return null;
+  if (!REQUEST_ID.test(message.requestId)) return null;
   if (typeof message.ok !== 'boolean') return null;
   return {
     requestId: message.requestId,

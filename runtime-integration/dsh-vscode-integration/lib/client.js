@@ -132,6 +132,9 @@ window.__ModuleLoader__.load({
         message && message.type === 'dshThreadAttach'
         && message.channel === THREAD_CHANNEL && message.version === THREAD_VERSION
       ) {
+        // Malformed request ids are silently rejected: no pending map entry,
+        // no failure echo. Matches the shell/extension-host parser policy.
+        if (typeof message.requestId !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(message.requestId)) return;
         handleThreadAttach(ctx, message);
         return;
       }

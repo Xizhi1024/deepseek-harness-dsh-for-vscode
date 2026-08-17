@@ -19,7 +19,9 @@ function validateConfiguredHome(value) {
   const candidate = String(value || '').trim();
   if (candidate === '') return '';
   if (candidate.includes('\0') || !path.isAbsolute(candidate)) {
-    throw new Error('dsh.home.path must be an absolute path');
+    const error = new Error('dsh.home.path must be an absolute path');
+    error.code = 'CONFIG_HOME_PATH_INVALID';
+    throw error;
   }
   return path.resolve(candidate);
 }
@@ -50,7 +52,11 @@ function resolveDshHome({
   }
   const inherited = String(env.DSH_HOME || '').trim();
   if (inherited) {
-    if (inherited.includes('\0')) throw new Error('DSH_HOME must not contain NUL');
+    if (inherited.includes('\0')) {
+      const error = new Error('DSH_HOME must not contain NUL');
+      error.code = 'CONFIG_HOME_PATH_INVALID';
+      throw error;
+    }
     return Object.freeze({
       mode: normalizedMode,
       path: path.resolve(inherited),

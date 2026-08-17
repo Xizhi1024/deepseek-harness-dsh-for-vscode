@@ -201,13 +201,18 @@ function createEditorContext(options = {}) {
    * Validate a document URI taken from the active editor.
    *
    * @param {object} uri - VS Code URI object.
+   * @param {object} [options] - Gate options.
+   * @param {boolean} [options.requireWorkspace=true] - When false, an explicit
+   *   user command may attach a trusted `file://` URI from outside the open
+   *   workspace folders. Wire-initiated bridge requests never pass this flag.
    * @returns {void}
    */
-  function assertDocumentUriSafe(uri) {
+  function assertDocumentUriSafe(uri, { requireWorkspace = true } = {}) {
     if (!uri || typeof uri !== 'object' || uri.scheme !== 'file') {
       throw new EditorContextError('VSCODE_UNSUPPORTED_DOCUMENT', 'Active editor document is not a file URI');
     }
-    assertUriInWorkspace(uri);
+    if (requireWorkspace) assertUriInWorkspace(uri);
+    else assertTrusted();
   }
 
   /**
@@ -310,15 +315,21 @@ function createEditorContext(options = {}) {
   }
 
   /**
+   * @param {object} [options] - Attachment options.
+   * @param {boolean} [options.allowOutsideWorkspace=false] - Explicit-user-command
+   *   mode (`dsh.addFileToThread`): a trusted `file://` URI outside the open
+   *   workspace folders may be attached. Implicit bridge/attachment commands
+   *   keep the workspace-only gate.
    * @returns {object} Attachment for the active file.
    */
-  function attachActiveFile() {
+  function attachActiveFile(options = {}) {
+    const allowOutsideWorkspace = options && options.allowOutsideWorkspace === true;
     const editor = vscode.window.activeTextEditor;
     if (!editor || !editor.document || !editor.document.uri) {
       throw new EditorContextError('VSCODE_NO_ACTIVE_EDITOR', 'No active text editor is available');
     }
     const document = editor.document;
-    assertDocumentUriSafe(document.uri);
+    assertDocumentUriSafe(document.uri, { requireWorkspace: !allowOutsideWorkspace });
     const content = document.getText();
     assertAttachmentFits(content);
     return addAttachment({
@@ -327,6 +338,7 @@ function createEditorContext(options = {}) {
       document: documentMetadata(document, describeUri(document.uri)),
       content,
       createdAt: now(),
+      explicit: allowOutsideWorkspace,
     });
   }
 
@@ -406,6 +418,12 @@ function createEditorContext(options = {}) {
 
   /**
    * Open one approved in-memory attachment in its owning VS Code editor.
+   *
+   * An existing attachment is itself the user approval, so an explicit-file
+   * attachment created by `dsh.addFileToThread` can be reopened even when its
+   * URI sits outside the current workspace folders. Arbitrary wire-supplied
+   * `vscode/editor/open` requests still pass the workspace-only gate.
+   *
    * @param {string} attachmentId - Current window attachment id.
    * @returns {Promise<{opened: boolean}>} Open result.
    */
@@ -415,7 +433,10 @@ function createEditorContext(options = {}) {
     if (!attachment || !attachment.document || typeof attachment.document.uri !== 'string') {
       throw new EditorContextError('VSCODE_ATTACHMENT_NOT_FOUND', 'Editor attachment is no longer available');
     }
-    return openHandler({ document: attachment.document, range: attachment.range, preserveFocus: false });
+    return openHandler(
+      { document: attachment.document, range: attachment.range, preserveFocus: false },
+      { allowApprovedExternal: attachment.explicit === true }
+    );
   }
 
   /**
@@ -446,10 +467,13 @@ function createEditorContext(options = {}) {
 
   /**
    * @param {object} [params] - Request params.
-   * @param {{ signal?: AbortSignal }} [context] - Request context.
+   * @param {{ signal?: AbortSignal, allowApprovedExternal?: boolean }} [context] -
+   *   Request context. `allowApprovedExternal` is only ever set by
+   *   `openAttachment` for an attachment the user explicitly approved; wire
+   *   callers always keep the workspace-only gate.
    * @returns {Promise<{ opened: boolean }>} Open result.
    */
-  async function openHandler(params, { signal } = {}) {
+  async function openHandler(params, { signal, allowApprovedExternal = false } = {}) {
     throwIfAborted(signal);
     const body = isRecord(params) ? params : {};
     if (!isRecord(body.document) || typeof body.document.uri !== 'string') {
@@ -457,7 +481,8 @@ function createEditorContext(options = {}) {
     }
     const selection = readSelection(body.range);
     const uri = parseWireUri(body.document.uri);
-    assertUriInWorkspace(uri);
+    if (allowApprovedExternal) assertTrusted();
+    else assertUriInWorkspace(uri);
     throwIfAborted(signal);
     const document = await vscode.workspace.openTextDocument(uri);
     throwIfAborted(signal);
@@ -540,8 +565,12 @@ function createEditorContext(options = {}) {
   async function getDiagnosticsHandler(params, { signal } = {}) {
     throwIfAborted(signal);
     const body = isRecord(params) ? params : {};
+    const wireSupplied = body.uris !== undefined;
     let uriStrings;
-    if (body.uris === undefined) {
+    if (!wireSupplied) {
+      // Default scope = URIs the user explicitly approved as attachments
+      // (workspace files or explicit outside-workspace files via
+      // dsh.addFileToThread). Wire-supplied URI lists stay workspace-only.
       uriStrings = uniqueAttachmentDocumentUris();
     } else {
       if (!Array.isArray(body.uris)) throw invalidParams('uris must be an array');
@@ -554,7 +583,8 @@ function createEditorContext(options = {}) {
     for (const uriString of uriStrings) {
       throwIfAborted(signal);
       const uri = parseWireUri(uriString);
-      assertUriInWorkspace(uri);
+      if (wireSupplied) assertUriInWorkspace(uri);
+      else assertTrusted();
       throwIfAborted(signal);
       const raw = await vscode.languages.getDiagnostics(uri);
       throwIfAborted(signal);

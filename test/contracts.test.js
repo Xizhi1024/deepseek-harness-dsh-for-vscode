@@ -31,6 +31,10 @@ test('editor title exposes one persistent icon and DSH view title exposes no pri
   ]);
   assert.ok(!Object.hasOwn(menus, 'view/title'));
   assert.deepStrictEqual(menus['editor/context'], [{
+    command: 'dsh.addFileToThread',
+    when: 'resourceScheme == file',
+    group: 'dsh@1'
+  }, {
     command: 'dsh.addSelectionToThread',
     when: 'editorHasSelection && resourceScheme == file',
     group: 'dsh@10'
@@ -80,4 +84,24 @@ test('editor title exposes one persistent icon and DSH view title exposes no pri
   ]) {
     assert.ok(commandIds.has(command), `${command} remains available in the command palette`);
   }
+});
+
+test('extension-host smoke expectations cover every contributed command id', () => {
+  const contributed = manifest.contributes.commands.map((entry) => entry.command).sort();
+  const smokeExpected = [
+    'dsh.addActiveFile',
+    'dsh.addActiveSelection',
+    'dsh.addFileToThread',
+    'dsh.addProblems',
+    'dsh.addSelectionToThread',
+    'dsh.capabilities',
+    'dsh.diagnose',
+    'dsh.focusSidebar',
+    'dsh.newSession',
+    'dsh.openInBrowser',
+    'dsh.restartServer',
+    'dsh.stopServer',
+    'dsh.switchSession',
+  ].sort();
+  assert.deepStrictEqual(smokeExpected, contributed);
 });

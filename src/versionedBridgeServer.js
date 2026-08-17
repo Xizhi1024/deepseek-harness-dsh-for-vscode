@@ -8,6 +8,7 @@ const {
   NOTIFICATIONS_BY_VERSION,
   PROTOCOL_VERSIONS,
   V2_NOTIFICATION_SCHEMA,
+  validateV2NotificationParams,
 } = require('./protocol/ch1');
 
 const VSCODE_PROTOCOL_VERSION = 1;
@@ -138,6 +139,9 @@ class VersionedBridgeServer {
   notify(method, params) {
     const supported = Object.values(NOTIFICATIONS_BY_VERSION).some((methods) => methods.includes(method));
     if (!supported) throw new Error(`Unsupported VS Code bridge notification: ${method}`);
+    if (V2_NOTIFICATION_SCHEMA[method]) {
+      validateV2NotificationParams(method, params);
+    }
     for (const connection of this.connections) {
       if (!connection.initialized || connection.socket.destroyed) continue;
       const methods = NOTIFICATIONS_BY_VERSION[connection.protocolVersion];

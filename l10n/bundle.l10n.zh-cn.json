@@ -62,7 +62,7 @@
   "Session command failed: {message}": "会话命令失败：{message}",
   "Open the Capabilities center in the DSH sidebar": "在 DSH 侧边栏中打开能力中心",
   "DSH diagnose: home {homeMode} ({homePath}), server {server}, bridge {bridge}, catalog {catalog}, providers {installed}/{total} installed": "DSH 诊断：目录 {homeMode}（{homePath}），服务 {server}，桥接 {bridge}，目录版本 {catalog}，providers {installed}/{total} 已安装",
-  "DSH 0.5.0 kept your existing isolated DSH home to protect its modules and sessions. Set dsh.home.mode to shared when you are ready to use the official shared DSH home.": "DSH 0.5.0 已保留现有隔离目录，以保护其中的模块和会话。准备改用官方共享 DSH_HOME 后，请将 dsh.home.mode 设置为 shared。",
+  "DSH kept your existing isolated DSH home to protect its modules and sessions. Set dsh.home.mode to shared when you are ready to use the official shared DSH home.": "DSH 已保留现有隔离目录，以保护其中的模块和会话。准备改用官方共享 DSH_HOME 后，请将 dsh.home.mode 设置为 shared。",
   "DSH diagnose failed: {message}": "DSH 诊断失败：{message}",
   "running": "运行中",
   "stopped": "已停止",

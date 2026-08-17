@@ -3,6 +3,7 @@
 const {
   CHANNELS,
   MESSAGE_TYPES,
+  REQUEST_ID,
   VERSIONS,
   isBridgeRequest,
 } = require('./protocol/webview');
@@ -10,12 +11,11 @@ const {
 const CHANNEL = CHANNELS.INTERACTION;
 const VERSION = VERSIONS.INTERACTION;
 const MAX_COPY_BYTES = 1024 * 1024;
-const REQUEST_ID = /^[A-Za-z0-9_-]{1,100}$/;
 const ATTACHMENT_ID = /^ctx-[1-9][0-9]*$/;
 
 function parseInteractionRequest(message) {
   if (!isBridgeRequest(message)) return null;
-  if (typeof message.requestId !== 'string' || !REQUEST_ID.test(message.requestId)) return null;
+  if (!REQUEST_ID.test(message.requestId)) return null;
   if (!message.params || typeof message.params !== 'object') return null;
   if (message.method === 'clipboard/writeText') {
     if (typeof message.params.text !== 'string') return null;

@@ -2,7 +2,7 @@
   "name": "dsh-vs-sidebar",
   "displayName": "%dsh.displayName%",
   "description": "%dsh.ext.description%",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "publisher": "Xizhi1024",
   "license": "MIT",
   "pricing": "Free",
@@ -185,6 +185,11 @@
         }
       ],
       "editor/context": [
+        {
+          "command": "dsh.addFileToThread",
+          "when": "resourceScheme == file",
+          "group": "dsh@1"
+        },
         {
           "command": "dsh.addSelectionToThread",
           "when": "editorHasSelection && resourceScheme == file",
