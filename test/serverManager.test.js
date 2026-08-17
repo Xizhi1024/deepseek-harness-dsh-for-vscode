@@ -108,7 +108,7 @@ test('ServerManager preserves the standalone self-test behavior', async (t) => {
   );
   assert.deepStrictEqual(
     await manager.probe('127.0.0.1', closedPort),
-    { reachable: false }
+    { reachable: false, reason: 'refused' }
   );
   assert.strictEqual(await manager.healthCheck(`http://127.0.0.1:${dshPort}/`), true);
   assert.strictEqual(await manager.healthCheck(`http://127.0.0.1:${plainPort}/`), false);
@@ -119,6 +119,7 @@ test('ServerManager preserves the standalone self-test behavior', async (t) => {
     `free=${freePort}`
   );
   assert.strictEqual((await manager.probe('127.0.0.1', freePort)).reachable, false);
+  assert.strictEqual((await manager.probe('127.0.0.1', freePort)).reason, 'refused');
 
   const statuses = [];
   const reuseManager = new ServerManager({ onStatus: (status) => statuses.push(status.state) });
@@ -178,7 +179,7 @@ test('ServerManager preserves the standalone self-test behavior', async (t) => {
   assert.notStrictEqual(slowDshPort, 3080);
   assert.deepStrictEqual(
     await manager.probe('127.0.0.1', slowDshPort),
-    { reachable: false }
+    { reachable: false, reason: 'timeout' }
   );
   assert.deepStrictEqual(
     await manager.probeWithRetry('127.0.0.1', slowDshPort, { attempts: 3, delayMs: 400 }),
@@ -494,7 +495,7 @@ test('ServerManager never reuses the last spawned port within the same instance'
     constructor() {
       super();
       this.starts = [];
-      this.probeWithRetry = async () => ({ reachable: false });
+      this.probeWithRetry = async () => ({ reachable: false, reason: 'refused' });
     }
 
     async _findFreePort(host, startPort) {
@@ -552,4 +553,35 @@ test('ServerManager Windows taskkill timeout resolves, kills the hanging killer,
 
   assert.strictEqual(spawnCalls, 2, 'timeout must spawn a second best-effort taskkill');
   assert.strictEqual(killCalls, 1, 'timeout must kill the hanging taskkill process');
+});
+
+test('_findFreePort skips timed-out (silent-listener) ports and accepts only refusals', async () => {
+  const probes = [];
+  class SilentPortManager extends ServerManager {
+    async probe(host, port) {
+      probes.push(port);
+      return port === 4300
+        ? { reachable: false, reason: 'timeout' }
+        : { reachable: false, reason: 'refused' };
+    }
+  }
+  const manager = new SilentPortManager();
+  assert.strictEqual(await manager._findFreePort('127.0.0.1', 4300), 4301);
+  assert.deepStrictEqual(probes, [4300, 4301]);
+});
+
+test('registry helpers list only live pids and remove selected records without killing', async (t) => {
+  const file = path.join(os.tmpdir(), `dsh-registry-orphans-${process.pid}-${Date.now()}.json`);
+  t.after(() => fs.rmSync(file, { force: true }));
+  fs.writeFileSync(file, JSON.stringify([
+    { pid: process.pid, port: 4301, host: '127.0.0.1', cwd: null, at: 1 },
+    { pid: 999999999, port: 4302, host: '127.0.0.1', cwd: null, at: 1 },
+  ]));
+
+  const alive = ServerManager.aliveRegistryEntries(file);
+  assert.deepStrictEqual(alive.map((entry) => entry.pid), [process.pid]);
+
+  ServerManager.removeRegistryEntries(file, [process.pid]);
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepStrictEqual(raw.map((entry) => entry.pid), [999999999]);
 });

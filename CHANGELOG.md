@@ -25,6 +25,9 @@ All notable changes to this project are documented here, following [Keep a Chang
 - **显式外部文件附加**：`dsh.addFileToThread` 可附加工作区之外受信任的 `file://` 文档（如 `File > Open File…`），点击草稿链接可在本窗口重新打开；桥的 `open` / `openDiff` / 显式 diagnostics 仍保持工作区内限制。
   Explicit outside-workspace file attachment: `dsh.addFileToThread` can attach a trusted `file://` document outside the workspace (e.g. `File > Open File…`) and the draft link reopens it in this window; bridge `open` / `openDiff` / wire-supplied diagnostics stay workspace-only.
 
+- **孤儿 DSH 清理命令**：新增 `dsh.cleanupOrphans`（清理孤儿 DSH 服务），列出实例注册表中 pid 仍存活的条目；仅终止经探测确认仍以 DSH 身份应答的进程，其余只提供“移除记录”，本窗口自管子进程永不列出。
+  Orphan DSH cleanup command: add `dsh.cleanupOrphans`, which lists registry entries with live pids, terminates only endpoints that still answer as DSH, offers record-only removal for the rest, and never lists this window's own child.
+
 ### Fixed / 修复
 
 - **Webview 桥前置校验（B2-01/B2-02）**：外壳不再转发超长/NUL `requestId` 的 `dshBridge`/thread 消息；DSH client 对非法 THREAD_ATTACH `requestId` 静默丢弃，不再回传失败结果。
@@ -36,14 +39,23 @@ All notable changes to this project are documented here, following [Keep a Chang
 - **VSIX 发布卫生**：`KNOWN_ISSUES.md`、`*_IMPL_NOTES.md`、QA findings 与清理笔记不再进入 VSIX；`check-package-contents` 补全 0.6 新增文件的必检清单。
   VSIX release hygiene: `KNOWN_ISSUES.md`, `*_IMPL_NOTES.md`, QA findings and cleanup notes are excluded from the package; `check-package-contents` now requires all 0.6 source files.
 
-- **Extension Host 命令矩阵补齐**：smoke 期望命令从 11 条补到 13 条，覆盖 `dsh.addFileToThread` 与 `dsh.addSelectionToThread`。
-  Extension Host command matrix: smoke expectations grow from 11 to 13 commands, covering `dsh.addFileToThread` and `dsh.addSelectionToThread`.
+- **Extension Host 命令矩阵补齐**：smoke 期望命令从 11 条补到 14 条，覆盖 `dsh.addFileToThread`、`dsh.addSelectionToThread` 与 `dsh.cleanupOrphans`。
+  Extension Host command matrix: smoke expectations grow from 11 to 14 commands, covering `dsh.addFileToThread`, `dsh.addSelectionToThread`, and `dsh.cleanupOrphans`.
 
 - **运行时迁移提示去版本化**：0.4.x 隔离目录保护提示不再硬编码 `0.5.0`。
   Version-free migration notice: the legacy isolated-home notice no longer hardcodes `0.5.0`.
 
-- **README 文档同步**：命令数更正为 13；安装命令指向 0.6.0 VSIX；工作区切换描述与 B1 实现一致；中英文补齐 0.6 新能力、Known limitations 与 Troubleshooting。
-  README synchronization: 13 commands, the 0.6.0 VSIX install command, workspace-switch wording matching B1, and full 0.6 capabilities / Known limitations / Troubleshooting in both languages.
+- **端口探测区分超时与拒绝**：`probe()` 对 `reachable:false` 增加 `reason`（`refused` = 空闲；`timeout` = 有监听但不应答）。端口扫描与 spawn 决策只把 `refused` 当空闲，避免把忙碌服务误判为可用端口后报出误导性的 “process exited early”。
+  Probe distinguishes timeout from refusal: `probe()` now reports `reason` for unreachable ports (`refused` = free; `timeout` = silent listener). Port scanning and spawn decisions treat only `refused` as free, avoiding the misleading “process exited early” error caused by misjudging a busy service as a free port.
+
+- **`closePolicy: never` 语义修正**：注释不再声称“可通过实例注册表再次接管”——注册表只做记账/诊断，崩溃或 `never` 留下的存活进程统一由 `dsh.cleanupOrphans` 显式处理。
+  Corrected `closePolicy: never` semantics: the comment no longer claims registry-based re-adoption — the registry is bookkeeping/diagnostics only, and survivors of crashes or `never` are handled explicitly by `dsh.cleanupOrphans`.
+
+- **Spawn 日志落盘**：子进程 stdout/stderr 不再直接丢弃，注册表可写时捕获到 `<globalStorage>/dsh-server-<port>-<pid>.log`（每次 spawn 截断），注册表条目记录日志路径。
+  Spawn log capture: child stdout/stderr is no longer simply discarded — when the registry is writable it goes to `<globalStorage>/dsh-server-<port>-<pid>.log` (truncated per spawn), and the registry entry records the log path.
+
+- **README 文档同步**：命令数更正为 14；安装命令指向 0.6.0 VSIX；工作区切换描述与 B1 实现一致；中英文补齐 0.6 新能力、安全与信任模型、Known limitations 与 Troubleshooting。
+  README synchronization: 14 commands, the 0.6.0 VSIX install command, workspace-switch wording matching B1, and full 0.6 capabilities / Security & trust model / Known limitations / Troubleshooting in both languages.
 
 ## [0.5.3] - 2026-08-16
 

@@ -69,6 +69,7 @@ for (const required of [
   'src/ch1/notifier.js',
   'src/ch2/workspaceClient.js',
   'src/commands/addFileToThread.js',
+  'src/commands/cleanupOrphans.js',
   'src/commands/shell.js',
   'src/context/workspaceBinding.js',
   'src/detection/pluginDetector.js',
