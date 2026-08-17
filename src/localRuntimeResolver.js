@@ -31,10 +31,62 @@ function packageCandidates(env, platform) {
   if (platform !== 'win32') {
     candidates.push(
       '/usr/local/lib/node_modules/@deepseek-ai/dsh',
-      '/usr/lib/node_modules/@deepseek-ai/dsh'
+      '/usr/lib/node_modules/@deepseek-ai/dsh',
+      '/opt/homebrew/lib/node_modules/@deepseek-ai/dsh'
     );
+    // npm globals live under the prefix that owns each PATH entry
+    // (`<prefix>/bin` on PATH → `<prefix>/lib/node_modules`), so a shell PATH
+    // different from VS Code's own still contributes prefixes.
+    for (const segment of String(env.Path || env.PATH || '').split(path.delimiter)) {
+      const bin = segment.trim();
+      if (bin) candidates.push(path.resolve(bin, '..', 'lib', 'node_modules', '@deepseek-ai', 'dsh'));
+    }
+    candidates.push(...versionManagerPackageCandidates(env));
   }
   return unique(candidates, platform);
+}
+
+function versionManagerPackageCandidates(env) {
+  const home = env.HOME;
+  if (!home) return [];
+  const roots = [
+    path.join(env.NVM_DIR || path.join(home, '.nvm'), 'versions', 'node'),
+    path.join(home, '.asdf', 'installs', 'nodejs'),
+    '/usr/local/n/versions/node',
+    path.join(home, 'Library', 'Application Support', 'fnm', 'node-versions'),
+    path.join(home, '.local', 'share', 'fnm', 'node-versions')
+  ];
+  const candidates = [];
+  for (const root of roots) {
+    let entries;
+    try {
+      entries = fs.readdirSync(root, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    const versions = entries.filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort(compareVersionNamesDesc);
+    for (const version of versions) {
+      const versionRoot = path.join(root, version);
+      // nvm/asdf/n keep globals in <version>/lib; fnm adds an `installation` layer
+      candidates.push(
+        path.join(versionRoot, 'lib', 'node_modules', '@deepseek-ai', 'dsh'),
+        path.join(versionRoot, 'installation', 'lib', 'node_modules', '@deepseek-ai', 'dsh')
+      );
+    }
+  }
+  return candidates;
+}
+
+function compareVersionNamesDesc(a, b) {
+  const as = a.match(/\d+/g) || [];
+  const bs = b.match(/\d+/g) || [];
+  for (let i = 0; i < Math.max(as.length, bs.length); i++) {
+    const delta = (Number(bs[i]) || 0) - (Number(as[i]) || 0);
+    if (delta) return delta;
+  }
+  return b.localeCompare(a);
 }
 
 function nodeCandidates(env, platform) {
@@ -47,6 +99,17 @@ function nodeCandidates(env, platform) {
     if (segment.trim()) candidates.push(path.join(segment.trim(), executable));
   }
   return unique(candidates, platform);
+}
+
+function colocatedNodeCandidates(packageRoot, executable) {
+  const candidates = [];
+  let dir = path.resolve(packageRoot);
+  for (let depth = 0; depth < 6; depth++) {
+    dir = path.dirname(dir);
+    if (dir === path.dirname(dir)) break;
+    candidates.push(path.join(dir, 'bin', executable));
+  }
+  return candidates;
 }
 
 async function realRegularFile(candidate, label) {
@@ -133,8 +196,17 @@ async function resolveLocalDshRuntime({
   );
   if (!entrypoint) throw new ServerError('The installed official DSH package is incomplete');
 
+  // The prefix that owns the DSH package usually owns a matching Node binary in
+  // its own `bin/` (nvm/fnm/asdf/n/Homebrew layouts). Prefer that pairing over
+  // a PATH scan so a GUI-launched VS Code without the shell PATH still finds Node.
+  const nodeExecutable = platform === 'win32' ? 'node.exe' : 'node';
   const executablePath = await firstRegularFile(
-    nodePath ? [nodePath] : nodeCandidates(env, platform),
+    nodePath
+      ? [nodePath]
+      : [
+          ...(platform === 'win32' ? [] : colocatedNodeCandidates(resolvedPackageRoot, nodeExecutable)),
+          ...nodeCandidates(env, platform)
+        ],
     'Node.js executable'
   );
   if (!executablePath) {

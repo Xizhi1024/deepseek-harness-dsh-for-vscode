@@ -64,3 +64,60 @@ test('local resolver rejects relative user overrides', async () => {
     /packageRoot must be absolute/
   );
 });
+
+function writeOfficialPackage(dir) {
+  fs.mkdirSync(path.join(dir, 'lib'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({
+    name: '@deepseek-ai/dsh',
+    version: '0.1.0-rc.6',
+    bin: { dsh: 'lib/bin.js' },
+  }));
+  fs.writeFileSync(path.join(dir, 'lib', 'bin.js'), '#!/usr/bin/env node\n');
+}
+
+test('local resolver discovers an nvm-managed package and pairs its node binary', async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-nvm-home-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const current = path.join(home, 'versions', 'node', 'v24.18.1');
+  writeOfficialPackage(path.join(current, 'lib', 'node_modules', '@deepseek-ai', 'dsh'));
+  fs.mkdirSync(path.join(current, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(current, 'bin', 'node'), 'node fixture');
+  fs.mkdirSync(path.join(home, 'versions', 'node', 'v18.20.4'), { recursive: true });
+
+  const runtime = await resolveLocalDshRuntime({
+    dshHome: path.join(home, 'storage', '.dsh'),
+    env: { HOME: home, NVM_DIR: home, PATH: '/usr/bin:/bin' },
+    platform: 'darwin',
+  });
+
+  assert.strictEqual(runtime.dshVersion, '0.1.0-rc.6');
+  assert.deepStrictEqual(
+    runtime.entrypointArgs,
+    [fs.realpathSync(path.join(current, 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'))]
+  );
+  assert.strictEqual(runtime.executablePath, fs.realpathSync(path.join(current, 'bin', 'node')));
+});
+
+test('local resolver derives a package prefix from PATH and pairs its node binary', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-path-home-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const prefix = path.join(root, 'prefix');
+  writeOfficialPackage(path.join(prefix, 'lib', 'node_modules', '@deepseek-ai', 'dsh'));
+  fs.mkdirSync(path.join(prefix, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(prefix, 'bin', 'node'), 'node fixture');
+
+  const runtime = await resolveLocalDshRuntime({
+    dshHome: path.join(root, 'storage', '.dsh'),
+    env: {
+      HOME: path.join(root, 'no-managers-home'),
+      PATH: [path.join(prefix, 'bin'), '/usr/bin', '/bin'].join(path.delimiter),
+    },
+    platform: 'darwin',
+  });
+
+  assert.deepStrictEqual(
+    runtime.entrypointArgs,
+    [fs.realpathSync(path.join(prefix, 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'))]
+  );
+  assert.strictEqual(runtime.executablePath, fs.realpathSync(path.join(prefix, 'bin', 'node')));
+});
