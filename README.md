@@ -44,7 +44,7 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 ## Usage
 
 - `Ctrl+Alt+B` opens the auxiliary sidebar → **DeepSeek Harness (DSH)** tab
-- Commands (all 13): **Open DSH in Browser** · **New Session** · **Switch Session** · **Restart DSH Server** · **Stop DSH Server** · **Focus DSH Sidebar** · **Add File to DSH Thread** · **Add to DSH Thread** · **Add Active File to DSH Context** · **Add Active Selection to DSH Context** · **Add Problems to DSH Context** · **Capabilities and Integrations** · **Diagnose**
+- Commands (all 14): **Open DSH in Browser** · **New Session** · **Switch Session** · **Restart DSH Server** · **Stop DSH Server** · **Focus DSH Sidebar** · **Add File to DSH Thread** · **Add to DSH Thread** · **Add Active File to DSH Context** · **Add Active Selection to DSH Context** · **Add Problems to DSH Context** · **Capabilities and Integrations** · **Diagnose** · **Clean Up Orphan DSH Servers**
 - With `dsh.autoStart` on, the server is started at VS Code startup even if the sidebar is never opened
 
 ## Session navigation
@@ -173,7 +173,7 @@ Achieving a Cursor/Claude Code-like experience requires both sides of the bridge
 |---|---|
 | `onVscodeExit` | Stop the owned server only when VS Code exits (default) |
 | `onViewClose` | Also stop the owned server when the sidebar view is closed |
-| `never` | Never stop automatically — use the **Stop DSH Server** command |
+| `never` | Never stop automatically — use the **Stop DSH Server** command; after a window crash, survivors are listed by **Clean Up Orphan DSH Servers** |
 
 A reused (non-owned) instance is never stopped by any policy or command.
 
@@ -191,10 +191,22 @@ A reused (non-owned) instance is never stopped by any policy or command.
 - UI language follows VS Code (zh/en): manifest via `package.nls.*.json`, runtime via `vscode.l10n` (`l10n/bundle.l10n.*.json`)
 - Release verification is local: `npm run check:w0` plus `npm run test:extension-host`; the repository intentionally carries no GitHub Actions workflow.
 
+## Security & trust model
+
+The extension runs **two bridges with two different trust scopes**, and the boundary is deliberate:
+
+- **Versioned CH1 bridge** (`src/versionedBridgeServer.js`, authenticated by a per-window random token in `DSH_VSCODE_BRIDGE_*` env): `open`, `openDiff`, and wire-supplied diagnostics accept **only `file://` URIs inside open, trusted workspace folders**, plus attachments the user explicitly approved. This is the model-driven (`vscode_editor`) surface.
+- **Text document bridge** (`src/textDocumentBridge.js`, separate per-process token in `DSH_VSCODE_OPEN_TOKEN`): intentionally **opens any absolute local path** in the owning VS Code window after a trusted-workspace check, so `Read …` links from older shared-home sessions whose cwd lies outside the current workspace keep working. The token is only injected into this extension's owned DSH child, but DSH is an agent harness: anything a model inside that child decides to open is equivalent to the user opening it. It is an *open-in-editor* path only — it reads no file content back to DSH and cannot execute commands — yet it can still steal window focus (`showTextDocument(preserveFocus: false)`).
+- **`dsh.addFileToThread`** is a middle ground: an explicit user command may attach a trusted workspace-outside `file://` document; the resulting attachment link reopens through the approved-attachment path only.
+
+If you use shared-home DSH sessions with a model you do not fully trust, keep workspace trust on and treat the embedded DSH like an agent with editor-open capability — not like a sandboxed webview.
+
 ## Known limitations
 
 - **Real browser provider not integrated**: the capability catalog only lists `browser-provider-placeholder`; provider selection and verification are deferred to W5.
 - **Extension Host smoke version**: the smoke test currently runs against VS Code 1.106 by default.
+- **Spawn output goes to a per-spawn log, not the OutputChannel**: the DSH child's stdout/stderr is captured in `<globalStorage>/dsh-server-<port>-<pid>.log` (truncated on each spawn) when the instance registry is writable; unexpected crashes still surface primarily as exit codes on the status page. A VS Code OutputChannel view is a later hardening item.
+- **Crash leftovers require one manual cleanup step**: after a VS Code crash or `closePolicy: never`, a surviving owned DSH is deliberately not auto-killed (it may still be in use). Run **Clean Up Orphan DSH Servers** to list registry entries with live pids; it probes each endpoint and only terminates processes that still answer as DSH, otherwise it offers record-only removal.
 - **Configured local paths are trusted verbatim (cross-platform validation gap)**: `dsh.local.packageRoot` / `dsh.local.nodePath` accept any value that passes `path.isAbsolute`. On win32 a POSIX absolute path (`/Users/…/nvm/…`) also passes, and a configured root replaces automatic discovery entirely — a value synced from another machine then reports "Official DSH is not installed" even when the package IS installed. The configured-root error now names the offending path (0.5.3 hardening); the durable fix — win32 drive-letter validation (`/^[A-Za-z]:[\\/]/`) for configured absolute paths and `scope: "machine"` — is tracked in Troubleshooting.
 - **Startup failures are only partially classified**: 0.6.0 gives configuration-only failures (host/port invalid, `autoStart=false` with no server, invalid configured root/node/home) stable codes and hides the Retry button because retrying cannot help. Runtime/spawn/download failures remain free-text with Retry. The full per-class switch-case startup detection (stable codes + per-class messages + Retry behavior for every failure class) is tracked in Troubleshooting.
 - **Version-manager discovery is not exhaustive**: nvm (POSIX), fnm (macOS), asdf, and n are discovered; Volta, fnm on Windows, and nvm-windows custom roots are not yet in the candidate list. Use `dsh.local.packageRoot` / `dsh.local.nodePath` on those layouts.

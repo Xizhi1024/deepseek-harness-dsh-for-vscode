@@ -8,6 +8,16 @@
  * cannot identify one window when several profiles/remotes are active. This
  * bridge binds an ephemeral loopback port, requires a random bearer token,
  * and delegates the validated absolute path to an injected VS Code callback.
+ *
+ * Trust model (deliberate asymmetry with the versioned CH1 bridge): the token
+ * is injected only into this extension's owned DSH child, and the injected
+ * callback additionally requires a trusted workspace. Subject to those gates,
+ * the child may open ANY absolute local path in this window — this keeps
+ * shared-home sessions whose cwd lies outside the current workspace usable.
+ * It is an open-in-editor capability only: no file content is read back to
+ * DSH and no command is executed, but a model-controlled DSH can still make
+ * the window open and focus arbitrary local files. See README "Security &
+ * trust model".
  */
 const http = require("node:http");
 const crypto = require("node:crypto");

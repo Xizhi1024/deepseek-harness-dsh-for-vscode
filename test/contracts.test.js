@@ -95,6 +95,7 @@ test('extension-host smoke expectations cover every contributed command id', () 
     'dsh.addProblems',
     'dsh.addSelectionToThread',
     'dsh.capabilities',
+    'dsh.cleanupOrphans',
     'dsh.diagnose',
     'dsh.focusSidebar',
     'dsh.newSession',

@@ -68,6 +68,18 @@ function createFakeVscode() {
     },
     window: {
       activeTextEditor: null,
+      createQuickPick() {
+        return {
+          items: [],
+          selectedItems: [],
+          canPickMany: false,
+          placeholder: '',
+          onDidAccept() {},
+          onDidHide() {},
+          show() {},
+          dispose() {},
+        };
+      },
       createStatusBarItem() {
         return { show() {}, text: '', tooltip: '' };
       },

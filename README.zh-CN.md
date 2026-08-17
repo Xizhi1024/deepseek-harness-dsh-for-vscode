@@ -44,7 +44,7 @@
 ## 使用
 
 - `Ctrl+Alt+B` 打开辅助侧边栏 → **DeepSeek Harness (DSH)** 标签
-- 命令（全部 13 条）：**在浏览器中打开 DSH** · **新建会话** · **切换会话** · **重启 DSH 服务** · **停止 DSH 服务** · **聚焦 DSH 侧边栏** · **将文件添加到 DSH 对话** · **添加到 DSH 对话** · **将活动文件添加到 DSH 上下文** · **将活动选区添加到 DSH 上下文** · **将 Problems 添加到 DSH 上下文** · **能力与集成** · **诊断**
+- 命令（全部 14 条）：**在浏览器中打开 DSH** · **新建会话** · **切换会话** · **重启 DSH 服务** · **停止 DSH 服务** · **聚焦 DSH 侧边栏** · **将文件添加到 DSH 对话** · **添加到 DSH 对话** · **将活动文件添加到 DSH 上下文** · **将活动选区添加到 DSH 上下文** · **将 Problems 添加到 DSH 上下文** · **能力与集成** · **诊断** · **清理孤儿 DSH 服务**
 - `dsh.autoStart` 开启时，VS Code 启动即拉取服务，即使侧边栏从未打开
 
 ## 会话切换
@@ -173,7 +173,7 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 |---|---|
 | `onVscodeExit` | 仅在 VS Code 退出时停止自管服务（默认） |
 | `onViewClose` | 关闭侧边栏视图时也停止自管服务 |
-| `never` | 永不自动停止——请使用「停止 DSH 服务」命令 |
+| `never` | 永不自动停止——请使用「停止 DSH 服务」命令；窗口崩溃后的存活进程由「清理孤儿 DSH 服务」列出 |
 
 任何策略或命令都不会停止被复用的（非自管）实例。
 
@@ -191,10 +191,22 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 - 界面语言随 VS Code 切换（中/英）：manifest 走 `package.nls.*.json`，运行期文案走 `vscode.l10n`（`l10n/bundle.l10n.*.json`）
 - 发布验证改为本地执行：`npm run check:w0` 与 `npm run test:extension-host`；仓库有意不再维护 GitHub Actions workflow。
 
+## 安全与信任模型
+
+扩展维护**两条信任边界不同的桥**，这是有意设计：
+
+- **版本化 CH1 桥**（`src/versionedBridgeServer.js`，经每窗口随机 token 鉴权，注入 `DSH_VSCODE_BRIDGE_*` 环境变量）：`open`、`openDiff` 与显式传入的 diagnostics **只接受已打开、受信任工作区内的 `file://` URI**，外加用户显式批准的附件。这是面向模型（`vscode_editor`）的能力面。
+- **文本文档桥**（`src/textDocumentBridge.js`，独立每进程 token，注入 `DSH_VSCODE_OPEN_TOKEN`）：在通过工作区信任检查后，**有意允许打开任意绝对本地路径**到所属 VS Code 窗口，以兼容共享旧会话中位于当前工作区之外的 `Read …` 文件链接。token 只注入本扩展自管的 DSH 子进程，但 DSH 是 agent harness：子进程里的模型决定打开什么，等价于用户本人打开。它只是“在编辑器中打开”路径——不会把文件内容读回 DSH、也不能执行命令——但仍可能抢占窗口焦点（`showTextDocument(preserveFocus: false)`）。
+- **`dsh.addFileToThread`** 是中间地带：显式用户命令可附加工作区外受信任的 `file://` 文档；产生的附件链接只能经已批准附件路径重新打开。
+
+如果你使用共享 home 的 DSH 会话、且模型不完全可信，请保持工作区信任开启，并把内嵌 DSH 视为具备“在编辑器中打开文件”能力的 agent，而不是沙箱 webview。
+
 ## 已知限制
 
 - **真实 browser provider 尚未接入**：能力目录当前仅列出 `browser-provider-placeholder`，provider 选定与验证留待 W5。
 - **Extension Host smoke 版本**：smoke 测试默认运行在 VS Code 1.106 上。
+- **Spawn 输出写入每次启动截断的日志文件，而非 OutputChannel**：实例注册表可写时，DSH 子进程 stdout/stderr 被捕获到 `<globalStorage>/dsh-server-<port>-<pid>.log`（每次 spawn 截断）；意外崩溃在状态页仍主要显示 exit code。VS Code OutputChannel 视图是后续硬化项。
+- **崩溃残留需要一步手动清理**：VS Code 崩溃或 `closePolicy: never` 后，存活的 owned DSH 有意不被自动 kill（可能仍在被使用）。执行 **清理孤儿 DSH 服务** 可列出 pid 仍存活的注册表条目；命令会逐项探测端点，只终止仍以 DSH 身份应答的进程，否则仅提供“移除记录”。
 - **配置的本地路径被原样信任（跨平台校验缺口）**：`dsh.local.packageRoot` / `dsh.local.nodePath` 接受任何通过 `path.isAbsolute` 的值。在 win32 上 POSIX 绝对路径（`/Users/…/nvm/…`）也会通过，且配置根会完全取代自动探测——从另一台机器同步过来的值会误报 “Official DSH is not installed”，即使包确实已安装。配置根错误现在会指明出错路径（0.5.3 加固）；持久修复（win32 盘符校验 `/^[A-Za-z]:[\\/]/` 与 `scope: "machine"`）见 Troubleshooting。
 - **启动失败只做了部分分类**：0.6.0 给纯配置类失败（host/port 非法、`autoStart=false` 且无服务、配置根/node/home 无效）分配了稳定 code 并隐藏 Retry（重试无意义）。runtime/启动/下载失败仍是自由文本 + Retry。完整的逐类 switch-case 启动检测（稳定 code、逐类消息与 Retry 行为）见 Troubleshooting。
 - **版本管理器探测不完整**：已支持 nvm（POSIX）、fnm（macOS）、asdf、n；Volta、Windows 上的 fnm 与 nvm-windows 自定义根尚未纳入候选列表，这些布局请使用 `dsh.local.packageRoot` / `dsh.local.nodePath`。

@@ -29,5 +29,6 @@
   "dsh.cmd.newSession": "New Session",
   "dsh.cmd.switchSession": "Switch Session",
   "dsh.cmd.capabilities": "Capabilities and Integrations",
-  "dsh.cmd.diagnose": "Diagnose"
+  "dsh.cmd.diagnose": "Diagnose",
+  "dsh.cmd.cleanupOrphans": "Clean Up Orphan DSH Servers"
 }

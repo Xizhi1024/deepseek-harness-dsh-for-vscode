@@ -74,6 +74,7 @@ async function main() {
         'dsh.addProblems',
         'dsh.addSelectionToThread',
         'dsh.capabilities',
+        'dsh.cleanupOrphans',
         'dsh.diagnose',
         'dsh.focusSidebar',
         'dsh.newSession',

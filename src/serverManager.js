@@ -93,7 +93,10 @@ class ServerError extends Error {
  *   - `onViewClose`  — also stop the owned server when the sidebar view is disposed.
  *   - `never`        — never stop the server automatically; the user stops it
  *     explicitly via `dsh.stopServer`. The process intentionally survives the
- *     extension host and can be adopted again through the instance registry.
+ *     extension host. A later window never adopts a surviving process from the
+ *     instance registry (the registry is bookkeeping/diagnostics only); if the
+ *     owner window crashed, the process shows up in `dsh.cleanupOrphans` where
+ *     the user can stop it or remove its stale record.
  *
  * Note: only an OWNED process (spawned by this extension) is ever stopped. A
  * reused external instance is never touched, whatever the policy says.
@@ -207,6 +210,86 @@ function reconcileConfigChange(prev, next, connected, owned) {
   };
 }
 
+/**
+ * Kill a process tree by pid. On Windows the spawned dsh is a cmd.exe wrapper,
+ * so taskkill /T /F kills the whole tree and the promise resolves when
+ * taskkill exits or after `timeoutMs` — whichever comes first. On POSIX the
+ * child was spawned detached (its pid is the process-group id), so SIGTERM
+ * the group first — dsh web and any workers it spawned all die — then fall
+ * back to the single process.
+ *
+ * Shared by `ServerManager.stop()` (owned child) and the orphan-cleanup
+ * command (registry entries from crashed windows).
+ *
+ * @param {number} pid - Root process id of the tree.
+ * @param {object} [options] - Injectable seams for tests.
+ * @param {string} [options.platform] - Override process.platform.
+ * @param {Function} [options.spawnFn] - Override node:child_process.spawn.
+ * @param {number} [options.timeoutMs] - Override TASKKILL_TIMEOUT_MS.
+ * @returns {Promise<void>}
+ */
+function killProcessTree(pid, { platform = process.platform, spawnFn = spawn, timeoutMs = TASKKILL_TIMEOUT_MS } = {}) {
+  if (platform === 'win32') {
+    return new Promise((resolve) => {
+      let killer = null;
+      try {
+        killer = spawnFn('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
+      } catch {
+        resolve();
+        return;
+      }
+      let settled = false;
+      let timer = null;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (killer && typeof killer.removeListener === 'function') {
+          killer.removeListener('error', finish);
+          killer.removeListener('exit', finish);
+        }
+        resolve();
+      };
+      if (!killer || typeof killer.once !== 'function') {
+        finish();
+        return;
+      }
+      timer = setTimeout(() => {
+        try {
+          killer.kill?.();
+        } catch {
+          // ignore: the killer may already be gone
+        }
+        // Best-effort second tree-kill in case the hung taskkill never made
+        // it to the child; a fresh detached taskkill is not awaited.
+        try {
+          const retry = spawnFn('taskkill', ['/PID', String(pid), '/T', '/F'], {
+            stdio: 'ignore',
+            detached: true,
+            windowsHide: true,
+          });
+          if (retry && typeof retry.unref === 'function') retry.unref();
+        } catch {
+          // ignore: the retry is best-effort
+        }
+        finish();
+      }, timeoutMs);
+      killer.once('error', finish);
+      killer.once('exit', finish);
+    });
+  }
+  try {
+    process.kill(-pid, 'SIGTERM');
+  } catch {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      // already dead
+    }
+  }
+  return Promise.resolve();
+}
+
 class ServerManager {
   constructor({ onStatus, spawnEnv, resolvedRuntime, embedPatchPath = null } = {}) {
     this.onStatus = typeof onStatus === 'function' ? onStatus : () => {};
@@ -255,6 +338,11 @@ class ServerManager {
   /** True while this manager still owns a spawned child, including startup. */
   hasOwnedChild() {
     return Boolean(this._child);
+  }
+
+  /** Pid of this window's owned child, or null when none. */
+  currentChildPid() {
+    return this._child && Number.isInteger(this._child.pid) ? this._child.pid : null;
   }
 
   /** Invalidate the current ensure/spawn operation without affecting later ones. */
@@ -349,7 +437,9 @@ class ServerManager {
    * Returns:
    *   { reachable: true,  isDsh: true  } — HTTP 200 + BOOT_MARKER in body
    *   { reachable: true,  isDsh: false } — responded, but no BOOT_MARKER
-   *   { reachable: false }               — connection failed / timed out
+   *   { reachable: false, reason: 'refused' } — connection refused: port free
+   *   { reachable: false, reason: 'timeout' } — listener silent: port busy
+   *   { reachable: false, reason: '<code>' }  — other transport failure
    */
   async probe(host, port) {
     return new Promise((resolve) => {
@@ -388,8 +478,11 @@ class ServerManager {
           isDsh: Boolean(status && Number(status[1]) === 200 && raw.includes(BOOT_MARKER)),
         });
       });
-      socket.on('timeout', () => finish({ reachable: false }));
-      socket.on('error', () => finish({ reachable: false }));
+      socket.on('timeout', () => finish({ reachable: false, reason: 'timeout' }));
+      socket.on('error', (error) => finish({
+        reachable: false,
+        reason: error && error.code === 'ECONNREFUSED' ? 'refused' : String(error && error.code || 'error'),
+      }));
     });
   }
 
@@ -398,9 +491,11 @@ class ServerManager {
    * with reachable===true (regardless of isDsh) is returned immediately — a
    * reachable answer is definitive, so a busy-but-alive service is never
    * classified as unreachable. Only when every attempt is unreachable is the
-   * last result returned. Used by ensureServer before deciding to spawn, to
-   * prevent duplicate instances when DSH is busy (e.g. streaming a reply) and
-   * a single probe would time out.
+   * last result returned; its `reason` then tells the caller whether the port
+   * was refused (free) or silent/timed out (treat as occupied). Used by
+   * ensureServer before deciding to spawn, to prevent duplicate instances
+   * when DSH is busy (e.g. streaming a reply) and a single probe would time
+   * out.
    */
   async probeWithRetry(host, port, { attempts = 3, delayMs = 400 } = {}) {
     const n = Math.max(1, attempts); // at least one attempt, even for 0/negative input
@@ -496,11 +591,14 @@ class ServerManager {
     }
 
     // Step 4: any occupied port belongs to another owner and must not be
-    // reused; a dead port can host this window's new child. Within one
+    // reused; a dead port can host this window's new child. A probe that
+    // timed out means a listener exists but did not answer — also occupied, so
+    // only an explicit connection refusal counts as free. Within one
     // ServerManager instance, never reuse the last port this instance
     // spawned (fresh origin) so DSH does not cache the previous workspace
     // under the same origin.
-    let scanStart = r.reachable ? port + 1 : port;
+    const occupied = r.reachable || r.reason !== 'refused';
+    let scanStart = occupied ? port + 1 : port;
     if (this._lastSpawnPort !== null && scanStart <= this._lastSpawnPort) {
       scanStart = this._lastSpawnPort + 1;
     }
@@ -512,13 +610,16 @@ class ServerManager {
 
   /**
    * Scan forward from startPort (inclusive) for up to PORT_SCAN_LIMIT ports;
-   * the first port where probe() reports reachable:false is considered free.
+   * only a connection-refused port (reachable=false, reason='refused') is
+   * considered free. A timed-out probe means a silent listener may own the
+   * port, so it is skipped conservatively instead of risking an EADDRINUSE
+   * spawn and a misleading "process exited early" error.
    */
   async _findFreePort(host, startPort) {
     for (let i = 0; i < PORT_SCAN_LIMIT; i++) {
       const candidate = startPort + i;
       const probeResult = await this.probe(host, candidate);
-      if (!probeResult.reachable) return candidate;
+      if (!probeResult.reachable && probeResult.reason === 'refused') return candidate;
     }
     throw new ServerError('No free port found within {limit} ports starting from {start}', {
       limit: PORT_SCAN_LIMIT,
@@ -663,11 +764,26 @@ class ServerManager {
     }
     const launch = this._buildLaunchSpec(host, port);
     const spawnCwd = this._resolveSpawnCwd(cwd);
+    // Capture stdout/stderr into a per-spawn log next to the instance registry
+    // (truncated on every spawn), so an unexpected exit leaves something to
+    // diagnose beyond the exit code. Fallback to stdio:'ignore' when the log
+    // cannot be opened (e.g. read-only global storage).
+    let logPath = null;
+    let logFd = null;
+    if (registryFile) {
+      logPath = path.join(path.dirname(path.resolve(registryFile)), `dsh-server-${port}-${process.pid}.log`);
+      try {
+        logFd = fs.openSync(logPath, 'w');
+      } catch {
+        logPath = null;
+        logFd = null;
+      }
+    }
     // Include the cwd option ONLY when explicitly requested; otherwise omit it
     // entirely so the child inherits the parent process's current directory
     // (no fallback to the user home directory).
     const opts = {
-      stdio: 'ignore',
+      stdio: logFd === null ? 'ignore' : ['ignore', logFd, logFd],
       // Tell a DSH instance managed by this extension to route text-file
       // gestures back into the current VS Code window. Ordinary standalone
       // DSH processes keep their platform-default editor behavior.
@@ -680,6 +796,9 @@ class ServerManager {
     // the whole managed tree. Windows taskkill /T applies the same ownership
     // boundary to the native runtime executable.
     const child = spawn(launch.command, launch.args, opts);
+    if (logFd !== null) {
+      try { fs.closeSync(logFd); } catch { /* child holds the duplicated descriptor */ }
+    }
 
     this._child = child;
     this._emit('starting', 'Starting DSH web (pid={pid}, port={port})…', { pid: child.pid, port });
@@ -699,6 +818,7 @@ class ServerManager {
           pid: child.pid,
           code,
           signal,
+          log: logPath,
         });
       };
       child.on('exit', onUnexpectedExit);
@@ -708,7 +828,7 @@ class ServerManager {
         settled = true;
         if (this._child === child) this._child = null;
         this._ownedServer = null;
-        this._emit('error', 'Failed to start dsh: {error}', { error: err.message });
+        this._emit('error', 'Failed to start dsh: {error}', { error: err.message, log: logPath });
         reject(new Error('Failed to start dsh: ' + err.message));
       });
 
@@ -736,7 +856,7 @@ class ServerManager {
 
         if (probeResult.reachable && probeResult.isDsh) {
           settled = true;
-          resolve(this._finalizeReady(host, port, cwd, child.pid, registryFile));
+          resolve(this._finalizeReady(host, port, cwd, child.pid, registryFile, logPath));
           return;
         }
 
@@ -765,11 +885,18 @@ class ServerManager {
    * registry (same-port entry replaced, others kept), emit {state:"ready"}
    * and return the RunningServer object.
    */
-  _finalizeReady(host, port, cwd, pid, registryFile) {
+  _finalizeReady(host, port, cwd, pid, registryFile, logPath = null) {
     this._registryFile = registryFile || null;
     if (registryFile) {
       const entryCwd = cwd === null || cwd === undefined || cwd === '' ? null : cwd;
-      ServerManager._mergeRegistry(registryFile, { pid, port, host, cwd: entryCwd, at: Date.now() });
+      ServerManager._mergeRegistry(registryFile, {
+        pid,
+        port,
+        host,
+        cwd: entryCwd,
+        at: Date.now(),
+        ...(logPath ? { log: logPath } : {}),
+      });
     }
     const server = { url: `http://${host}:${port}`, host, port, pid, owned: true };
     this._ownedServer = server;
@@ -778,80 +905,15 @@ class ServerManager {
   }
 
   /**
-   * Kill a child process. On Windows the spawned dsh is a cmd.exe wrapper,
-   * so taskkill /T /F kills the whole tree and the promise resolves when
-   * taskkill exits or after TASKKILL_TIMEOUT_MS — whichever comes first. On
-   * POSIX the child was spawned detached (its pid is the process-group id),
-   * so SIGTERM the group first — dsh web and any workers it spawned all die —
-   * then fall back to the single process.
+   * Kill a child process tree owned by this manager.
    *
    * @param {object} child - ChildProcess-like handle with a pid.
-   * @param {object} [options] - Injectable seams for tests.
-   * @param {string} [options.platform] - Override process.platform.
-   * @param {Function} [options.spawnFn] - Override node:child_process.spawn.
-   * @param {number} [options.timeoutMs] - Override TASKKILL_TIMEOUT_MS.
+   * @param {object} [options] - Injectable seams for tests; forwarded to
+   *   `killProcessTree`.
    * @returns {Promise<void>}
    */
-  _killChild(child, { platform = process.platform, spawnFn = spawn, timeoutMs = TASKKILL_TIMEOUT_MS } = {}) {
-    if (platform === 'win32') {
-      return new Promise((resolve) => {
-        let killer = null;
-        try {
-          killer = spawnFn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
-        } catch {
-          resolve();
-          return;
-        }
-        let settled = false;
-        let timer = null;
-        const finish = () => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          if (killer && typeof killer.removeListener === 'function') {
-            killer.removeListener('error', finish);
-            killer.removeListener('exit', finish);
-          }
-          resolve();
-        };
-        if (!killer || typeof killer.once !== 'function') {
-          finish();
-          return;
-        }
-        timer = setTimeout(() => {
-          try {
-            killer.kill?.();
-          } catch {
-            // ignore: the killer may already be gone
-          }
-          // Best-effort second tree-kill in case the hung taskkill never made
-          // it to the child; a fresh detached taskkill is not awaited.
-          try {
-            const retry = spawnFn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
-              stdio: 'ignore',
-              detached: true,
-              windowsHide: true,
-            });
-            if (retry && typeof retry.unref === 'function') retry.unref();
-          } catch {
-            // ignore: the retry is best-effort
-          }
-          finish();
-        }, timeoutMs);
-        killer.once('error', finish);
-        killer.once('exit', finish);
-      });
-    }
-    try {
-      process.kill(-child.pid, 'SIGTERM');
-    } catch {
-      try {
-        child.kill('SIGTERM');
-      } catch {
-        // already dead
-      }
-    }
-    return Promise.resolve();
+  _killChild(child, options = {}) {
+    return killProcessTree(child.pid, options);
   }
 
   /**
@@ -918,6 +980,34 @@ class ServerManager {
   static cleanupStalePid(registryFile) {
     return ServerManager.cleanupStaleRegistry(registryFile);
   }
+
+  /**
+   * List registry entries whose pid is still alive, without writing the file.
+   * Used by the orphan-cleanup command; a live DSH may belong to another
+   * VS Code window, so this never kills anything by itself.
+   *
+   * @param {string} registryFile - Registry JSON path.
+   * @returns {Array<object>} Alive raw entries (host/port/pid/cwd/at).
+   */
+  static aliveRegistryEntries(registryFile) {
+    return ServerManager._readRegistry(registryFile);
+  }
+
+  /**
+   * Remove registry entries with the given pids (best effort). Used after the
+   * user explicitly stops an orphan or chooses to drop its stale record.
+   *
+   * @param {string} registryFile - Registry JSON path.
+   * @param {number[]} pids - Pids whose entries must be removed.
+   */
+  static removeRegistryEntries(registryFile, pids) {
+    if (!Array.isArray(pids) || pids.length === 0) return;
+    const wanted = new Set(pids);
+    const entries = ServerManager._readRegistryRaw(registryFile).filter(
+      (e) => !(e && wanted.has(e.pid))
+    );
+    ServerManager._writeRegistry(registryFile, entries);
+  }
 }
 
 module.exports = {
@@ -925,6 +1015,7 @@ module.exports = {
   ServerError,
   CLOSE_POLICIES,
   DEFAULT_CLOSE_POLICY,
+  killProcessTree,
   normalizeClosePolicy,
   shouldStopOnViewClose,
   shouldStopOwnedServer,

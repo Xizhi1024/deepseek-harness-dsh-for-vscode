@@ -24,6 +24,7 @@ async function run() {
     'dsh.newSession',
     'dsh.switchSession',
     'dsh.capabilities',
+    'dsh.cleanupOrphans',
     'dsh.diagnose',
   ];
   for (const command of expectedCommands) {

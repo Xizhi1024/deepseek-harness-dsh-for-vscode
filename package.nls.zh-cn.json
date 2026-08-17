@@ -29,5 +29,6 @@
   "dsh.cmd.newSession": "新建会话",
   "dsh.cmd.switchSession": "切换会话",
   "dsh.cmd.capabilities": "能力与集成",
-  "dsh.cmd.diagnose": "诊断"
+  "dsh.cmd.diagnose": "诊断",
+  "dsh.cmd.cleanupOrphans": "清理孤儿 DSH 服务"
 }

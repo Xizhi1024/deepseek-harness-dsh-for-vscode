@@ -20,6 +20,7 @@ const path = require("node:path");
 const {
   ServerManager,
   CLOSE_POLICIES,
+  killProcessTree,
   normalizeClosePolicy,
   shouldStopOnViewClose,
   reconcileConfigChange,
@@ -54,6 +55,7 @@ const {
 } = require('./threadAttachment');
 const { createCommandShell, NullAdapter } = require('./commands/shell');
 const { createAddFileToThreadCommand } = require('./commands/addFileToThread');
+const { createCleanupOrphansCommand } = require('./commands/cleanupOrphans');
 const { createWorkspaceContext } = require("./workspaceContext");
 const { createWorkspaceBinding, BINDING_STATES } = require("./context/workspaceBinding");
 const { createEditorContext } = require("./editorContext");
@@ -1062,7 +1064,17 @@ async function activateWithDependencies(context, dependencies = {}) {
           message: err && err.message ? err.message : String(err),
         }));
       }
-    })
+    }),
+    vscode.commands.registerCommand("dsh.cleanupOrphans", createCleanupOrphansCommand({
+      vscode,
+      registryFilePath: () => hostContext.registryFilePath(),
+      listAliveEntries: (file) => ServerManager.aliveRegistryEntries(file),
+      probeEntry: (host, port) => manager.probeWithRetry(host, port, { attempts: 2, delayMs: 300 }),
+      terminate: (pid) => killProcessTree(pid),
+      removeEntries: (file, pids) => ServerManager.removeRegistryEntries(file, pids),
+      ownedPid: () => manager.currentChildPid(),
+      loc,
+    }))
   );
 
   // Follow the workspace: when folders are added/removed or the active
