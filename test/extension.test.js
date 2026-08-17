@@ -396,7 +396,7 @@ test('autoStart resolves the configured runtime before spawn and hands it to Ser
   assert.strictEqual(ensureRuntimeOptions.signal.aborted, true, 'deactivate must abort in-flight provisioning');
 });
 
-test('owned autoStart instance auto-binds workspace session and iframe carries dsh_session', async () => {
+test('owned autoStart instance binds through workspaceBinding and iframe carries dsh_session', async () => {
   const fake = createFakeVscode({ autoStart: true });
   fake.api.workspace.workspaceFolders = [
     { uri: { fsPath: 'D:\\workspace' }, name: 'workspace', index: 0 },
@@ -405,7 +405,26 @@ test('owned autoStart instance auto-binds workspace session and iframe carries d
     globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-autobind-${process.pid}`) },
     subscriptions: [],
   };
-  let ensureWorkspaceCalls = 0;
+  const bindingCalls = [];
+  const fakeBinding = {
+    async resolve(server, cwd) {
+      bindingCalls.push({ server, cwd });
+      return 'sid-1';
+    },
+    async refresh() { return 'sid-1'; },
+    dispose() {},
+    state() {
+      return {
+        state: 'bound',
+        cwd: 'D:\\workspace',
+        workspaceId: 'w-1',
+        sessionId: 'sid-1',
+        owned: true,
+        error: null,
+        at: 0,
+      };
+    },
+  };
   const manager = {
     setResolvedRuntime() {},
     ensureServer(options) {
@@ -431,14 +450,8 @@ test('owned autoStart instance auto-binds workspace session and iframe carries d
       return { env: {}, async close() {} };
     },
     createServerManager() { return manager; },
+    createWorkspaceBinding() { return fakeBinding; },
     async ensureManagedRuntime() { return {}; },
-    async ensureWorkspaceSession(baseUrl, cwd, options) {
-      ensureWorkspaceCalls += 1;
-      assert.ok(options && options.signal, 'workspace binding must receive an abort signal');
-      assert.strictEqual(baseUrl, 'http://127.0.0.1:3080', 'binding must use the raw loopback URL');
-      assert.strictEqual(cwd, 'D:\\workspace');
-      return 'sid-1';
-    },
   });
 
   let viewHtml = '';
@@ -454,22 +467,44 @@ test('owned autoStart instance auto-binds workspace session and iframe carries d
   fake.registrations.webview.provider.resolveWebviewView(view);
   await waitFor(() => viewHtml.includes('dsh_session=sid-1'));
 
-  assert.ok(ensureWorkspaceCalls >= 1, 'owned autoStart must attempt workspace binding');
+  assert.ok(bindingCalls.length >= 1, 'owned autoStart must attempt workspace binding');
+  assert.strictEqual(bindingCalls[0].cwd, 'D:\\workspace');
+  assert.strictEqual(bindingCalls[0].server.url, 'http://127.0.0.1:3080', 'binding must use the raw loopback URL');
+  assert.strictEqual(bindingCalls[0].server.owned, true);
   assert.ok(viewHtml.includes('iframe'), 'owned connect should render the DSH iframe');
 
   await deactivate();
 });
 
-test('reused external instance never auto-binds a workspace session', async () => {
+test('reused external instance binds through workspaceBinding and iframe carries dsh_session', async () => {
   const fake = createFakeVscode();
   fake.api.workspace.workspaceFolders = [
     { uri: { fsPath: 'D:\\workspace' }, name: 'workspace', index: 0 },
   ];
   const context = {
-    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-nobind-${process.pid}`) },
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-reusedbind-${process.pid}`) },
     subscriptions: [],
   };
-  let ensureWorkspaceCalls = 0;
+  const bindingCalls = [];
+  const fakeBinding = {
+    async resolve(server, cwd) {
+      bindingCalls.push({ server, cwd });
+      return 'sid-1';
+    },
+    async refresh() { return 'sid-1'; },
+    dispose() {},
+    state() {
+      return {
+        state: 'bound',
+        cwd: 'D:\\workspace',
+        workspaceId: 'w-1',
+        sessionId: 'sid-1',
+        owned: false,
+        error: null,
+        at: 0,
+      };
+    },
+  };
   const manager = {
     cancelPending() {},
     hasOwnedChild() { return false; },
@@ -494,12 +529,9 @@ test('reused external instance never auto-binds a workspace session', async () =
       return { env: {}, async close() {} };
     },
     createServerManager() { return manager; },
+    createWorkspaceBinding() { return fakeBinding; },
     async ensureManagedRuntime() {
       throw new Error('autoStart=false must not resolve the managed runtime');
-    },
-    async ensureWorkspaceSession() {
-      ensureWorkspaceCalls += 1;
-      return 'sid-1';
     },
   });
 
@@ -514,10 +546,215 @@ test('reused external instance never auto-binds a workspace session', async () =
     onDidDispose() { return disposable(); },
   };
   fake.registrations.webview.provider.resolveWebviewView(view);
-  await waitFor(() => viewHtml.includes('iframe'));
+  await waitFor(() => viewHtml.includes('dsh_session=sid-1'));
 
-  assert.strictEqual(ensureWorkspaceCalls, 0, 'reused instances must never be auto-bound');
-  assert.ok(!viewHtml.includes('dsh_session=sid-1'), 'reused iframe must not carry an auto-bound session');
+  assert.ok(bindingCalls.length >= 1, 'reused instances must bind through the workspace registry');
+  assert.strictEqual(bindingCalls[0].cwd, 'D:\\workspace');
+  assert.strictEqual(bindingCalls[0].server.owned, false);
+  assert.ok(viewHtml.includes('iframe'), 'reused connect should render the DSH iframe');
+
+  await deactivate();
+});
+
+test('workspace rebind resolves through binding without stopping the owned child', async () => {
+  const fake = createFakeVscode({ autoStart: true });
+  fake.api.workspace.workspaceFolders = [
+    { uri: { fsPath: 'D:\\a' }, name: 'a', index: 0 },
+  ];
+  let workspaceFoldersCb = null;
+  fake.api.workspace.onDidChangeWorkspaceFolders = (cb) => {
+    workspaceFoldersCb = cb;
+    return disposable();
+  };
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-rebind-${process.pid}`) },
+    subscriptions: [],
+  };
+  const bindingCalls = [];
+  const fakeBinding = {
+    async resolve(server, cwd) {
+      bindingCalls.push({ server, cwd });
+      return cwd === 'D:\\b' ? 'sid-b' : 'sid-a';
+    },
+    async refresh() { return 'sid-a'; },
+    dispose() {},
+    state() {
+      return {
+        state: 'bound',
+        cwd: bindingCalls.length ? bindingCalls[bindingCalls.length - 1].cwd : 'D:\\a',
+        workspaceId: 'w-1',
+        sessionId: bindingCalls.length ? (bindingCalls[bindingCalls.length - 1].cwd === 'D:\\b' ? 'sid-b' : 'sid-a') : 'sid-a',
+        owned: true,
+        error: null,
+        at: 0,
+      };
+    },
+  };
+  let ensureServerCalls = 0;
+  let stopCalls = 0;
+  const manager = {
+    setResolvedRuntime() {},
+    ensureServer(options) {
+      ensureServerCalls += 1;
+      return Promise.resolve({
+        url: `http://${options.host}:${options.port}`,
+        host: options.host,
+        port: options.port,
+        pid: 4242,
+        owned: true,
+      });
+    },
+    hasOwnedChild() { return true; },
+    cancelPending() {},
+    async stop() { stopCalls += 1; },
+  };
+
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() { return manager; },
+    createWorkspaceBinding() { return fakeBinding; },
+    async ensureManagedRuntime() { return {}; },
+  });
+
+  let viewHtml = '';
+  const view = {
+    webview: {
+      options: null,
+      onDidReceiveMessage() { return disposable(); },
+      set html(value) { viewHtml = value; },
+      get html() { return viewHtml; },
+    },
+    onDidDispose() { return disposable(); },
+  };
+  fake.registrations.webview.provider.resolveWebviewView(view);
+  await waitFor(() => viewHtml.includes('dsh_session=sid-a'));
+  const ensureServerCallsBeforeRebind = ensureServerCalls;
+
+  fake.api.workspace.workspaceFolders = [
+    { uri: { fsPath: 'D:\\b' }, name: 'b', index: 0 },
+  ];
+  workspaceFoldersCb();
+  await waitFor(() => viewHtml.includes('dsh_session=sid-b'));
+
+  assert.ok(bindingCalls.some((call) => call.cwd === 'D:\\b'), 'rebind must resolve the new cwd');
+  const rebindCall = bindingCalls[bindingCalls.length - 1];
+  assert.strictEqual(rebindCall.cwd, 'D:\\b');
+  assert.strictEqual(rebindCall.server.pid, 4242, 'rebind must reuse the same child pid');
+  assert.strictEqual(stopCalls, 0, 'workspace switch must not stop the owned child');
+  assert.strictEqual(ensureServerCalls, ensureServerCallsBeforeRebind, 'workspace switch must not re-ensure/reconnect');
+
+  await deactivate();
+});
+
+test('binding API failure renders error status page and does not keep the old iframe session', async () => {
+  const fake = createFakeVscode({ autoStart: true });
+  fake.api.workspace.workspaceFolders = [
+    { uri: { fsPath: 'D:\\a' }, name: 'a', index: 0 },
+  ];
+  let workspaceFoldersCb = null;
+  fake.api.workspace.onDidChangeWorkspaceFolders = (cb) => {
+    workspaceFoldersCb = cb;
+    return disposable();
+  };
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-rebind-error-${process.pid}`) },
+    subscriptions: [],
+  };
+  const bindingCalls = [];
+  let bindingState = {
+    state: 'bound',
+    cwd: 'D:\\a',
+    workspaceId: 'w-1',
+    sessionId: 'sid-a',
+    owned: true,
+    error: null,
+    at: 0,
+  };
+  const fakeBinding = {
+    async resolve(server, cwd) {
+      bindingCalls.push({ server, cwd });
+      if (cwd === 'D:\\b') {
+        bindingState = {
+          state: 'error',
+          cwd: 'D:\\b',
+          workspaceId: null,
+          sessionId: null,
+          owned: true,
+          error: 'workspace API boom',
+          at: 0,
+        };
+        return null;
+      }
+      return 'sid-a';
+    },
+    async refresh() { return 'sid-a'; },
+    dispose() {},
+    state() { return bindingState; },
+  };
+  let stopCalls = 0;
+  let ensureServerCalls = 0;
+  const manager = {
+    setResolvedRuntime() {},
+    ensureServer(options) {
+      ensureServerCalls += 1;
+      return Promise.resolve({
+        url: `http://${options.host}:${options.port}`,
+        host: options.host,
+        port: options.port,
+        pid: 4242,
+        owned: true,
+      });
+    },
+    hasOwnedChild() { return true; },
+    cancelPending() {},
+    async stop() { stopCalls += 1; },
+  };
+
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() { return manager; },
+    createWorkspaceBinding() { return fakeBinding; },
+    async ensureManagedRuntime() { return {}; },
+  });
+
+  let viewHtml = '';
+  const view = {
+    webview: {
+      options: null,
+      onDidReceiveMessage() { return disposable(); },
+      set html(value) { viewHtml = value; },
+      get html() { return viewHtml; },
+    },
+    onDidDispose() { return disposable(); },
+  };
+  fake.registrations.webview.provider.resolveWebviewView(view);
+  await waitFor(() => viewHtml.includes('dsh_session=sid-a'));
+  const ensureServerCallsBeforeRebind = ensureServerCalls;
+
+  fake.api.workspace.workspaceFolders = [
+    { uri: { fsPath: 'D:\\b' }, name: 'b', index: 0 },
+  ];
+  workspaceFoldersCb();
+  await waitFor(() => viewHtml.includes('DSH workspace binding failed'));
+
+  assert.ok(!viewHtml.includes('dsh_session=sid-a'), 'old iframe session must not remain after binding failure');
+  assert.ok(!viewHtml.includes('iframe'), 'error status page must not render the old DSH iframe');
+  assert.strictEqual(stopCalls, 0, 'binding failure must not stop the owned child');
+  assert.ok(bindingCalls.some((call) => call.cwd === 'D:\\b'), 'rebind must attempt the new cwd');
+  assert.strictEqual(bindingCalls[bindingCalls.length - 1].cwd, 'D:\\b');
+  assert.strictEqual(ensureServerCalls, ensureServerCallsBeforeRebind, 'binding failure must not re-ensure/reconnect');
 
   await deactivate();
 });

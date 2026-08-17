@@ -190,6 +190,7 @@ function createExtensionBridgeHandlers({ vscode, catalog = catalogSnapshot() } =
  * @param {object} [options.config] - Normalized `dsh.*` configuration.
  * @param {object|null} [options.server] - Current server handle, if any.
  * @param {object|null} [options.bridge] - Current versioned bridge, if any.
+ * @param {object|null} [options.binding] - Current workspace binding state.
  * @param {object[]} [options.catalog] - Catalog to inspect; defaults to the controlled snapshot.
  * @param {() => string} [options.now] - Timestamp provider.
  * @returns {object} Diagnostic snapshot with stable field names.
@@ -200,6 +201,7 @@ function diagnosticSnapshot({
   server = null,
   bridge = null,
   home = null,
+  binding = null,
   catalog = catalogSnapshot(),
   now = () => new Date().toISOString(),
 } = {}) {
@@ -243,6 +245,7 @@ function diagnosticSnapshot({
       listening: Boolean(bridge && Number.isInteger(bridge.port)),
       port: bridge && Number.isInteger(bridge.port) ? bridge.port : null,
     },
+    binding: binding && typeof binding === "object" ? binding : null,
   };
 }
 
