@@ -187,7 +187,7 @@ test('webview message router forwards handshake errors when configured', () => {
   assert.deepStrictEqual(calls, [mismatch]);
 });
 
-function loadClientHarness() {
+function loadClientHarness(options = {}) {
   const clientPath = path.join(
     __dirname,
     '..',
@@ -203,6 +203,8 @@ function loadClientHarness() {
   const timers = new Map();
   let nextTimerId = 1;
   let messageListener = null;
+  const documentListeners = {};
+  const execCommands = [];
   const parent = {
     postMessage(message, targetOrigin) {
       postedToParent.push({ message, targetOrigin });
@@ -224,10 +226,17 @@ function loadClientHarness() {
   const clipboard = { writeText() {} };
   const sandbox = {
     window: windowObj,
-    navigator: { clipboard },
+    navigator: { clipboard, platform: options.platform ?? 'MacIntel' },
     document: {
-      addEventListener() {},
-      removeEventListener() {},
+      addEventListener(type, callback) {
+        documentListeners[type] = callback;
+      },
+      removeEventListener(type) {
+        delete documentListeners[type];
+      },
+      execCommand(command) {
+        execCommands.push(command);
+      },
     },
     Element: function Element() {},
     TextEncoder,
@@ -250,6 +259,8 @@ function loadClientHarness() {
   return {
     api,
     clipboard,
+    documentListeners,
+    execCommands,
     messageListener: () => messageListener,
     postedToParent,
     timers,
@@ -351,4 +362,40 @@ test('client degrades to v1 passthrough when no READY arrives within 2s', async 
   });
   await write;
   cleanup();
+});
+
+test('client installs a macOS Cmd+V paste bridge inside the embedded iframe', () => {
+  const harness = loadClientHarness();
+  const { cleanup } = applyClient(harness);
+
+  const keydown = harness.documentListeners.keydown;
+  assert.ok(keydown, 'client must install a keydown listener on macOS');
+  assert.strictEqual(harness.execCommands.length, 0);
+
+  let prevented = false;
+  keydown({
+    metaKey: true,
+    ctrlKey: false,
+    code: 'KeyV',
+    key: 'v',
+    defaultPrevented: false,
+    preventDefault() {
+      prevented = true;
+    },
+  });
+
+  assert.strictEqual(harness.execCommands.length, 1);
+  assert.strictEqual(harness.execCommands[0], 'paste');
+  assert.strictEqual(prevented, true, 'Cmd+V must suppress the intercepted native handling');
+
+  cleanup();
+  assert.strictEqual(harness.documentListeners.keydown, undefined, 'cleanup must remove the keydown bridge');
+});
+
+test('client does not install the paste bridge on non-mac platforms', () => {
+  const harness = loadClientHarness({ platform: 'Win32' });
+  applyClient(harness);
+
+  assert.strictEqual(harness.documentListeners.keydown, undefined, 'paste shortcut bridge is macOS-only');
+  assert.strictEqual(harness.execCommands.length, 0);
 });

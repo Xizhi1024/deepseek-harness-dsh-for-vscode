@@ -170,6 +170,24 @@ window.__ModuleLoader__.load({
       };
     }
 
+    function installMacPasteShortcutBridge() {
+      // VS Code intercepts Cmd+V on macOS inside nested webview iframes and
+      // never forwards it to the DSH page (microsoft/vscode#129178). Capture the
+      // key event inside the iframe and perform the paste ourselves.
+      const platform = typeof navigator !== 'undefined' ? String(navigator.platform || navigator.userAgent || '') : '';
+      if (!/Mac/i.test(platform)) return () => {};
+      if (typeof document.execCommand !== 'function') return () => {};
+      const onKeyDown = (event) => {
+        if (event.defaultPrevented) return;
+        const isPasteShortcut = (event.metaKey || event.ctrlKey) && (event.code === 'KeyV' || event.key === 'v' || event.key === 'V');
+        if (!isPasteShortcut) return;
+        event.preventDefault();
+        document.execCommand('paste');
+      };
+      document.addEventListener('keydown', onKeyDown, true);
+      return () => document.removeEventListener('keydown', onKeyDown, true);
+    }
+
     function onClick(event) {
       if (event.defaultPrevented || event.button !== 0) return;
       const element = event.target instanceof Element ? event.target.closest('a[href]') : null;
@@ -195,12 +213,14 @@ window.__ModuleLoader__.load({
         window.addEventListener('message', listener);
         document.addEventListener('click', onClick, true);
         const restoreClipboard = installClipboardBridge();
+        const restoreMacPasteShortcut = installMacPasteShortcutBridge();
         window.parent.postMessage({
           type: 'dshThreadReady', channel: THREAD_CHANNEL, version: THREAD_VERSION,
         }, '*');
         return () => {
           if (handshakeTimer) clearTimeout(handshakeTimer);
           restoreClipboard();
+          restoreMacPasteShortcut();
           document.removeEventListener('click', onClick, true);
           window.removeEventListener('message', listener);
           for (const waiter of pending.values()) {

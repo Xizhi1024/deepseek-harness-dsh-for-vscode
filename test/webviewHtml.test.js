@@ -5,9 +5,9 @@ const test = require('node:test');
 
 const { statusPage, framePage, withVscodeEmbedMode } = require('../src/webviewHtml');
 
-test('framePage allows clipboard-write on the embedded iframe', () => {
+test('framePage allows clipboard read and write on the embedded iframe', () => {
   const html = framePage({ url: 'http://127.0.0.1:3080' });
-  assert.match(html, /<iframe[^>]*allow="clipboard-write"/);
+  assert.match(html, /<iframe[^>]*allow="clipboard-read; clipboard-write"/);
 });
 
 test('framePage includes a CSP meta that permits inline assets and http(s) frames', () => {
