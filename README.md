@@ -76,6 +76,73 @@ The extension never installs third-party providers. **Every third-party provider
 
 Provider state is refreshed through `vscode.extensions.onDidChange`, which emits `vscode/providerStatesChanged` notifications on the versioned bridge. Detection re-reads `vscode.extensions` on every call and never caches state across workspaces.
 
+## VS Code bridge capabilities & roadmap (0.6+)
+
+The versioned bridge (`versionedBridgeServer` + CH1 protocol) is the channel DSH uses to reach the VS Code window. It is intentionally narrow today: read-only, explicit-attachment oriented, and guarded by workspace trust and loopback tokens.
+
+### Currently exposed to DSH
+
+| Type | Exposed methods / notifications |
+|---|---|
+| Editor read | `vscode/editor/getContext` |
+| Open file | `vscode/editor/open` |
+| Open diff | `vscode/editor/openDiff` |
+| Diagnostics | `vscode/workspace/getDiagnostics` |
+| Extension / provider | `vscode/extensions/getProviderStates` · `vscode/extensions/openDetails` |
+| Notifications (v1) | `vscode/contextChanged` · `vscode/providerStatesChanged` · `vscode/workspaceChanged` |
+| Notifications (v2) | + `vscode/editor/selectionChanged` · `vscode/editor/activeEditorChanged` · `vscode/diagnosticsChanged` |
+
+### Not exposed yet
+
+- Debugging: start/stop sessions, breakpoints, call stack, variables
+- Integrated terminal: create/write/read
+- Tasks: run `tasks.json` / npm scripts / test runners
+- File editing: `applyEdits` / direct workspace file mutation
+- Git / SCM: stage, commit, apply diff
+- User interaction UI: QuickPick, input box, permission confirmations
+- Workspace search: `findFiles` / symbols / LSP results
+
+### Roadmap to Cursor / Claude Code-style experience
+
+Achieving a Cursor/Claude Code-like experience requires both sides of the bridge:
+
+1. **Extend CH1 to a v3 method set**, for example:
+   ```text
+   vscode/editor/applyEdit
+   vscode/debug/start
+   vscode/debug/stop
+   vscode/debug/breakpoints
+   vscode/debug/getStack
+   vscode/debug/step
+   vscode/terminal/create
+   vscode/terminal/write
+   vscode/terminal/read
+   vscode/tasks/run
+   vscode/git/stage
+   vscode/git/commit
+   vscode/workspace/findFiles
+   vscode/window/showInputBox
+   vscode/window/showQuickPick
+   vscode/window/showConfirm
+   ```
+   Each method needs a handler in the extension host, security checks (`file://`, workspace trust, token auth), version negotiation, and tests.
+
+2. **Add matching tools in the DSH runtime**, such as `vscode_apply_edit`, `vscode_run_debug`, `vscode_terminal_exec`, `vscode_run_task`, `vscode_git_commit`, `vscode_ask_user`.
+
+3. **Add a permission / approval / diff-review layer**:
+   - sensitive operations (edit files, run commands, debug, commit) require explicit user confirmation
+   - show proposed diffs and operation history
+   - allow apply / reject / rollback
+
+4. **Build the agent-loop UX**:
+   - multi-file editing and applying changes
+   - automatic feedback from diagnostics and test runs
+   - streaming terminal output back to the conversation
+   - debugger state (stack/variables) readback
+   - in-editor progress and accept/reject UI for model suggestions
+
+**Current status:** the extension exposes a small read-only VS Code surface. Full Cursor/Claude Code parity is not implemented yet and is a multi-milestone roadmap, not part of the 0.6 batch.
+
 ## Configuration
 
 | Key | Default | Description |

@@ -76,6 +76,73 @@
 
 provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化桥上发送 `vscode/providerStatesChanged` 通知。检测器每次调用都会重新读取 `vscode.extensions`，绝不跨工作区缓存状态。
 
+## VS Code 桥接能力与路线图（0.6+）
+
+版本化桥（`versionedBridgeServer` + CH1 协议）是 DSH 访问 VS Code 窗口的通道。目前设计上刻意保持很窄：只读、显式附件导向，并受工作区信任与回环 token 保护。
+
+### 当前已暴露给 DSH 的能力
+
+| 类型 | 已暴露的方法 / 通知 |
+|---|---|
+| 编辑器读取 | `vscode/editor/getContext` |
+| 打开文件 | `vscode/editor/open` |
+| 打开 Diff | `vscode/editor/openDiff` |
+| 诊断 | `vscode/workspace/getDiagnostics` |
+| 扩展 / Provider | `vscode/extensions/getProviderStates` · `vscode/extensions/openDetails` |
+| 通知（v1） | `vscode/contextChanged` · `vscode/providerStatesChanged` · `vscode/workspaceChanged` |
+| 通知（v2） | + `vscode/editor/selectionChanged` · `vscode/editor/activeEditorChanged` · `vscode/diagnosticsChanged` |
+
+### 尚未暴露
+
+- 调试：启动/停止调试会话、断点、调用栈、变量查看
+- 集成终端：创建 / 写入 / 读取
+- 任务：运行 `tasks.json` / npm 脚本 / 测试运行器
+- 文件编辑：`applyEdits` / 直接修改工作区文件
+- Git / SCM：暂存、提交、应用 diff
+- 用户交互 UI：QuickPick、输入框、权限确认弹窗
+- 工作区搜索：`findFiles` / 符号 / LSP 结果
+
+### 实现 Cursor / Claude Code 式体验的路线图
+
+要接近 Cursor / Claude Code 的体验，需要桥两侧同时推进：
+
+1. **把 CH1 扩展为 v3 方法集**，例如：
+   ```text
+   vscode/editor/applyEdit
+   vscode/debug/start
+   vscode/debug/stop
+   vscode/debug/breakpoints
+   vscode/debug/getStack
+   vscode/debug/step
+   vscode/terminal/create
+   vscode/terminal/write
+   vscode/terminal/read
+   vscode/tasks/run
+   vscode/git/stage
+   vscode/git/commit
+   vscode/workspace/findFiles
+   vscode/window/showInputBox
+   vscode/window/showQuickPick
+   vscode/window/showConfirm
+   ```
+   每个方法都需在扩展宿主中实现 handler，并做安全校验（`file://`、工作区信任、token 鉴权）、版本协商与测试。
+
+2. **在 DSH runtime 增加对应工具**，例如 `vscode_apply_edit`、`vscode_run_debug`、`vscode_terminal_exec`、`vscode_run_task`、`vscode_git_commit`、`vscode_ask_user`。
+
+3. **增加权限 / 审批 / diff 预览层**：
+   - 敏感操作（改文件、执行命令、调试、提交代码）需要显式用户确认
+   - 展示建议 diff 与操作历史
+   - 支持应用 / 拒绝 / 回滚
+
+4. **补齐 agent-loop 体验**：
+   - 多文件编辑与批量应用
+   - 自动回传诊断与测试结果
+   - 终端输出流式回到对话
+   - 读取调试器状态（调用栈 / 变量）
+   - 编辑器内展示 AI 进度与接受/拒绝 UI
+
+**当前状态：** 扩展目前只暴露较小的只读 VS Code 能力。完整对标 Cursor / Claude Code 尚未实现，属于多里程碑路线图，不在 0.6 批次范围内。
+
 ## 配置
 
 | 键 | 默认 | 说明 |
