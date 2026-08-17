@@ -21,6 +21,9 @@ smoke*.js
 dsh-instances.json
 .smoke-storage/**
 
+# --- Local orchestration lanes / 本地编排 worktree 与 deepwork 进度 ---
+.slim/**
+
 # --- Build artifacts / 构建产物 ---
 **/*.map
 **/*.log

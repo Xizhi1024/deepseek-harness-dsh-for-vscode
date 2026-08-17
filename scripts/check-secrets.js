@@ -7,7 +7,7 @@ const root = path.resolve(__dirname, '..');
 const selfFile = path.resolve(__filename);
 const allowCommentMarkers = ['// allow-secret-scan', '/* allow-secret-scan */'];
 
-const EXCLUDED_DIRS = new Set(['.git', 'node_modules', '.vscode-test']);
+const EXCLUDED_DIRS = new Set(['.git', '.slim', 'node_modules', '.vscode-test']);
 const TEXT_EXTENSIONS = new Set([
   '.cjs',
   '.css',
