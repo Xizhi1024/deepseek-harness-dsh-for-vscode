@@ -6,6 +6,10 @@ const {
   isAllowedDetailsUri,
   resolveProvider,
 } = require('./capabilityCatalog');
+const { catalogSnapshot: pluginCatalogSnapshot } = require('./catalog/pluginCatalog');
+const { createPluginDetector } = require('./detection/pluginDetector');
+const { profileProbe } = require('./detection/profileProbe');
+const { buildPluginSummary } = require('./diagnose/pluginSummary');
 
 function isRecord(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -202,10 +206,20 @@ function diagnosticSnapshot({
   assertExtensionsFacade(vscode);
 
   const cfg = isRecord(config) ? config : {};
+  const homePath = home && typeof home.path === 'string' ? home.path : '';
   return {
     generatedAt: now(),
     catalogRevision: catalogRevision(),
     providers: detectProviderStates({ vscode, catalog }),
+    dshPlugins: buildPluginSummary({
+      detector: createPluginDetector({
+        catalog: pluginCatalogSnapshot(),
+        probes: [profileProbe],
+        now,
+        home: homePath,
+      }),
+      home: homePath,
+    }),
     config: {
       host: cfg.host === undefined ? null : cfg.host,
       port: cfg.port === undefined ? null : cfg.port,

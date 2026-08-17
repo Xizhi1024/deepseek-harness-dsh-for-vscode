@@ -276,3 +276,50 @@ test('openDetails rejects providers outside the controlled catalog', async () =>
   assert.strictEqual(fake.opened.length, 0);
   assert.strictEqual(fake.executed.length, 0);
 });
+
+test('diagnosticSnapshot includes dshPlugins without changing existing fields', () => {
+  const fake = createFakeVscode();
+  const snapshot = diagnosticSnapshot({
+    vscode: fake.api,
+    config: { host: '127.0.0.1', port: 3080, autoStart: false, closePolicy: 'onVscodeExit', homeMode: 'shared', homePath: '' },
+    home: { mode: 'shared', path: 'D:\\missing-dsh-home', source: 'setting' },
+    server: { owned: true, url: 'http://127.0.0.1:3080', port: 3080 },
+    bridge: { port: 5678 },
+    now: () => '2026-08-15T00:00:00.000Z',
+  });
+
+  assert.ok(snapshot.dshPlugins);
+  assert.strictEqual(snapshot.dshPlugins.scanned, 7);
+  assert.strictEqual(snapshot.dshPlugins.revision.length, 64);
+  assert.deepStrictEqual(snapshot.dshPlugins.states, { active: 0, disabled: 0, absent: 0, unknown: 7 });
+  assert.strictEqual(snapshot.generatedAt, '2026-08-15T00:00:00.000Z');
+  assert.deepStrictEqual(snapshot.config, {
+    host: '127.0.0.1',
+    port: 3080,
+    autoStart: false,
+    closePolicy: 'onVscodeExit',
+    homeMode: 'shared',
+    homePath: '',
+  });
+  assert.deepStrictEqual(snapshot.home, { mode: 'shared', path: 'D:\\missing-dsh-home', source: 'setting' });
+  assert.deepStrictEqual(snapshot.server, {
+    available: true,
+    owned: true,
+    url: 'http://127.0.0.1:3080',
+    port: 3080,
+  });
+  assert.deepStrictEqual(snapshot.bridge, { listening: true, port: 5678 });
+});
+
+test('diagnosticSnapshot treats null home as empty home for dshPlugins', () => {
+  const fake = createFakeVscode();
+  const snapshot = diagnosticSnapshot({
+    vscode: fake.api,
+    home: null,
+    now: () => '2026-08-15T00:00:00.000Z',
+  });
+
+  assert.strictEqual(snapshot.home.path, null);
+  assert.strictEqual(snapshot.dshPlugins.scanned, 7);
+  assert.strictEqual(snapshot.dshPlugins.states.unknown, 7);
+});
