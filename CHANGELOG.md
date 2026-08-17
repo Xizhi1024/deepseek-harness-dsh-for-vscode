@@ -3,6 +3,48 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-08-18
+
+### Added / 新增
+
+- **插件目录与检测（B0）**：新增 schema 校验的插件 catalog 契约、L3 已安装插件探针、profile 探测与诊断插件摘要。
+  Plugin catalog and detection (B0): add the schema-validated plugin catalog contract, an L3 installed-plugin probe, profile probing, and a diagnose plugin summary.
+
+- **工作区注册表绑定（B1）**：侧边栏通过 DSH `workspace.list/create` API 绑定 VS Code 工作区根；切换工作区只重绑会话，不 kill/重启自管子进程。
+  Workspace registry binding (B1): the sidebar binds workspace roots through the DSH `workspace.list/create` API; workspace switches rebind the session without killing the owned child.
+
+- **Webview 协议单一来源与握手（B2）**：`src/protocol/webview.js` 统一通道/版本/消息类型常量与 request-id 规则；iframe 增加 READY/HELLO 握手，旧客户端 2 秒内回退 v1 直通。
+  Single-source webview protocol and handshake (B2): `src/protocol/webview.js` owns channel/version/message constants and the request-id rule; the iframe gains a READY/HELLO handshake with a 2-second v1 passthrough fallback.
+
+- **CH1 v1/v2 协商与元数据通知（B3）**：版本化桥同时服务 v1/v2 客户端，新增 `selectionChanged` / `activeEditorChanged` / `diagnosticsChanged` 纯元数据通知与 150ms 合并器；`V2_NOTIFICATION_SCHEMA` 在 `notify()` 与 `push()` 边界强制执行，携带 `content`/`body` 的非法载荷被拒绝。
+  CH1 v1/v2 negotiation and metadata notifications (B3): the versioned bridge serves v1 and v2 clients, adds metadata-only `selectionChanged` / `activeEditorChanged` / `diagnosticsChanged` notifications with a 150 ms coalescer; `V2_NOTIFICATION_SCHEMA` is enforced at the `notify()` and `push()` boundaries and content/body-bearing payloads are rejected.
+
+- **manifest 壳层与命令薄壳（B4）**：新增 capability-router 命令薄壳；`dsh.addFileToThread` 作为首个接入命令，编辑器正文右键（无需选区）、标签页右键与 Explorer 右键均可将当前文件链接追加到 DSH 草稿。
+  Manifest shell and command thin shell (B4): add a capability-router command shell; `dsh.addFileToThread` is the first wired command and is available from the editor-body context menu (no selection required), the editor-title context menu, and the Explorer context menu.
+
+- **显式外部文件附加**：`dsh.addFileToThread` 可附加工作区之外受信任的 `file://` 文档（如 `File > Open File…`），点击草稿链接可在本窗口重新打开；桥的 `open` / `openDiff` / 显式 diagnostics 仍保持工作区内限制。
+  Explicit outside-workspace file attachment: `dsh.addFileToThread` can attach a trusted `file://` document outside the workspace (e.g. `File > Open File…`) and the draft link reopens it in this window; bridge `open` / `openDiff` / wire-supplied diagnostics stay workspace-only.
+
+### Fixed / 修复
+
+- **Webview 桥前置校验（B2-01/B2-02）**：外壳不再转发超长/NUL `requestId` 的 `dshBridge`/thread 消息；DSH client 对非法 THREAD_ATTACH `requestId` 静默丢弃，不再回传失败结果。
+  Webview bridge pre-validation (B2-01/B2-02): the shell no longer forwards `dshBridge`/thread messages with overlong/NUL request ids, and the DSH client silently drops malformed THREAD_ATTACH ids instead of echoing a failure.
+
+- **启动错误页 Retry 门控**：纯配置类失败（host/port 非法、`autoStart=false` 且无服务、配置根/node/home 无效）获得稳定 code，状态页不再显示无效的 Retry 按钮。
+  Startup error-page Retry gating: configuration-only failures (invalid host/port, `autoStart=false` with no server, invalid configured root/node/home) carry stable codes and no longer render a pointless Retry button.
+
+- **VSIX 发布卫生**：`KNOWN_ISSUES.md`、`*_IMPL_NOTES.md`、QA findings 与清理笔记不再进入 VSIX；`check-package-contents` 补全 0.6 新增文件的必检清单。
+  VSIX release hygiene: `KNOWN_ISSUES.md`, `*_IMPL_NOTES.md`, QA findings and cleanup notes are excluded from the package; `check-package-contents` now requires all 0.6 source files.
+
+- **Extension Host 命令矩阵补齐**：smoke 期望命令从 11 条补到 13 条，覆盖 `dsh.addFileToThread` 与 `dsh.addSelectionToThread`。
+  Extension Host command matrix: smoke expectations grow from 11 to 13 commands, covering `dsh.addFileToThread` and `dsh.addSelectionToThread`.
+
+- **运行时迁移提示去版本化**：0.4.x 隔离目录保护提示不再硬编码 `0.5.0`。
+  Version-free migration notice: the legacy isolated-home notice no longer hardcodes `0.5.0`.
+
+- **README 文档同步**：命令数更正为 13；安装命令指向 0.6.0 VSIX；工作区切换描述与 B1 实现一致；中英文补齐 0.6 新能力、Known limitations 与 Troubleshooting。
+  README synchronization: 13 commands, the 0.6.0 VSIX install command, workspace-switch wording matching B1, and full 0.6 capabilities / Known limitations / Troubleshooting in both languages.
+
 ## [0.5.3] - 2026-08-16
 
 ### Changed / 变更

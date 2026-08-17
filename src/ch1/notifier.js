@@ -1,5 +1,10 @@
 'use strict';
 
+const {
+  V2_NOTIFICATION_SCHEMA,
+  validateV2NotificationParams,
+} = require('../protocol/ch1');
+
 /**
  * CH1 notification coalescer (SM-6).
  *
@@ -105,6 +110,9 @@ function createNotifier({
     }
     if (!isRecord(params)) {
       throw new TypeError('notifier push params must be an object');
+    }
+    if (V2_NOTIFICATION_SCHEMA[method]) {
+      validateV2NotificationParams(method, params);
     }
     const key = pendingKey(method, params);
     pending.set(key, { method, params });

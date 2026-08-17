@@ -21,6 +21,13 @@ smoke*.js
 dsh-instances.json
 .smoke-storage/**
 
+# --- Internal orchestration notes stay in the repository, never in the VSIX ---
+# 内部编排/QA 笔记只留在仓库里，绝不进入发布包
+KNOWN_ISSUES.md
+*_IMPL_NOTES.md
+*_QA_FINDINGS.md
+*_CLEANUP_NOTES.md
+
 # --- Local orchestration lanes / 本地编排 worktree 与 deepwork 进度 ---
 .slim/**
 

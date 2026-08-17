@@ -51,7 +51,9 @@ async function main() {
       commands: [
         'dsh.addActiveFile',
         'dsh.addActiveSelection',
+        'dsh.addFileToThread',
         'dsh.addProblems',
+        'dsh.addSelectionToThread',
         'dsh.capabilities',
         'dsh.diagnose',
         'dsh.focusSidebar',

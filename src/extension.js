@@ -71,6 +71,25 @@ const {
 } = require('./dshHome');
 const { LifecycleQueue } = require("./lifecycle");
 
+/**
+ * Startup/connect failure classes that a bare Retry can never fix: the user
+ * must change a dsh.* setting or launch mode first. Everything else (install
+ * missing, download/provision failure, spawn crash, health timeout) stays
+ * retryable because the environment may have changed between attempts.
+ */
+const NON_RETRYABLE_STARTUP_CODES = new Set([
+  'AUTOSTART_DISABLED',
+  'CONFIG_HOST_UNSUPPORTED',
+  'CONFIG_PORT_INVALID',
+  'CONFIG_PACKAGE_ROOT_INVALID',
+  'CONFIG_NODE_PATH_INVALID',
+  'CONFIG_HOME_PATH_INVALID',
+]);
+
+function isRetryableStartupError(err) {
+  return !(err && typeof err.code === 'string' && NON_RETRYABLE_STARTUP_CODES.has(err.code));
+}
+
 let vscode = null; // injected during activation; avoids loading vscode in node:test
 let hostContext = null; // workspace/config facade bound during activation
 let manager = null; // ServerManager instance (created in activate)
@@ -418,7 +437,7 @@ async function connectNow(context) {
           detail: err && err.template ? loc(err.template, err.params) : String(err && err.message ? err.message : err),
           url,
           showOpenBrowser: Boolean(currentExternalUrl),
-          showRetry: true,
+          showRetry: isRetryableStartupError(err),
           openBrowserLabel: loc("Open in browser"),
           retryLabel: loc("Retry"),
           lang: vscode.env.language,
@@ -618,7 +637,7 @@ async function activateWithDependencies(context, dependencies = {}) {
   });
   if (migration.changed) {
     vscode.window.showWarningMessage(loc(
-      'DSH 0.5.0 kept your existing isolated DSH home to protect its modules and sessions. Set dsh.home.mode to shared when you are ready to use the official shared DSH home.'
+      'DSH kept your existing isolated DSH home to protect its modules and sessions. Set dsh.home.mode to shared when you are ready to use the official shared DSH home.'
     ));
   }
   ensureRuntime = dependencies.ensureRuntime
@@ -1168,4 +1187,4 @@ async function deactivate() {
   }
 }
 
-module.exports = { activate, deactivate, activateWithDependencies };
+module.exports = { activate, deactivate, activateWithDependencies, isRetryableStartupError };

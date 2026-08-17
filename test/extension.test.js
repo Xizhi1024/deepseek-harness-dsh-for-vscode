@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { activateWithDependencies, deactivate } = require('../src/extension');
+const { activateWithDependencies, deactivate, isRetryableStartupError } = require('../src/extension');
 const { CONTAINER_ID, VIEW_ID } = require('../src/types');
 
 function disposable() {
@@ -1140,6 +1140,70 @@ test('error status without a message still clears stale state and shows Retry', 
   const before = ensureServerCalls;
   await fake.commands.get('dsh.restartServer')();
   assert.ok(ensureServerCalls > before, 'restart should re-ensure the server after a message-less error');
+
+  await deactivate();
+});
+
+test('connect error page hides Retry for non-retryable startup classes', async () => {
+  assert.strictEqual(isRetryableStartupError({ code: 'AUTOSTART_DISABLED' }), false);
+  assert.strictEqual(isRetryableStartupError({ code: 'CONFIG_HOST_UNSUPPORTED' }), false);
+  assert.strictEqual(isRetryableStartupError({ code: 'CONFIG_PORT_INVALID' }), false);
+  assert.strictEqual(isRetryableStartupError({ code: 'CONFIG_PACKAGE_ROOT_INVALID' }), false);
+  assert.strictEqual(isRetryableStartupError({ code: 'CONFIG_NODE_PATH_INVALID' }), false);
+  assert.strictEqual(isRetryableStartupError({ code: 'CONFIG_HOME_PATH_INVALID' }), false);
+  assert.strictEqual(isRetryableStartupError(new Error('download failed')), true);
+  assert.strictEqual(isRetryableStartupError(undefined), true);
+});
+
+test('connect failure with autoStart disabled renders no Retry button', async () => {
+  const fake = createFakeVscode({ autoStart: false });
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-retry-gate-${process.pid}`) },
+    subscriptions: [],
+  };
+  const configError = new Error('DSH is not running and dsh.autoStart is disabled');
+  configError.code = 'AUTOSTART_DISABLED';
+  configError.template = 'DSH is not running and dsh.autoStart is disabled';
+  configError.params = {};
+  const manager = {
+    setResolvedRuntime() {},
+    async ensureServer() {
+      throw configError;
+    },
+    hasOwnedChild() { return false; },
+    cancelPending() {},
+    async stop() {},
+  };
+
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() { return manager; },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  let viewHtml = '';
+  const view = {
+    webview: {
+      options: null,
+      onDidReceiveMessage() { return disposable(); },
+      set html(value) { viewHtml = value; },
+      get html() { return viewHtml; },
+    },
+    onDidDispose() { return disposable(); },
+  };
+  fake.registrations.webview.provider.resolveWebviewView(view);
+  await waitFor(() => viewHtml.includes('DeepSeek Harness unavailable') && viewHtml.includes('btn-open-browser'));
+
+  assert.ok(!viewHtml.includes('id="btn-retry"'), 'config-only failures must not offer a bare Retry');
+  assert.ok(viewHtml.includes('autoStart is disabled'), 'the rendered detail names the failure class');
 
   await deactivate();
 });

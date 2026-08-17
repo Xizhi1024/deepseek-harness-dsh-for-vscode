@@ -65,12 +65,15 @@ class ServerError extends Error {
   /**
    * @param {string} template - English l10n template with {name} placeholders.
    * @param {object} [params] - placeholder values.
+   * @param {string} [code] - Stable machine-readable error class used by the
+   *   startup/status UI to decide retryability and diagnose grouping.
    */
-  constructor(template, params) {
+  constructor(template, params, code = null) {
     super(fillTemplate(template, params));
     this.name = "ServerError";
     this.template = template;
     this.params = params || {};
+    this.code = code;
   }
 }
 
@@ -457,10 +460,10 @@ class ServerManager {
       throw new ServerError('Unsupported dsh.host "{host}"; this extension requires {expected}', {
         host,
         expected: DEFAULT_HOST,
-      });
+      }, 'CONFIG_HOST_UNSUPPORTED');
     }
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      throw new ServerError('Invalid dsh.port "{port}"; expected an integer from 1 to 65535', { port });
+      throw new ServerError('Invalid dsh.port "{port}"; expected an integer from 1 to 65535', { port }, 'CONFIG_PORT_INVALID');
     }
     // Step 1: a repeated ensure in this extension host keeps ownership of its
     // own child, including when that child lives on a scanned-forward port.
@@ -489,7 +492,7 @@ class ServerManager {
         this._emit('reusing', 'Found a running DSH instance at http://{host}:{port}, reusing', { host, port });
         return this._reuseHandle(host, port);
       }
-      throw new ServerError('DSH is not running and dsh.autoStart is disabled');
+      throw new ServerError('DSH is not running and dsh.autoStart is disabled', {}, 'AUTOSTART_DISABLED');
     }
 
     // Step 4: any occupied port belongs to another owner and must not be

@@ -37,6 +37,7 @@ function defaultLoc(template, params = {}) {
 
 function makeDeps(overrides = {}) {
   const requests = [];
+  const attachCalls = [];
   const state = {
     view: { webview: {} },
     connected: true,
@@ -45,7 +46,8 @@ function makeDeps(overrides = {}) {
   const deps = {
     vscode: fakeVscode().api,
     editorContext: {
-      attachActiveFile() {
+      attachActiveFile(options) {
+        attachCalls.push(options);
         if (state.attachError) throw state.attachError;
         return {
           id: 'ctx-1',
@@ -66,15 +68,16 @@ function makeDeps(overrides = {}) {
     loc: defaultLoc,
     ...overrides,
   };
-  return { deps, requests, state };
+  return { deps, requests, state, attachCalls };
 }
 
 test('addFileToThread attaches the active file and posts a clickable file link', async () => {
-  const { deps, requests, state } = makeDeps();
+  const { deps, requests, state, attachCalls } = makeDeps();
   const command = createAddFileToThreadCommand(deps);
 
   await command();
 
+  assert.deepStrictEqual(attachCalls, [{ allowOutsideWorkspace: true }]);
   assert.deepStrictEqual(deps.vscode.commands.executed, [
     ['workbench.view.extension.dsh-sidebar'],
     ['dsh.webview.focus'],

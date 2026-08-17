@@ -510,3 +510,60 @@ test('createEditorContext validates the vscode facade', () => {
     },
   }), TypeError);
 });
+
+test('explicit addFileToThread mode attaches trusted files outside the workspace and reopens them', async () => {
+  const { vscode, calls, diagnosticsByUri } = createHarness({ workspaceFolders: [] });
+  const ctx = createEditorContext({ vscode });
+
+  assert.throws(
+    () => ctx.attachActiveFile(),
+    (error) => error instanceof EditorContextError && error.bridgeCode === 'VSCODE_URI_OUTSIDE_WORKSPACE'
+  );
+
+  const attachment = ctx.attachActiveFile({ allowOutsideWorkspace: true });
+  assert.strictEqual(attachment.explicit, true);
+  assert.strictEqual(attachment.document.uri, 'file:///ws/a.ts');
+
+  // The explicit attachment is itself the approval: clicking the draft link
+  // reopens the outside-workspace file in this window...
+  assert.deepStrictEqual(await ctx.openAttachment(attachment.id), { opened: true });
+  assert.strictEqual(uriText(calls.openTextDocument[0]), 'file:///ws/a.ts');
+  assert.strictEqual(calls.showTextDocument.length, 1);
+
+  // ...but an arbitrary wire `vscode/editor/open` still fails closed.
+  await rejectsWith(
+    ctx.handlers['vscode/editor/open']({ document: { uri: 'file:///ws/a.ts' } }, {}),
+    'VSCODE_URI_OUTSIDE_WORKSPACE'
+  );
+
+  // Default diagnostics cover the approved attachment; wire-supplied URIs stay
+  // workspace-only.
+  diagnosticsByUri.set('file:///ws/a.ts', [{ range: fakeRange(0, 0, 0, 1), severity: 0, message: 'external diagnostic' }]);
+  const byDefault = await ctx.handlers['vscode/workspace/getDiagnostics']({}, {});
+  assert.strictEqual(byDefault.diagnostics.length, 1);
+  await rejectsWith(
+    ctx.handlers['vscode/workspace/getDiagnostics']({ uris: ['file:///ws/a.ts'] }, {}),
+    'VSCODE_URI_OUTSIDE_WORKSPACE'
+  );
+});
+
+test('explicit addFileToThread mode still rejects untrusted and non-file documents', () => {
+  const { vscode } = createHarness({ trusted: false });
+  const untrusted = createEditorContext({ vscode });
+  assert.throws(
+    () => untrusted.attachActiveFile({ allowOutsideWorkspace: true }),
+    (error) => error instanceof EditorContextError && error.bridgeCode === 'VSCODE_WORKSPACE_UNTRUSTED'
+  );
+
+  const { vscode: untitledVscode } = createHarness({
+    activeTextEditor: {
+      document: { uri: fakeUri('untitled', 'untitled:a'), getText: () => 'x' },
+      selection: fakeRange(0, 0, 0, 0),
+    },
+  });
+  const untitled = createEditorContext({ vscode: untitledVscode });
+  assert.throws(
+    () => untitled.attachActiveFile({ allowOutsideWorkspace: true }),
+    (error) => error instanceof EditorContextError && error.bridgeCode === 'VSCODE_UNSUPPORTED_DOCUMENT'
+  );
+});

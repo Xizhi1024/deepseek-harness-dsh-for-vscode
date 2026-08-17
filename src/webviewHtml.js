@@ -3,6 +3,7 @@
 const {
   CHANNELS,
   MESSAGE_TYPES,
+  REQUEST_ID,
   VERSIONS,
 } = require("./protocol/webview");
 
@@ -247,6 +248,7 @@ function framePage({
   const channelsScript = safeScriptJson(CHANNELS);
   const versionsScript = safeScriptJson(VERSIONS);
   const messageTypesScript = safeScriptJson(MESSAGE_TYPES);
+  const requestIdRuleScript = safeScriptJson(REQUEST_ID.source);
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(lang)}">
 <head>
@@ -295,6 +297,7 @@ ${WEBVIEW_CSP_META}
     const VERSIONS = ${versionsScript};
     const MESSAGE_TYPES = ${messageTypesScript};
     const DSH_ORIGIN = ${safeFrameOriginScript};
+    const REQUEST_ID = new RegExp(${requestIdRuleScript});
     const BRIDGE_CHANNEL = CHANNELS.INTERACTION;
     const BRIDGE_VERSION = VERSIONS.INTERACTION;
     const THREAD_CHANNEL = CHANNELS.THREAD;
@@ -304,6 +307,10 @@ ${WEBVIEW_CSP_META}
     let helloReceived = false;
     let handshakeMismatch = false;
     const pendingThreadAttachments = new Map();
+
+    function hasValidRequestId(message) {
+      return Boolean(message) && typeof message.requestId === 'string' && REQUEST_ID.test(message.requestId);
+    }
 
     function forwardThreadAttachments() {
       if (!loaded || !frame.contentWindow) return;
@@ -364,6 +371,7 @@ ${WEBVIEW_CSP_META}
         && message && message.type === "dshBridge"
         && message.channel === BRIDGE_CHANNEL
         && message.version === BRIDGE_VERSION
+        && hasValidRequestId(message)
       ) {
         vscode.postMessage(message);
         return;
@@ -384,6 +392,7 @@ ${WEBVIEW_CSP_META}
         && message && message.type === "dshThreadAttachResult"
         && message.channel === THREAD_CHANNEL
         && message.version === THREAD_VERSION
+        && hasValidRequestId(message)
       ) {
         pendingThreadAttachments.delete(message.requestId);
         vscode.postMessage(message);
@@ -394,6 +403,7 @@ ${WEBVIEW_CSP_META}
         && message && message.type === "dshBridgeResult"
         && message.channel === BRIDGE_CHANNEL
         && message.version === BRIDGE_VERSION
+        && hasValidRequestId(message)
       ) {
         frame.contentWindow.postMessage(message, DSH_ORIGIN);
         return;
@@ -403,6 +413,7 @@ ${WEBVIEW_CSP_META}
         && message && message.type === "dshThreadAttach"
         && message.channel === THREAD_CHANNEL
         && message.version === THREAD_VERSION
+        && hasValidRequestId(message)
       ) {
         pendingThreadAttachments.set(message.requestId, message);
         forwardThreadAttachments();

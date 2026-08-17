@@ -160,10 +160,14 @@ async function resolveLocalDshRuntime({
     throw new Error('Local DSH dshHome must be absolute');
   }
   if (packageRoot && !path.isAbsolute(packageRoot)) {
-    throw new Error('dsh.local.packageRoot must be absolute');
+    const error = new Error('dsh.local.packageRoot must be absolute');
+    error.code = 'CONFIG_PACKAGE_ROOT_INVALID';
+    throw error;
   }
   if (nodePath && !path.isAbsolute(nodePath)) {
-    throw new Error('dsh.local.nodePath must be absolute');
+    const error = new Error('dsh.local.nodePath must be absolute');
+    error.code = 'CONFIG_NODE_PATH_INVALID';
+    throw error;
   }
 
   // The selected DSH home is independent from the npm installation. Create it
@@ -187,7 +191,9 @@ async function resolveLocalDshRuntime({
   if (!resolvedPackageRoot) {
     if (packageRoot) {
       throw new ServerError(
-        `The configured dsh.local.packageRoot does not contain the official @deepseek-ai/dsh package: ${packageRoot}`
+        `The configured dsh.local.packageRoot does not contain the official @deepseek-ai/dsh package: ${packageRoot}`,
+        {},
+        'CONFIG_PACKAGE_ROOT_INVALID'
       );
     }
     throw new ServerError(
@@ -217,7 +223,9 @@ async function resolveLocalDshRuntime({
   if (!executablePath) {
     if (nodePath) {
       throw new ServerError(
-        `The configured dsh.local.nodePath is not a usable Node.js executable: ${nodePath}`
+        `The configured dsh.local.nodePath is not a usable Node.js executable: ${nodePath}`,
+        {},
+        'CONFIG_NODE_PATH_INVALID'
       );
     }
     throw new ServerError(

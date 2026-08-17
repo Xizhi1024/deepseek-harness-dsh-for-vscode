@@ -18,6 +18,8 @@ async function run() {
     'dsh.focusSidebar',
     'dsh.addActiveFile',
     'dsh.addActiveSelection',
+    'dsh.addFileToThread',
+    'dsh.addSelectionToThread',
     'dsh.addProblems',
     'dsh.newSession',
     'dsh.switchSession',

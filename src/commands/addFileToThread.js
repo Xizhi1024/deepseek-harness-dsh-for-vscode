@@ -62,7 +62,10 @@ function createAddFileToThreadCommand({
 
   return async function addFileToThread() {
     try {
-      const attachment = editorContext.attachActiveFile();
+      // Explicit user action: allow a trusted file:// URI from outside the
+      // open workspace folders. Implicit Add Active File / Selection /
+      // Problems commands keep the workspace-only gate.
+      const attachment = editorContext.attachActiveFile({ allowOutsideWorkspace: true });
       await vscode.commands.executeCommand('workbench.view.extension.' + CONTAINER_ID);
       await vscode.commands.executeCommand(VIEW_ID + '.focus');
       const view = await waitForResolvedView();

@@ -24,6 +24,18 @@ const MESSAGE_TYPES = Object.freeze({
   READY: 'dshWebviewReady',
 });
 
+/**
+ * Shared request-id rule for every versioned webview bridge message that
+ * carries one. The shell, the extension-host parsers and the DSH client all
+ * apply the same bound so malformed ids are dropped before forwarding or
+ * before any side effect.
+ */
+const REQUEST_ID = /^[A-Za-z0-9_-]{1,100}$/;
+
+function hasValidRequestId(message) {
+  return Boolean(message) && typeof message.requestId === 'string' && REQUEST_ID.test(message.requestId);
+}
+
 function isBridgeRequest(message) {
   return Boolean(
     message
@@ -31,8 +43,7 @@ function isBridgeRequest(message) {
     && message.type === MESSAGE_TYPES.BRIDGE
     && message.channel === CHANNELS.INTERACTION
     && message.version === VERSIONS.INTERACTION
-    && typeof message.requestId === 'string'
-    && message.requestId.length > 0
+    && hasValidRequestId(message)
     && typeof message.method === 'string'
     && message.method.length > 0
     && message.params
@@ -47,8 +58,7 @@ function isBridgeResult(message) {
     && message.type === MESSAGE_TYPES.BRIDGE_RESULT
     && message.channel === CHANNELS.INTERACTION
     && message.version === VERSIONS.INTERACTION
-    && typeof message.requestId === 'string'
-    && message.requestId.length > 0
+    && hasValidRequestId(message)
     && typeof message.ok === 'boolean'
   );
 }
@@ -60,8 +70,7 @@ function isThreadAttach(message) {
     && message.type === MESSAGE_TYPES.THREAD_ATTACH
     && message.channel === CHANNELS.THREAD
     && message.version === VERSIONS.THREAD
-    && typeof message.requestId === 'string'
-    && message.requestId.length > 0
+    && hasValidRequestId(message)
     && typeof message.text === 'string'
   );
 }
@@ -73,8 +82,7 @@ function isThreadResult(message) {
     && message.type === MESSAGE_TYPES.THREAD_ATTACH_RESULT
     && message.channel === CHANNELS.THREAD
     && message.version === VERSIONS.THREAD
-    && typeof message.requestId === 'string'
-    && message.requestId.length > 0
+    && hasValidRequestId(message)
     && typeof message.ok === 'boolean'
   );
 }
@@ -118,7 +126,9 @@ function readyMessage(version = VERSIONS.INTERACTION, capabilities = {}) {
 module.exports = {
   CHANNELS,
   MESSAGE_TYPES,
+  REQUEST_ID,
   VERSIONS,
+  hasValidRequestId,
   helloMessage,
   isBridgeRequest,
   isBridgeResult,
