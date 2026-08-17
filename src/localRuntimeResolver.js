@@ -185,6 +185,11 @@ async function resolveLocalDshRuntime({
     break;
   }
   if (!resolvedPackageRoot) {
+    if (packageRoot) {
+      throw new ServerError(
+        `The configured dsh.local.packageRoot does not contain the official @deepseek-ai/dsh package: ${packageRoot}`
+      );
+    }
     throw new ServerError(
       'Official DSH is not installed. Install it with `npm install -g @deepseek-ai/dsh`, then reload VS Code; the extension will create or reuse the selected DSH home automatically.'
     );
@@ -210,6 +215,11 @@ async function resolveLocalDshRuntime({
     'Node.js executable'
   );
   if (!executablePath) {
+    if (nodePath) {
+      throw new ServerError(
+        `The configured dsh.local.nodePath is not a usable Node.js executable: ${nodePath}`
+      );
+    }
     throw new ServerError(
       'Node.js was not found for the installed DSH package. Set dsh.local.nodePath to the absolute Node executable path.'
     );

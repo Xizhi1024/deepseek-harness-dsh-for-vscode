@@ -186,6 +186,8 @@ A reused (non-owned) instance is never stopped by any policy or command.
 
 - **Real browser provider not integrated**: the capability catalog only lists `browser-provider-placeholder`; provider selection and verification are deferred to W5.
 - **Extension Host smoke version**: the smoke test currently runs against VS Code 1.106 by default.
+- **Configured local paths are trusted verbatim (cross-platform validation gap)**: `dsh.local.packageRoot` / `dsh.local.nodePath` accept any value that passes `path.isAbsolute`. On win32 a POSIX absolute path (`/Users/…/nvm/…`) also passes, and a configured root replaces automatic discovery entirely — a value synced from another machine then reports "Official DSH is not installed" even when the package IS installed. The configured-root error now names the offending path (0.5.3 hardening); the durable fix — win32 drive-letter validation (`/^[A-Za-z]:[\\/]/`) for configured absolute paths — is tracked in Troubleshooting.
+- **Startup failures are free-text, not classified**: runtime resolution / connect / home failures at startup are still distinguished by message text. The plan is stable per-class error codes consumed by a switch-case at startup, so every class gets its own message, diagnose entry, and Retry behavior.
 
 ## Implementation
 
@@ -239,6 +241,29 @@ Key behaviors:
 
 - **"DeepSeek official API" key is read-only in DSH settings?**
   DSH deliberately treats `DEEPSEEK_API_KEY` supplied by the launching environment as read-only (writes would be silently shadowed). Fix: unset it in the shell that starts dsh web (or VS Code) and restart — the key already stored in `~/.dsh/.credentials.yaml` takes over and the field becomes editable.
+
+## Troubleshooting
+
+### "Official DSH is not installed" while the global package IS installed (2026-08-17)
+
+Symptom: the sidebar reports `Official DSH is not installed …` (status page shows `http://127.0.0.1:3080`) while `npm ls -g` lists `@deepseek-ai/dsh`.
+
+Cause: Settings Sync carried the Mac's machine-specific values into the Windows user settings:
+
+```json
+"dsh.local.packageRoot": "/Users/zhengduojie/.nvm/versions/node/v24.18.1/lib/node_modules/@deepseek-ai/dsh",
+"dsh.local.nodePath": "/Users/zhengduojie/.nvm/versions/node/v24.18.1/bin/node",
+```
+
+On win32 these POSIX paths pass `path.isAbsolute` (drive-relative), so the resolver treated the configured root as authoritative, searched only it, found nothing, and fell through to the generic install message. Automatic discovery (`%APPDATA%\npm\node_modules\@deepseek-ai\dsh`) was never consulted.
+
+Fix: remove `dsh.local.packageRoot` and `dsh.local.nodePath` from the affected machine's user settings (or set machine-correct values) and reload the window. Automatic discovery then finds the installed package and Node from PATH.
+
+Planned hardening (recorded here, not yet implemented):
+
+- **Switch-case startup detection**: extension startup / `connectNow` failures must be classified by stable error codes — one branch per class (`not-installed` / `configured-package-root-invalid` / `node-missing` / `connect-timeout` / …) — each with its own message, diagnose entry, and Retry behavior. No free-text matching.
+- **`scope: "machine"`** for `dsh.local.packageRoot` / `dsh.local.nodePath`, so Settings Sync stops shipping machine paths across devices (matching `dsh.home.path`).
+- **win32 drive-letter validation** for configured absolute paths (`/^[A-Za-z]:[\\/]/`), rejecting POSIX-style paths before candidate search instead of after search falls through.
 
 ## License
 

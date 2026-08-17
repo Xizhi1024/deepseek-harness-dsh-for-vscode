@@ -44,7 +44,7 @@ test('local resolver verifies the official package and creates a persistent .dsh
   assert.strictEqual(fs.statSync(dshHome).isDirectory(), true);
 });
 
-test('local resolver rejects a non-official package and explains installation', async (t) => {
+test('local resolver names a configured root that lacks the official package', async (t) => {
   const value = fixture(t, 'lookalike-dsh');
   const dshHome = path.join(value.root, '.dsh');
   await assert.rejects(
@@ -53,7 +53,7 @@ test('local resolver rejects a non-official package and explains installation', 
       packageRoot: value.packageRoot,
       nodePath: value.nodePath,
     }),
-    /npm install -g @deepseek-ai\/dsh/
+    /dsh\.local\.packageRoot does not contain the official @deepseek-ai\/dsh package/
   );
   assert.strictEqual(fs.statSync(dshHome).isDirectory(), true, '.dsh is created before install');
 });
@@ -120,4 +120,27 @@ test('local resolver derives a package prefix from PATH and pairs its node binar
     [fs.realpathSync(path.join(prefix, 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'))]
   );
   assert.strictEqual(runtime.executablePath, fs.realpathSync(path.join(prefix, 'bin', 'node')));
+});
+
+test('local resolver names a dead configured nodePath', async (t) => {
+  const value = fixture(t);
+  const dshHome = path.join(value.root, '.dsh');
+  const deadNode = path.join(value.root, process.platform === 'win32' ? 'missing-node.exe' : 'missing-node');
+  await assert.rejects(
+    resolveLocalDshRuntime({ dshHome, packageRoot: value.packageRoot, nodePath: deadNode }),
+    /dsh\.local\.nodePath is not a usable Node\.js executable/
+  );
+});
+
+test('local resolver without a configured root explains the npm install command', { skip: process.platform !== 'win32' }, async (t) => {
+  // On win32 the only automatic candidate derives from APPDATA; pointing it
+  // at an empty directory makes the no-install branch deterministic without
+  // touching a real npm prefix.
+  const emptyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-no-install-'));
+  t.after(() => fs.rmSync(emptyRoot, { recursive: true, force: true }));
+  const dshHome = path.join(emptyRoot, '.dsh');
+  await assert.rejects(
+    resolveLocalDshRuntime({ dshHome, env: { APPDATA: emptyRoot } }),
+    /npm install -g @deepseek-ai\/dsh/
+  );
 });
