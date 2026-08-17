@@ -55,6 +55,7 @@
     "onCommand:dsh.addActiveFile",
     "onCommand:dsh.addActiveSelection",
     "onCommand:dsh.addSelectionToThread",
+    "onCommand:dsh.addFileToThread",
     "onCommand:dsh.addProblems",
     "onCommand:dsh.newSession",
     "onCommand:dsh.switchSession",
@@ -139,6 +140,11 @@
         "category": "%dsh.cmd.category%"
       },
       {
+        "command": "dsh.addFileToThread",
+        "title": "%dsh.cmd.addFileToThread%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
         "command": "dsh.addProblems",
         "title": "%dsh.cmd.addProblems%",
         "category": "%dsh.cmd.category%"
@@ -164,6 +170,13 @@
         "category": "%dsh.cmd.category%"
       }
     ],
+    "keybindings": [
+      {
+        "command": "dsh.focusSidebar",
+        "key": "ctrl+alt+b",
+        "when": "!terminalFocus"
+      }
+    ],
     "menus": {
       "editor/title": [
         {
@@ -176,6 +189,20 @@
           "command": "dsh.addSelectionToThread",
           "when": "editorHasSelection && resourceScheme == file",
           "group": "dsh@10"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "dsh.addFileToThread",
+          "group": "dsh@1",
+          "when": "resourceScheme == file"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "dsh.addFileToThread",
+          "group": "dsh@1",
+          "when": "!explorerResourceIsFolder && resourceScheme == file"
         }
       ]
     },

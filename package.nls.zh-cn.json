@@ -24,6 +24,7 @@
   "dsh.cmd.addActiveFile": "将活动文件添加到 DSH 上下文",
   "dsh.cmd.addActiveSelection": "将活动选区添加到 DSH 上下文",
   "dsh.cmd.addSelectionToThread": "添加到 DSH 对话",
+  "dsh.cmd.addFileToThread": "将文件添加到 DSH 对话",
   "dsh.cmd.addProblems": "将 Problems 添加到 DSH 上下文",
   "dsh.cmd.newSession": "新建会话",
   "dsh.cmd.switchSession": "切换会话",
