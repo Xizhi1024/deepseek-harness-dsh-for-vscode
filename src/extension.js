@@ -691,6 +691,10 @@ async function activateWithDependencies(context, dependencies = {}) {
             });
           },
           threadResult: (message) => threadAttachmentCoordinator?.handleResult(message),
+          handshakeError: (message) => {
+            const detail = message && message.error ? message.error : loc("Webview 桥版本不匹配");
+            setStatusBar("$(error) " + loc("Webview 桥版本不匹配"), detail);
+          },
         }));
         view.onDidDispose(() => {
           if (currentView !== view) return;

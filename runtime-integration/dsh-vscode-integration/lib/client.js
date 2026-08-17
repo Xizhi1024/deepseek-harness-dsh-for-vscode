@@ -7,17 +7,63 @@ window.__ModuleLoader__.load({
     const THREAD_CHANNEL = 'dsh-vscode-thread';
     const THREAD_VERSION = 1;
     const TIMEOUT_MS = 10000;
+    const HANDSHAKE_TIMEOUT_MS = 2000;
     const pending = new Map();
     const threadRequests = new Map();
     let sequence = 0;
+    let handshakeSettled = false;
+    let handshakeReady = false;
+    let handshakeTimer = null;
+    const handshakeWaiters = [];
 
     function enabled() {
       return window.parent !== window && new URLSearchParams(window.location.search).get('dsh_embed') === 'vscode';
     }
 
+    function markHandshakeReady() {
+      if (handshakeSettled) return;
+      handshakeSettled = true;
+      handshakeReady = true;
+      if (handshakeTimer) {
+        clearTimeout(handshakeTimer);
+        handshakeTimer = null;
+      }
+      const waiters = handshakeWaiters.splice(0);
+      for (const resolve of waiters) resolve();
+    }
+
+    function markHandshakeDegraded() {
+      if (handshakeSettled) return;
+      handshakeSettled = true;
+      handshakeReady = true;
+      handshakeTimer = null;
+      const waiters = handshakeWaiters.splice(0);
+      for (const resolve of waiters) resolve();
+    }
+
+    function waitForHandshake() {
+      if (handshakeSettled) return Promise.resolve();
+      return new Promise((resolve) => handshakeWaiters.push(resolve));
+    }
+
+    function startHandshake() {
+      window.parent.postMessage({
+        type: 'dshWebviewHello',
+        channel: CHANNEL,
+        version: VERSION,
+        capabilities: {},
+      }, '*');
+      handshakeTimer = setTimeout(() => {
+        if (!handshakeSettled) {
+          // Old shells do not answer READY; keep the v1 passthrough working.
+          markHandshakeDegraded();
+        }
+      }, HANDSHAKE_TIMEOUT_MS);
+    }
+
     function request(method, params) {
       const requestId = `${Date.now().toString(36)}_${(++sequence).toString(36)}`;
-      return new Promise((resolve, reject) => {
+      return waitForHandshake().then(() => new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           pending.delete(requestId);
           reject(new Error(`VS Code ${method} request timed out`));
@@ -26,7 +72,7 @@ window.__ModuleLoader__.load({
         window.parent.postMessage({
           type: 'dshBridge', channel: CHANNEL, version: VERSION, requestId, method, params,
         }, '*');
-      });
+      }));
     }
 
     function threadResult(requestId, ok, error) {
@@ -75,6 +121,13 @@ window.__ModuleLoader__.load({
     function onMessage(ctx, event) {
       if (event.source !== window.parent) return;
       const message = event.data;
+      if (
+        message && message.type === 'dshWebviewReady'
+        && message.channel === CHANNEL && message.version === VERSION
+      ) {
+        markHandshakeReady();
+        return;
+      }
       if (
         message && message.type === 'dshThreadAttach'
         && message.channel === THREAD_CHANNEL && message.version === THREAD_VERSION
@@ -137,6 +190,7 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       if (!enabled()) return;
       ctx.effect(() => {
+        startHandshake();
         const listener = (event) => onMessage(ctx, event);
         window.addEventListener('message', listener);
         document.addEventListener('click', onClick, true);
@@ -145,6 +199,7 @@ window.__ModuleLoader__.load({
           type: 'dshThreadReady', channel: THREAD_CHANNEL, version: THREAD_VERSION,
         }, '*');
         return () => {
+          if (handshakeTimer) clearTimeout(handshakeTimer);
           restoreClipboard();
           document.removeEventListener('click', onClick, true);
           window.removeEventListener('message', listener);

@@ -1,14 +1,20 @@
 'use strict';
 
-const CHANNEL = 'dsh-vscode-interaction';
-const VERSION = 1;
+const {
+  CHANNELS,
+  MESSAGE_TYPES,
+  VERSIONS,
+  isBridgeRequest,
+} = require('./protocol/webview');
+
+const CHANNEL = CHANNELS.INTERACTION;
+const VERSION = VERSIONS.INTERACTION;
 const MAX_COPY_BYTES = 1024 * 1024;
 const REQUEST_ID = /^[A-Za-z0-9_-]{1,100}$/;
 const ATTACHMENT_ID = /^ctx-[1-9][0-9]*$/;
 
 function parseInteractionRequest(message) {
-  if (!message || typeof message !== 'object' || message.type !== 'dshBridge') return null;
-  if (message.channel !== CHANNEL || message.version !== VERSION) return null;
+  if (!isBridgeRequest(message)) return null;
   if (typeof message.requestId !== 'string' || !REQUEST_ID.test(message.requestId)) return null;
   if (!message.params || typeof message.params !== 'object') return null;
   if (message.method === 'clipboard/writeText') {
@@ -32,7 +38,7 @@ function parseInteractionRequest(message) {
 
 function resultMessage(requestId, ok, error = undefined) {
   return {
-    type: 'dshBridgeResult',
+    type: MESSAGE_TYPES.BRIDGE_RESULT,
     channel: CHANNEL,
     version: VERSION,
     requestId,
