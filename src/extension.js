@@ -39,6 +39,7 @@ const {
   DshSessionError,
 } = require("./sessionNavigation");
 const { startTextDocumentBridge } = require("./textDocumentBridge");
+const { createNotifier } = require("./ch1/notifier");
 const { VersionedBridgeServer } = require("./versionedBridgeServer");
 const { createBridgeWorkspaceIdentity } = require("./bridgeWorkspace");
 const { DEFAULT_HOST, DEFAULT_PORT, VIEW_ID, CONTAINER_ID } = require("./types");
@@ -78,6 +79,8 @@ let lifecycle = null; // the one queue for every lifecycle transition
 let viewGeneration = 0; // invalidates delayed connects for disposed/replaced views
 let textDocumentBridge = null; // per-window authenticated DSH -> vscode.window bridge
 let versionedBridge = null; // per-window versioned JSON-RPC bridge
+let notificationNotifier = null; // CH1 v2 metadata notification coalescer
+let notificationSubscriptions = []; // selection/diagnostics event disposables
 let editorContext = null; // per-window approved editor attachments backing vscode/editor methods
 let embedPatchPath = null; // generated --patch overlay applied to extension-owned DSH children
 let runtimeStorageRoot = null; // managed runtime storage under VS Code global storage
@@ -95,6 +98,89 @@ async function waitForResolvedView(timeoutMs = 3000) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   return currentView;
+}
+
+/** Best-effort URI string used in metadata-only v2 notifications. */
+function describeUri(uri) {
+  if (!uri) return null;
+  if (typeof uri.toString === 'function') {
+    try {
+      return uri.toString();
+    } catch (_) {
+      return String(uri);
+    }
+  }
+  return String(uri);
+}
+
+/** Approved attachment ids currently associated with a URI string. */
+function attachmentIdsForUri(uriString) {
+  if (!editorContext || typeof uriString !== 'string') return [];
+  const snapshot = editorContext.attachmentSnapshot ? editorContext.attachmentSnapshot() : [];
+  return snapshot
+    .filter((attachment) => attachment && attachment.document && attachment.document.uri === uriString)
+    .map((attachment) => attachment.id)
+    .filter((id) => typeof id === 'string');
+}
+
+/** True when a v2 CH1 client has completed initialize on the live bridge. */
+function hasV2Bridge() {
+  if (!versionedBridge) return false;
+  if (typeof versionedBridge.hasProtocolVersion === 'function' && versionedBridge.hasProtocolVersion(2)) return true;
+  if (typeof versionedBridge.hasV2Clients === 'function' && versionedBridge.hasV2Clients()) return true;
+  return false;
+}
+
+/**
+ * Push one v2 metadata notification through the coalescer. When no v2 client
+ * is currently connected the event is dropped immediately so no pending queue
+ * can leak across connections/workspaces.
+ */
+function pushV2Notification(method, params) {
+  if (!hasV2Bridge()) return;
+  notificationNotifier?.push(method, params);
+}
+
+/** vscode/editor/selectionChanged metadata-only notification. */
+function notifySelectionChanged(event) {
+  const editor = event && event.textEditor;
+  const document = editor && editor.document;
+  const uriString = document && describeUri(document.uri);
+  if (!uriString) return;
+  const attachmentIds = attachmentIdsForUri(uriString);
+  if (attachmentIds.length === 0) return;
+  pushV2Notification('vscode/editor/selectionChanged', {
+    uri: uriString,
+    version: document.version,
+    attachmentIds,
+  });
+}
+
+/** vscode/editor/activeEditorChanged metadata-only notification. */
+function notifyActiveEditorChanged(editor) {
+  const document = editor && editor.document;
+  const uriString = document && describeUri(document.uri);
+  if (!uriString) return;
+  if (attachmentIdsForUri(uriString).length === 0) return;
+  pushV2Notification('vscode/editor/activeEditorChanged', {
+    uri: uriString,
+  });
+}
+
+/** vscode/diagnosticsChanged metadata-only notification for approved URIs. */
+function notifyDiagnosticsChanged(event) {
+  const uris = event && event.uris;
+  if (!Array.isArray(uris)) return;
+  for (const uri of uris) {
+    const uriString = describeUri(uri);
+    if (!uriString) continue;
+    const attachmentIds = attachmentIdsForUri(uriString);
+    if (attachmentIds.length === 0) continue;
+    pushV2Notification('vscode/diagnosticsChanged', {
+      uri: uriString,
+      attachmentIds,
+    });
+  }
 }
 
 function prepareDshHome(config, context) {
@@ -503,6 +589,8 @@ async function activateWithDependencies(context, dependencies = {}) {
     vscode,
     baseUrlProvider: () => currentServer && currentServer.url,
   });
+  notificationSubscriptions = [];
+  notificationNotifier = null;
   try {
     runtimeAbort?.abort?.();
   } catch {
@@ -589,8 +677,19 @@ async function activateWithDependencies(context, dependencies = {}) {
     workspace: createBridgeWorkspaceIdentity(vscode, context),
     serverVersion: require('../package.json').version,
   });
+  notificationNotifier = createNotifier({
+    send: (method, params) => {
+      versionedBridge?.notify?.(method, params);
+    },
+  });
   context.subscriptions.push({
     dispose() {
+      for (const disposable of notificationSubscriptions) {
+        disposable?.dispose?.();
+      }
+      notificationSubscriptions = [];
+      notificationNotifier?.dispose();
+      notificationNotifier = null;
       versionedBridge?.close().catch(() => {});
     },
   });
@@ -920,7 +1019,10 @@ async function activateWithDependencies(context, dependencies = {}) {
   // editor switches (same folder) a no-op.
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => scheduleRebind(context)),
-    vscode.window.onDidChangeActiveTextEditor(() => scheduleRebind(context)),
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      notifyActiveEditorChanged(editor);
+      scheduleRebind(context);
+    }),
     vscode.extensions.onDidChange(() => {
       // Provider install/enable/disable changes refresh the bridge and the
       // DSH capability registry. The bridge is assigned above; a missing
@@ -951,6 +1053,15 @@ async function activateWithDependencies(context, dependencies = {}) {
       }
     })
   );
+
+  // CH1 v2 metadata notifications: selection and diagnostics are advisory and
+  // only relevant for URIs that already have approved attachments. Disposables
+  // are kept out of context.subscriptions only to preserve the existing public
+  // subscription count; deactivate() always cleans them up.
+  notificationSubscriptions = [
+    vscode.window.onDidChangeTextEditorSelection?.(notifySelectionChanged),
+    vscode.languages?.onDidChangeDiagnostics?.(notifyDiagnosticsChanged),
+  ].filter(Boolean);
 
   // autoStart at VS Code startup: activate even when the sidebar view is never
   // opened. connectNow() is null-safe — no WebviewView resolved yet is fine, the
@@ -996,6 +1107,12 @@ async function deactivate() {
     }
     return undefined;
   } finally {
+    for (const disposable of notificationSubscriptions) {
+      disposable?.dispose?.();
+    }
+    notificationSubscriptions = [];
+    notificationNotifier?.dispose();
+    notificationNotifier = null;
     await versionedBridge?.close().catch(() => {});
     versionedBridge = null;
     await textDocumentBridge?.close().catch(() => {});
