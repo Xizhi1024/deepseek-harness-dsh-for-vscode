@@ -5,6 +5,7 @@ const test = require('node:test');
 
 const manifest = require('../package.json');
 const { CONTAINER_ID, VIEW_ID } = require('../src/types');
+const { FEATURE_CATALOG } = require('../src/extension');
 
 test('published sidebar and Webview IDs remain stable across manifest and runtime', () => {
   assert.strictEqual(CONTAINER_ID, 'dsh-sidebar');
@@ -105,4 +106,35 @@ test('extension-host smoke expectations cover every contributed command id', () 
     'dsh.switchSession',
   ].sort();
   assert.deepStrictEqual(smokeExpected, contributed);
+});
+
+test('dsh.features.* configuration keys mirror the featureRegistry catalog (L1/L2 present, L0 has none)', () => {
+  const properties = manifest.contributes.configuration.properties;
+  const featureConfigIds = Object.keys(properties)
+    .filter((key) => key.startsWith('dsh.features.'))
+    .map((key) => key.slice('dsh.features.'.length))
+    .sort();
+  const registeredL1L2 = FEATURE_CATALOG
+    .filter((feature) => feature.layer !== 'L0')
+    .map((feature) => feature.id)
+    .sort();
+  assert.deepStrictEqual(
+    featureConfigIds,
+    registeredL1L2,
+    'every L1/L2 registry feature must have exactly one dsh.features.* contributes key'
+  );
+
+  for (const feature of FEATURE_CATALOG) {
+    if (feature.layer === 'L0') {
+      assert.ok(
+        !Object.hasOwn(properties, 'dsh.features.' + feature.id),
+        'L0 feature ' + feature.id + ' must not expose a dsh.features.* switch'
+      );
+      continue;
+    }
+    const entry = properties['dsh.features.' + feature.id];
+    assert.ok(entry, 'L1/L2 feature ' + feature.id + ' must have a contributes key');
+    assert.strictEqual(entry.type, 'boolean', feature.id + ' must be a boolean switch');
+    assert.strictEqual(entry.default, feature.defaultEnabled, feature.id + ' default must match defaultEnabled');
+  }
 });
