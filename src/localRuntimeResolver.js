@@ -81,9 +81,11 @@ function versionManagerRoots(env, platform) {
   return roots;
 }
 
-function versionManagerPackageCandidates(env, platform) {
-  const candidates = [];
-  for (const root of versionManagerRoots(env, platform)) {
+// Enumerate every installed version directory under each version-manager root,
+// youngest first, and call cb with the per-version root path. Shared by the
+// package and node candidate layers so both stay in lock-step.
+function forEachVersionRoot(roots, cb) {
+  for (const root of roots) {
     let entries;
     try {
       entries = fs.readdirSync(root, { withFileTypes: true });
@@ -94,16 +96,22 @@ function versionManagerPackageCandidates(env, platform) {
       .map((entry) => entry.name)
       .sort(compareVersionNamesDesc);
     for (const version of versions) {
-      const versionRoot = path.join(root, version);
-      // nvm/asdf/n/Volta keep globals in <version>/lib; fnm adds an
-      // `installation` layer. Windows nvm can also use a direct
-      // `<version>/node_modules` layout, covered by the NVM_SYMLINK fallback.
-      candidates.push(
-        path.join(versionRoot, 'lib', 'node_modules', '@deepseek-ai', 'dsh'),
-        path.join(versionRoot, 'installation', 'lib', 'node_modules', '@deepseek-ai', 'dsh')
-      );
+      cb(path.join(root, version));
     }
   }
+}
+
+function versionManagerPackageCandidates(env, platform) {
+  const candidates = [];
+  forEachVersionRoot(versionManagerRoots(env, platform), (versionRoot) => {
+    // nvm/asdf/n/Volta keep globals in <version>/lib; fnm adds an
+    // `installation` layer. Windows nvm can also use a direct
+    // `<version>/node_modules` layout, covered by the NVM_SYMLINK fallback.
+    candidates.push(
+      path.join(versionRoot, 'lib', 'node_modules', '@deepseek-ai', 'dsh'),
+      path.join(versionRoot, 'installation', 'lib', 'node_modules', '@deepseek-ai', 'dsh')
+    );
+  });
   if (platform === 'win32' && env.NVM_SYMLINK) {
     const current = env.NVM_SYMLINK;
     candidates.push(
@@ -116,36 +124,27 @@ function versionManagerPackageCandidates(env, platform) {
 }
 
 function versionManagerNodeCandidates(env, platform) {
-  const executable = platform === 'win32' ? 'node.exe' : 'node';
+  // Version-manager node binaries are a win32 convenience; on POSIX the
+  // paired binary is found by the colocated <version>/bin walk, so confine
+  // this layer to win32 and keep POSIX candidates equal to the classic set.
+  if (platform !== 'win32') return [];
   const candidates = [];
-  if (platform === 'win32' && env.NVM_SYMLINK) {
+  if (env.NVM_SYMLINK) {
     candidates.push(
-      path.join(env.NVM_SYMLINK, executable),
-      path.join(env.NVM_SYMLINK, 'bin', executable)
+      path.join(env.NVM_SYMLINK, 'node.exe'),
+      path.join(env.NVM_SYMLINK, 'bin', 'node.exe')
     );
   }
-  if (platform === 'win32' && env.LOCALAPPDATA) {
-    candidates.push(path.join(env.LOCALAPPDATA, '.volta', 'bin', executable));
+  if (env.LOCALAPPDATA) {
+    candidates.push(path.join(env.LOCALAPPDATA, '.volta', 'bin', 'node.exe'));
   }
-  for (const root of versionManagerRoots(env, platform)) {
-    let entries;
-    try {
-      entries = fs.readdirSync(root, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    const versions = entries.filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort(compareVersionNamesDesc);
-    for (const version of versions) {
-      const versionRoot = path.join(root, version);
-      candidates.push(
-        path.join(versionRoot, executable),
-        path.join(versionRoot, 'bin', executable),
-        path.join(versionRoot, 'installation', executable)
-      );
-    }
-  }
+  forEachVersionRoot(versionManagerRoots(env, platform), (versionRoot) => {
+    candidates.push(
+      path.join(versionRoot, 'node.exe'),
+      path.join(versionRoot, 'bin', 'node.exe'),
+      path.join(versionRoot, 'installation', 'node.exe')
+    );
+  });
   return unique(candidates, platform);
 }
 
