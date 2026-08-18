@@ -177,4 +177,4 @@ function createFeatureRegistry({ getFeatureSetting, onFeatureFailure } = {}) {
   });
 }
 
-module.exports = { createFeatureRegistry, stringifyError, LAYERS };
+module.exports = { createFeatureRegistry };
