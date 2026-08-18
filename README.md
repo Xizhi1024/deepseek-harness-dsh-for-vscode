@@ -161,6 +161,7 @@ Achieving a Cursor/Claude Code-like experience requires both sides of the bridge
 | `dsh.autoStart` | true | At VS Code startup, launch the official DSH with the selected home and `web` profile; reuse the configured endpoint if runtime resolution fails (false = reuse only) |
 | `dsh.home.mode` | `shared` | `shared` uses the official DSH home; `isolated` uses extension-private `globalStorage/.dsh` and a separate module configuration |
 | `dsh.home.path` | (empty) | Machine-scoped absolute override for shared mode; empty follows `DSH_HOME`, then `~/.dsh` |
+| `dsh.profile` | `web` | Window-scoped DSH profile directory under the selected home; must match `^[A-Za-z0-9._-]{1,64}$` |
 | `dsh.closePolicy` | `onVscodeExit` | When to stop the extension-owned server (see below) |
 | `dsh.local.packageRoot` | (empty) | Optional absolute official `@deepseek-ai/dsh` package root; empty auto-detects the global npm installation |
 | `dsh.local.nodePath` | (empty) | Optional absolute Node.js executable path; empty auto-detects it |

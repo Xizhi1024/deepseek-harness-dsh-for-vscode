@@ -54,19 +54,34 @@ test('managed launch uses an absolute verified executable and fixed web-profile 
   assert.strictEqual(launch.detached, false);
 });
 
-test('managed launch rejects PATH lookup, profile drift, and non-native Windows shims', (t) => {
+test('managed launch accepts any legal profile name and keeps spawn order', (t) => {
+  const runtime = fixture(t, '.exe');
+  const custom = { ...runtime, profileName: 'dev', profileHome: path.join(runtime.dshHome, 'profiles', 'dev') };
+  const normalized = normalizeResolvedRuntime(custom, 'win32');
+  assert.strictEqual(normalized.profileName, 'dev');
+  assert.strictEqual(normalized.profileHome, path.join(runtime.dshHome, 'profiles', 'dev'));
+  const launch = buildManagedLaunchSpec(custom, '127.0.0.1', 4321, 'win32');
+  assert.deepStrictEqual(launch.args, [
+    runtime.entrypointArgs[0],
+    '--profile', 'dev', '--host', '127.0.0.1', '--port', '4321',
+  ]);
+});
+
+test('managed launch rejects PATH lookup, invalid profile names, profile drift, and non-native Windows shims', (t) => {
   const runtime = fixture(t, '.cmd');
   assert.throws(
     () => normalizeResolvedRuntime({ ...runtime, executablePath: 'dsh' }),
     /absolute.*PATH lookup/
   );
-  assert.throws(
-    () => normalizeResolvedRuntime({ ...runtime, profileName: 'vscode' }),
-    /profile must be web/
-  );
+  for (const bad of ['', 'x'.repeat(65), 'bad/name', 'bad\\name', 'bad name', '中文']) {
+    assert.throws(
+      () => normalizeResolvedRuntime({ ...runtime, profileName: bad }),
+      (error) => error && error.code === 'CONFIG_PROFILE_INVALID' && /profile name must match/.test(error.message)
+    );
+  }
   assert.throws(
     () => normalizeResolvedRuntime({ ...runtime, profileHome: path.join(runtime.dshHome, 'profiles', 'other') }),
-    /profileHome does not match/
+    (error) => error && error.code === 'CONFIG_PROFILE_INVALID' && /profileHome does not match/.test(error.message)
   );
   assert.throws(
     () => buildManagedLaunchSpec(runtime, '127.0.0.1', 3080, 'win32'),

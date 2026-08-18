@@ -65,6 +65,28 @@ test('verified managed runtime can be rebound to the selected DSH home', () => {
   assert.strictEqual(runtime.profileName, 'web');
 });
 
+test('verified managed runtime can be rebound to a custom DSH profile', () => {
+  const home = path.join(os.tmpdir(), 'selected-dsh-home');
+  const runtime = bindRuntimeHome(
+    { executablePath: path.join(os.tmpdir(), 'dsh.exe') },
+    home,
+    'dev'
+  );
+  assert.strictEqual(runtime.dshHome, home);
+  assert.strictEqual(runtime.profileHome, path.join(home, 'profiles', 'dev'));
+  assert.strictEqual(runtime.profileName, 'dev');
+});
+
+test('bindRuntimeHome rejects invalid profile names with CONFIG_PROFILE_INVALID', () => {
+  const home = path.join(os.tmpdir(), 'selected-dsh-home');
+  for (const bad of ['', 'x'.repeat(65), 'bad/name', 'bad\\name', 'bad name', '中文']) {
+    assert.throws(
+      () => bindRuntimeHome({ executablePath: path.join(os.tmpdir(), 'dsh.exe') }, home, bad),
+      (error) => error && error.code === 'CONFIG_PROFILE_INVALID' && /profile name must match/.test(error.message)
+    );
+  }
+});
+
 test('legacy migration preserves a non-empty isolated home without copying it', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-home-migration-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

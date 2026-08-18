@@ -5,6 +5,7 @@
   "dsh.cfg.port": "Port to probe / start the DSH web server.",
   "dsh.cfg.host": "Bind address. Keep 127.0.0.1 — the webview iframe only allows 127.0.0.1/localhost.",
   "dsh.cfg.autoStart": "Start the locally installed official DSH for this VS Code window, using the selected shared or isolated DSH home and web profile. If no local package is found, an already running configured endpoint may be reused (false = reuse only).",
+  "dsh.cfg.profile": "DSH profile directory name under the selected DSH home. Each VS Code window can use a different profile; the value must match ^[A-Za-z0-9._-]{1,64}$.",
   "dsh.cfg.home.mode": "DSH configuration mode. shared (default) uses the official DSH_HOME and exposes existing modules, skills, providers, credentials, and sessions. isolated uses an extension-private home that initially contains only the official profile.",
   "dsh.cfg.home.path": "Optional absolute DSH home override for shared mode. Empty follows official precedence: inherited DSH_HOME, then ~/.dsh. Machine-scoped so workspace settings cannot redirect executable DSH configuration.",
   "dsh.cfg.closePolicy": "When to stop the extension-owned DSH server. onVscodeExit (default): stop only when VS Code exits. onViewClose: also stop when the sidebar view is closed. never: never stop automatically — use the Stop DSH Server command. A reused (non-owned) instance is never stopped.",

@@ -35,6 +35,7 @@ test('workspace context reads normalized settings and stable storage path', () =
     host: '127.0.0.1',
     port: 4100,
     autoStart: false,
+    profile: 'web',
     closePolicy: 'never',
     runtimeManifestUrl: '',
     runtimeVersion: '',
@@ -44,6 +45,12 @@ test('workspace context reads normalized settings and stable storage path', () =
     homePath: '',
   });
   assert.strictEqual(context.registryFilePath(), path.join('D:\\state', 'dsh-instances.json'));
+});
+
+test('workspace context reads a custom window-scoped profile', () => {
+  const vscode = createHost({ values: { profile: 'dev' } });
+  const context = createWorkspaceContext(vscode, { globalStorageUri: { fsPath: 'D:\\state' } });
+  assert.strictEqual(context.config().profile, 'dev');
 });
 
 test('workspace context prefers the active editor root and falls back safely', () => {
