@@ -166,6 +166,10 @@ Achieving a Cursor/Claude Code-like experience requires both sides of the bridge
 | `dsh.local.nodePath` | (empty) | Optional absolute Node.js executable path; empty auto-detects it |
 | `dsh.runtime.manifestUrl` | (empty) | Optional HTTPS runtime release manifest; empty uses the local official npm DSH, non-empty opts into manifest/SHA-256-verified managed-runtime provisioning |
 | `dsh.runtime.version` | (empty) | Optional managed-runtime version pin; only applies with a manifest URL |
+| `dsh.features.clipboard-bridge` | true | Embedded copy/paste bridge between the DSH iframe and the VS Code clipboard (L1 feature, off = DSH copy buttons write to the webview clipboard) |
+| `dsh.features.thread-attachment` | true | Add the active file/selection/problems to the DSH conversation (L1 feature, off = Add to Thread commands are not registered) |
+| `dsh.features.editor-links` | true | Open DSH Read… and draft attachment links in this VS Code window (L1 feature, off = text document bridge is not started) |
+| `dsh.features.statusbar-basic` | true | Basic DSH status indicator in the status bar (L1 feature, off = the L0 `$(error)` fallback still surfaces on failure) |
 
 `dsh.closePolicy` values:
 

@@ -75,5 +75,6 @@
   "stopped": "stopped",
   "listening": "listening",
   "closed": "closed",
-  "Webview 桥版本不匹配": "Webview bridge version mismatch"
+  "Feature {label} failed: {error}": "Feature {label} failed: {error}",
+  "Degraded features: {items}": "Degraded features: {items}"
 }

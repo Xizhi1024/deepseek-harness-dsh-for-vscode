@@ -46,7 +46,10 @@ const { createBridgeWorkspaceIdentity } = require("./bridgeWorkspace");
 const { DEFAULT_HOST, DEFAULT_PORT, VIEW_ID, CONTAINER_ID } = require("./types");
 const { createVscodeFacade } = require("./vscodeFacade");
 const { createWebviewMessageHandler } = require("./webviewMessages");
-const { handleInteractionRequest } = require('./interactionBridge');
+const {
+  handleInteractionRequest,
+  parseInteractionRequest,
+} = require('./interactionBridge');
 const { installDshIntegration } = require('./dshIntegration');
 const {
   ThreadAttachmentCoordinator,
@@ -72,6 +75,7 @@ const {
   resolveDshHome,
 } = require('./dshHome');
 const { LifecycleQueue } = require("./lifecycle");
+const { createFeatureRegistry } = require("./featureRegistry");
 
 /**
  * Startup/connect failure classes that a bare Retry can never fix: the user
@@ -118,6 +122,10 @@ let ensureWorkspaceSessionFn = null; // retained injection seam; defaults to wor
 let workspaceBinding = null; // SM-2 workspace registry binding (created in activate)
 let runtimeAbort = new AbortController(); // cancels in-flight runtime provisioning on deactivate
 let threadAttachmentCoordinator = null; // owning-window request/ack bridge into the DSH composer
+let injectedDependencies = {}; // activation seams shared with the feature setups (deps stays { context, services })
+let registry = null; // R25 feature registry (created in activateWithDependencies)
+let featureFailures = []; // R25 [{ id, error, at }] folded into dsh.diagnose
+let interactionHandlers = []; // webview interaction routers registered by L1/L2 features
 
 async function waitForResolvedView(timeoutMs = 3000) {
   const deadline = Date.now() + timeoutMs;
@@ -263,6 +271,9 @@ async function externalize(url) {
 
 function setStatusBar(text, tooltip) {
   if (!statusBar) {
+    // The indicator is normally created by the L1 statusbar-basic feature.
+    // When that feature is disabled or failed, L0 still surfaces its state
+    // through a fallback item so the $(error) lifeline always has a seat.
     statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   }
   statusBar.text = text;
@@ -608,11 +619,37 @@ function scheduleConfigReconcile(context) {
  * Only directories that actually exist are appended (POSIX), so a terminal
  * launch with a full PATH is never polluted.
  */
-async function activateWithDependencies(context, dependencies = {}) {
-  vscode = createVscodeFacade(dependencies.vscode || require("vscode"));
-  hostContext = createWorkspaceContext(vscode, context);
+
+
+
+/**
+ * R25 feature catalog — the single registration source for every feature.
+ * Layer L0 is the lifeline (never configurable, executed first, zero
+ * dependency on L1/L2 output); L1 features default to enabled and can be
+ * turned off through `dsh.features.<id>`. The catalog is exported so
+ * test/contracts.test.js can assert bidirectional agreement with
+ * contributes.configuration.
+ * @type {Array<{id: string, label: string, layer: 'L0'|'L1'|'L2', defaultEnabled: boolean, core: boolean, setup: (deps: object) => Promise<unknown>|unknown}>}
+ */
+const FEATURE_CATALOG = [
+  { id: 'core-server', label: 'DSH server core', layer: 'L0', defaultEnabled: true, core: true, setup: setupCoreServer },
+  { id: 'core-sidebar', label: 'DSH sidebar core', layer: 'L0', defaultEnabled: true, core: true, setup: setupCoreSidebar },
+  { id: 'clipboard-bridge', label: 'Clipboard bridge', layer: 'L1', defaultEnabled: true, core: false, setup: setupClipboardBridge },
+  { id: 'thread-attachment', label: 'Add to DSH thread', layer: 'L1', defaultEnabled: true, core: false, setup: setupThreadAttachment },
+  { id: 'editor-links', label: 'Editor links (Read…)', layer: 'L1', defaultEnabled: true, core: false, setup: setupEditorLinks },
+  { id: 'statusbar-basic', label: 'Status bar indicator', layer: 'L1', defaultEnabled: true, core: false, setup: setupStatusbarBasic },
+];
+
+/**
+ * R25: L0 core-server. ServerManager startup/health/restart/stop lifecycle,
+ * dsh.restartServer / dsh.stopServer commands and closePolicy/deactivate
+ * tree-kill paths. Publishes the ServerManager handle and the shared bridge
+ * env bag into services for L1/L2 consumers. Never reads anything an L1/L2
+ * feature produced (its own setup failures degrade to a recorded failure).
+ */
+async function setupCoreServer({ context, services }) {
   lifecycle = new LifecycleQueue();
-  workspaceBinding = (dependencies.createWorkspaceBinding || createWorkspaceBinding)({
+  workspaceBinding = (injectedDependencies.createWorkspaceBinding || createWorkspaceBinding)({
     vscode,
     baseUrlProvider: () => currentServer && currentServer.url,
   });
@@ -642,91 +679,26 @@ async function activateWithDependencies(context, dependencies = {}) {
       'DSH kept your existing isolated DSH home to protect its modules and sessions. Set dsh.home.mode to shared when you are ready to use the official shared DSH home.'
     ));
   }
-  ensureRuntime = dependencies.ensureRuntime
-    || dependencies.ensureManagedRuntime
+  ensureRuntime = injectedDependencies.ensureRuntime
+    || injectedDependencies.ensureManagedRuntime
     || ((options) => options.manifestUrl
       ? ensureManagedRuntime(options)
       : resolveLocalDshRuntime(options));
-  ensureWorkspaceSessionFn = dependencies.ensureWorkspaceSession || ((baseUrl, cwd, options) => {
+  ensureWorkspaceSessionFn = injectedDependencies.ensureWorkspaceSession || ((baseUrl, cwd, options) => {
     const server = currentServer || { url: baseUrl, owned: true };
     return workspaceBinding.resolve(server, cwd);
   });
-  editorContext = createEditorContext({
-    vscode,
-    onChange: (payload) => {
-      // versionedBridge is assigned later in activation; command-triggered
-      // changes always arrive after it exists. A missing bridge is a no-op.
-      try {
-        versionedBridge?.notify('vscode/contextChanged', payload);
-      } catch (_) { /* notification is advisory; requests stay authoritative */ }
-    },
-  });
-  threadAttachmentCoordinator = new ThreadAttachmentCoordinator();
-  context.subscriptions.push({ dispose() { threadAttachmentCoordinator?.dispose(); } });
   try {
     prepareDshHome(hostContext.config(), context);
   } catch (err) {
     console.error('dsh-vs-sidebar: could not write embed overlay; starting without --patch:', err);
     embedPatchPath = null;
   }
-  const bridgeStarter = dependencies.startTextDocumentBridge || startTextDocumentBridge;
-  textDocumentBridge = await bridgeStarter({
-    openTextDocument: async (absolutePath) => {
-      if (typeof absolutePath !== "string" || !path.isAbsolute(absolutePath)) {
-        throw new Error("Text document bridge requires an absolute path");
-      }
-      if (vscode.workspace.isTrusted === false) {
-        throw new Error("Text document bridge requires a trusted workspace");
-      }
-      // Shared DSH homes intentionally expose older sessions whose cwd may be
-      // outside the folder currently open in this VS Code window. The bridge
-      // is loopback-only and authenticated with a per-process bearer token
-      // known only to this extension-owned DSH child, so retain the absolute
-      // path and workspace-trust gates without rejecting shared-session files.
-      const document = await vscode.workspace.openTextDocument(vscode.Uri.file(absolutePath));
-      await vscode.window.showTextDocument(document, { preview: false, preserveFocus: false });
-    },
-  });
-  context.subscriptions.push({
-    dispose() {
-      textDocumentBridge?.close().catch(() => {});
-    },
-  });
-  const extensionBridgeHandlers = dependencies.extensionBridgeHandlers === undefined
-    ? createExtensionBridgeHandlers({ vscode })
-    : dependencies.extensionBridgeHandlers;
-  const versionedBridgeStarter = dependencies.startVersionedBridge
-    || (async (options) => new VersionedBridgeServer(options).start());
-  versionedBridge = await versionedBridgeStarter({
-    handlers: dependencies.vscodeBridgeHandlers === undefined
-      ? { ...editorContext.handlers, ...extensionBridgeHandlers }
-      : dependencies.vscodeBridgeHandlers,
-    workspace: createBridgeWorkspaceIdentity(vscode, context),
-    serverVersion: require('../package.json').version,
-  });
-  notificationNotifier = createNotifier({
-    send: (method, params) => {
-      versionedBridge?.notify?.(method, params);
-    },
-  });
-  context.subscriptions.push({
-    dispose() {
-      for (const disposable of notificationSubscriptions) {
-        disposable?.dispose?.();
-      }
-      notificationSubscriptions = [];
-      notificationNotifier?.dispose();
-      notificationNotifier = null;
-      versionedBridge?.close().catch(() => {});
-    },
-  });
-  const createServerManager = dependencies.createServerManager
+  services.bridgeEnv = {};
+  const createServerManager = injectedDependencies.createServerManager
     || ((options) => new ServerManager(options));
   manager = createServerManager({
-    spawnEnv: {
-      ...textDocumentBridge.env,
-      ...versionedBridge.env,
-    },
+    spawnEnv: services.bridgeEnv, // live shared bag: L0 publishes it, L1/L2 bridge features merge into it
     embedPatchPath,
     onStatus: (s) => {
       // Surface each lifecycle stage inside the sidebar so the user can see
@@ -776,13 +748,95 @@ async function activateWithDependencies(context, dependencies = {}) {
       }
     },
   });
-
+  services.manager = manager;
   // Prune dead registry entries (best effort). NEVER kills live instances —
   // they may belong to another VS Code window with its own workspace.
   try {
     ServerManager.cleanupStaleRegistry(hostContext.registryFilePath());
   } catch (_) { /* best effort */ }
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => scheduleRebind(context)),
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      notifyActiveEditorChanged(editor);
+      scheduleRebind(context);
+    }),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (
+        e.affectsConfiguration("dsh.host") ||
+        e.affectsConfiguration("dsh.port") ||
+        e.affectsConfiguration("dsh.autoStart") ||
+        e.affectsConfiguration("dsh.closePolicy") ||
+        e.affectsConfiguration("dsh.runtime.manifestUrl") ||
+        e.affectsConfiguration("dsh.runtime.version") ||
+        e.affectsConfiguration("dsh.local.packageRoot") ||
+        e.affectsConfiguration("dsh.local.nodePath")
+        || e.affectsConfiguration("dsh.home.mode")
+        || e.affectsConfiguration("dsh.home.path")
+      ) {
+        scheduleConfigReconcile(context);
+      }
+    })
+  );
+  return () => {
+    // deactivate: workspace binding is disposed last (reverse of setup order).
+    workspaceBinding?.dispose?.();
+    workspaceBinding = null;
+  };
+}
 
+/**
+ * R25: L0 core-sidebar. WebviewViewProvider registration (VIEW_ID is a
+ * persistent contract), webviewHtml/webviewMessages, status/error pages,
+ * versioned bridge + CH1 notifier, and the
+ * dsh.focusSidebar/newSession/switchSession/openInBrowser/capabilities/
+ * diagnose/cleanupOrphans commands (commands themselves register in
+ * registerFeatureCommands to keep the legacy physical order).
+ */
+async function setupCoreSidebar({ context, services }) {
+  interactionHandlers = [];
+  editorContext = createEditorContext({
+    vscode,
+    onChange: (payload) => {
+      // versionedBridge is assigned later in activation; command-triggered
+      // changes always arrive after it exists. A missing bridge is a no-op.
+      try {
+        versionedBridge?.notify('vscode/contextChanged', payload);
+      } catch (_) { /* notification is advisory; requests stay authoritative */ }
+    },
+  });
+  services.editorContext = editorContext;
+  const extensionBridgeHandlers = injectedDependencies.extensionBridgeHandlers === undefined
+    ? createExtensionBridgeHandlers({ vscode })
+    : injectedDependencies.extensionBridgeHandlers;
+  const versionedBridgeStarter = injectedDependencies.startVersionedBridge
+    || (async (options) => new VersionedBridgeServer(options).start());
+  versionedBridge = await versionedBridgeStarter({
+    handlers: injectedDependencies.vscodeBridgeHandlers === undefined
+      ? { ...editorContext.handlers, ...extensionBridgeHandlers }
+      : injectedDependencies.vscodeBridgeHandlers,
+    workspace: createBridgeWorkspaceIdentity(vscode, context),
+    serverVersion: require('../package.json').version,
+  });
+  if (versionedBridge.env) {
+    Object.assign(services.bridgeEnv, versionedBridge.env);
+  }
+  services.manager?.setSpawnEnv?.(versionedBridge.env || {});
+  notificationNotifier = createNotifier({
+    send: (method, params) => {
+      versionedBridge?.notify?.(method, params);
+    },
+  });
+  context.subscriptions.push({
+    dispose() {
+      for (const disposable of notificationSubscriptions) {
+        disposable?.dispose?.();
+      }
+      notificationSubscriptions = [];
+      notificationNotifier?.dispose();
+      notificationNotifier = null;
+      versionedBridge?.close().catch(() => {});
+    },
+  });
   const provider = {
     resolveWebviewView(view) {
       // VS Code shows "Error restoring view: <id>" whenever this function
@@ -807,14 +861,10 @@ async function activateWithDependencies(context, dependencies = {}) {
           },
           retry: () => scheduleConnect(context, resolvedViewGeneration).catch(() => {}),
           interaction: (message) => {
-            handleInteractionRequest({
-              vscode,
-              webview: view.webview,
-              message,
-              openAttachment: (attachmentId) => editorContext.openAttachment(attachmentId),
-            }).catch((error) => {
-              console.error('dsh-vs-sidebar: Webview interaction bridge failed:', error);
-            });
+            // Route to the feature-registered interaction handlers
+            // (clipboard-bridge, editor-links); a disabled feature simply
+            // has no handler and its messages are ignored.
+            handleWebviewInteraction(message, view.webview);
           },
           threadResult: (message) => threadAttachmentCoordinator?.handleResult(message),
           handshakeError: (message) => {
@@ -846,13 +896,181 @@ async function activateWithDependencies(context, dependencies = {}) {
       }
     },
   };
-
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(VIEW_ID, provider, {
       webviewOptions: { retainContextWhenHidden: true },
     })
   );
+  context.subscriptions.push(
+    vscode.extensions.onDidChange(() => {
+      // Provider install/enable/disable changes refresh the bridge and the
+      // DSH capability registry. The bridge is assigned above; a missing
+      // bridge is a no-op because the notification is advisory.
+      try {
+        versionedBridge?.notify('vscode/providerStatesChanged', {
+          providers: detectProviderStates({ vscode }),
+        });
+      } catch (_) { /* notification is advisory; requests stay authoritative */ }
+    }),
+  );
 
+  // CH1 v2 metadata notifications: selection and diagnostics are advisory and
+  // only relevant for URIs that already have approved attachments. Disposables
+  // are kept out of context.subscriptions only to preserve the existing public
+  // subscription count; the feature teardown always cleans them up.
+  notificationSubscriptions = [
+    vscode.window.onDidChangeTextEditorSelection?.(notifySelectionChanged),
+    vscode.languages?.onDidChangeDiagnostics?.(notifyDiagnosticsChanged),
+  ].filter(Boolean);
+  return async () => {
+    for (const disposable of notificationSubscriptions) {
+      disposable?.dispose?.();
+    }
+    notificationSubscriptions = [];
+    notificationNotifier?.dispose();
+    notificationNotifier = null;
+    await versionedBridge?.close().catch(() => {});
+    versionedBridge = null;
+    editorContext = null;
+  };
+}
+
+/**
+ * R25: L1 clipboard-bridge (dsh.features.clipboard-bridge). Embedded copy/
+ * paste patching: the iframe clipboard path handled by the interaction bridge
+ * (clipboard/writeText) is registered only when this feature is enabled.
+ */
+async function setupClipboardBridge() {
+  const handler = async (message, webview) => {
+    const request = parseInteractionRequest(message);
+    if (!request || request.method !== 'clipboard/writeText') return false;
+    return handleInteractionRequest({ vscode, webview, message });
+  };
+  interactionHandlers.push(handler);
+  return () => {
+    interactionHandlers = interactionHandlers.filter((h) => h !== handler);
+  };
+}
+
+/**
+ * R25: L1 thread-attachment (dsh.features.thread-attachment). The owning-
+ * window request/ack coordinator backing dsh.addActiveFile/addActiveSelection/
+ * addSelectionToThread/addFileToThread/addProblems (command registration is
+ * gated in registerFeatureCommands).
+ */
+async function setupThreadAttachment({ context }) {
+  threadAttachmentCoordinator = new ThreadAttachmentCoordinator();
+  context.subscriptions.push({ dispose() { threadAttachmentCoordinator?.dispose(); } });
+  return () => {
+    threadAttachmentCoordinator?.dispose();
+    threadAttachmentCoordinator = null;
+  };
+}
+
+/**
+ * R25: L1 editor-links (dsh.features.editor-links). textDocumentBridge
+ * (Read… opens in this window) plus draft-link handling: link/open and
+ * attachment/open interaction methods through editorContext.openAttachment.
+ * Publishes its bridge env into the shared bag so the L0 ServerManager spawns
+ * its child with the token (the child is only spawned later by connectNow).
+ */
+async function setupEditorLinks({ context, services }) {
+  const bridgeStarter = injectedDependencies.startTextDocumentBridge || startTextDocumentBridge;
+  textDocumentBridge = await bridgeStarter({
+    openTextDocument: async (absolutePath) => {
+      if (typeof absolutePath !== "string" || !path.isAbsolute(absolutePath)) {
+        throw new Error("Text document bridge requires an absolute path");
+      }
+      if (vscode.workspace.isTrusted === false) {
+        throw new Error("Text document bridge requires a trusted workspace");
+      }
+      // Shared DSH homes intentionally expose older sessions whose cwd may be
+      // outside the folder currently open in this VS Code window. The bridge
+      // is loopback-only and authenticated with a per-process bearer token
+      // known only to this extension-owned DSH child, so retain the absolute
+      // path and workspace-trust gates without rejecting shared-session files.
+      const document = await vscode.workspace.openTextDocument(vscode.Uri.file(absolutePath));
+      await vscode.window.showTextDocument(document, { preview: false, preserveFocus: false });
+    },
+  });
+  context.subscriptions.push({
+    dispose() {
+      textDocumentBridge?.close().catch(() => {});
+    },
+  });
+  if (textDocumentBridge.env) {
+    Object.assign(services.bridgeEnv, textDocumentBridge.env);
+  }
+  services.manager?.setSpawnEnv?.(textDocumentBridge.env || {});
+  const handler = async (message, webview) => {
+    const request = parseInteractionRequest(message);
+    if (!request || request.method === 'clipboard/writeText') return false;
+    return handleInteractionRequest({
+      vscode,
+      webview,
+      message,
+      openAttachment: (attachmentId) => services.editorContext?.openAttachment(attachmentId),
+    });
+  };
+  interactionHandlers.push(handler);
+  return async () => {
+    interactionHandlers = interactionHandlers.filter((h) => h !== handler);
+    await textDocumentBridge?.close().catch(() => {});
+    textDocumentBridge = null;
+  };
+}
+
+/**
+ * R25: L1 statusbar-basic (dsh.features.statusbar-basic). The status bar
+ * indicator item is created here and eagerly, so setStatusBar() merely
+ * updates it; when the feature is off/failed, setStatusBar falls back to a
+ * bare L0 item (the $(error) lifeline survives).
+ */
+async function setupStatusbarBasic() {
+  if (typeof vscode.window.createStatusBarItem === 'function') {
+    statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  }
+  return () => {
+    try {
+      statusBar?.dispose?.();
+    } catch (_) {
+      // status bar disposal is best-effort during extension shutdown
+    }
+    statusBar = null;
+  };
+}
+
+/**
+ * Route one webview interaction message to the feature-registered interaction
+ * handlers. Each handler inspects the message and returns true when it took
+ * the request; unknown messages stay ignored (same as the pre-R25 router,
+ * where handleInteractionRequest returned false for unmatched methods).
+ */
+async function handleWebviewInteraction(message, webview) {
+  for (const handler of interactionHandlers) {
+    try {
+      if (await handler(message, webview)) return;
+    } catch (error) {
+      console.error('dsh-vs-sidebar: Webview interaction bridge failed:', error);
+    }
+  }
+}
+
+/**
+ * Register the dsh.* command surface.
+ *
+ * The registration ORDER below is a frozen legacy contract:
+ * test/extension.test.js asserts `[...commands.keys()]` deep-equals the
+ * pre-R25 single-push physical order (openInBrowser → restart/stop → add* →
+ * newSession…cleanupOrphans). The R25 layer model executes each feature's
+ * setup contiguously and cannot reproduce that interleave, so commands stay
+ * in this one orchestrator block, gated per owning feature by its setup
+ * status — a disabled/failed feature simply skips its commands.
+ *
+ * @param {object} context - ExtensionContext.
+ * @param {Set<string>} featureOk - ids whose setup reported status 'ok'.
+ */
+function registerFeatureCommands(context, featureOk) {
   /** Run one user-triggered editor attachment and surface its outcome. */
   function runEditorAttachment(attach, successTemplate) {
     try {
@@ -865,17 +1083,10 @@ async function activateWithDependencies(context, dependencies = {}) {
     }
   }
 
-  // 0.6 command shell: this batch wires only dsh.addFileToThread through the
-  // router gate. Existing commands stay direct until the later migration batch.
-  const commandShell = createCommandShell({
-    router: {
-      get(capabilityId) {
-        return capabilityId === 'dsh.addFileToThread' ? { id: 'dsh.addFileToThread' } : NullAdapter;
-      },
-    },
-  });
+  const registered = [];
 
-  context.subscriptions.push(
+  if (featureOk.has('core-sidebar')) {
+    registered.push(
     vscode.commands.registerCommand("dsh.openInBrowser", async () => {
       return lifecycle.enqueue("open in browser", async () => {
         if (!currentServer) await connectNow(context);
@@ -888,6 +1099,11 @@ async function activateWithDependencies(context, dependencies = {}) {
         }
       });
     }),
+    );
+  }
+
+  if (featureOk.has('core-server')) {
+    registered.push(
     vscode.commands.registerCommand("dsh.restartServer", () => lifecycle.enqueue("restart server", async () => {
       if (currentServer && currentServer.owned !== true && !manager.hasOwnedChild()) {
         vscode.window.showInformationMessage(loc("The running DSH server is reused and cannot be restarted by this extension"));
@@ -910,6 +1126,20 @@ async function activateWithDependencies(context, dependencies = {}) {
         boundCwd = null;
         vscode.window.showInformationMessage(loc("DSH server stopped"));
       })),
+    );
+  }
+
+  if (featureOk.has('thread-attachment')) {
+  // 0.6 command shell: this batch wires only dsh.addFileToThread through the
+  // router gate. Existing commands stay direct until the later migration batch.
+  const commandShell = createCommandShell({
+    router: {
+      get(capabilityId) {
+        return capabilityId === 'dsh.addFileToThread' ? { id: 'dsh.addFileToThread' } : NullAdapter;
+      },
+    },
+  });
+    registered.push(
     vscode.commands.registerCommand("dsh.addActiveFile", () => {
       runEditorAttachment(() => editorContext.attachActiveFile(), "Editor context attached ({kind})");
     }),
@@ -954,6 +1184,11 @@ async function activateWithDependencies(context, dependencies = {}) {
     vscode.commands.registerCommand("dsh.addProblems", () => {
       runEditorAttachment(() => editorContext.attachProblems(), "Editor context attached ({kind})");
     }),
+    );
+  }
+
+  if (featureOk.has('core-sidebar')) {
+    registered.push(
     vscode.commands.registerCommand("dsh.newSession", () => lifecycle.enqueue("new session", async () => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 6000);
@@ -1047,6 +1282,12 @@ async function activateWithDependencies(context, dependencies = {}) {
           binding: workspaceBinding && workspaceBinding.state() || null,
         });
         const installed = snapshot.providers.filter((provider) => provider.installed).length;
+        snapshot.featureFailures = featureFailures.slice();
+        const failuresSuffix = featureFailures.length === 0
+          ? ""
+          : " — " + loc("Degraded features: {items}", {
+            items: featureFailures.map((f) => f.id + ": " + f.error).join(" | "),
+          });
         vscode.window.showInformationMessage(loc(
           "DSH diagnose: home {homeMode} ({homePath}), server {server}, bridge {bridge}, catalog {catalog}, providers {installed}/{total} installed",
           {
@@ -1058,7 +1299,7 @@ async function activateWithDependencies(context, dependencies = {}) {
             installed: String(installed),
             total: String(snapshot.providers.length),
           }
-        ));
+        ) + failuresSuffix);
       } catch (err) {
         vscode.window.showErrorMessage(loc("DSH diagnose failed: {message}", {
           message: err && err.message ? err.message : String(err),
@@ -1075,57 +1316,50 @@ async function activateWithDependencies(context, dependencies = {}) {
       ownedPid: () => manager.currentChildPid(),
       loc,
     }))
-  );
+    );
+  }
 
-  // Follow the workspace: when folders are added/removed or the active
-  // editor moves to another root (multi-root), rebind the sidebar to the new
-  // root's DSH instance. sameRoot() inside rebindToWorkspace keeps unrelated
-  // editor switches (same folder) a no-op.
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeWorkspaceFolders(() => scheduleRebind(context)),
-    vscode.window.onDidChangeActiveTextEditor((editor) => {
-      notifyActiveEditorChanged(editor);
-      scheduleRebind(context);
-    }),
-    vscode.extensions.onDidChange(() => {
-      // Provider install/enable/disable changes refresh the bridge and the
-      // DSH capability registry. The bridge is assigned above; a missing
-      // bridge is a no-op because the notification is advisory.
-      try {
-        versionedBridge?.notify('vscode/providerStatesChanged', {
-          providers: detectProviderStates({ vscode }),
-        });
-      } catch (_) { /* notification is advisory; requests stay authoritative */ }
-    }),
-    // React to dsh.* settings changes (host / port / autoStart / closePolicy /
-    // runtime manifest + version) through the serialized reconciler so burst
-    // changes never race a restart.
-    vscode.workspace.onDidChangeConfiguration((e) => {
-      if (
-        e.affectsConfiguration("dsh.host") ||
-        e.affectsConfiguration("dsh.port") ||
-        e.affectsConfiguration("dsh.autoStart") ||
-        e.affectsConfiguration("dsh.closePolicy") ||
-        e.affectsConfiguration("dsh.runtime.manifestUrl") ||
-        e.affectsConfiguration("dsh.runtime.version") ||
-        e.affectsConfiguration("dsh.local.packageRoot") ||
-        e.affectsConfiguration("dsh.local.nodePath")
-        || e.affectsConfiguration("dsh.home.mode")
-        || e.affectsConfiguration("dsh.home.path")
-      ) {
-        scheduleConfigReconcile(context);
-      }
-    })
-  );
+  context.subscriptions.push(...registered);
+}
 
-  // CH1 v2 metadata notifications: selection and diagnostics are advisory and
-  // only relevant for URIs that already have approved attachments. Disposables
-  // are kept out of context.subscriptions only to preserve the existing public
-  // subscription count; deactivate() always cleans them up.
-  notificationSubscriptions = [
-    vscode.window.onDidChangeTextEditorSelection?.(notifySelectionChanged),
-    vscode.languages?.onDidChangeDiagnostics?.(notifyDiagnosticsChanged),
-  ].filter(Boolean);
+async function activateWithDependencies(context, dependencies = {}) {
+  vscode = createVscodeFacade(dependencies.vscode || require("vscode"));
+  hostContext = createWorkspaceContext(vscode, context);
+  injectedDependencies = dependencies || {};
+
+  const services = {};
+  featureFailures = [];
+  registry = null;
+  try {
+    registry = createFeatureRegistry({
+      getFeatureSetting: (id) => {
+        try {
+          return vscode.workspace.getConfiguration('dsh').get('features.' + id);
+        } catch (_) {
+          return undefined; // an inert workspace config falls back to defaultEnabled
+        }
+      },
+      onFeatureFailure: (record) => {
+        const label = (FEATURE_CATALOG.find((feature) => feature.id === record.id) || {}).label || record.id;
+        vscode.window.showWarningMessage(loc("Feature {label} failed: {error}", {
+          label,
+          error: record.error,
+        }));
+      },
+    });
+    for (const feature of FEATURE_CATALOG) {
+      registry.register(feature);
+    }
+    const setupResults = await registry.setupAll({ context, services });
+    featureFailures = Array.isArray(registry.failures) ? registry.failures.slice() : [];
+    const featureOk = new Set(setupResults.filter((record) => record.status === 'ok').map((record) => record.id));
+    registerFeatureCommands(context, featureOk);
+  } catch (err) {
+    // The registry isolates per-feature failures; this catch is only for
+    // assembly-level bugs. The extension must never throw out of activate.
+    console.error('dsh-vs-sidebar: feature assembly failed:', err);
+    featureFailures = Array.isArray(registry?.failures) ? registry.failures.slice() : featureFailures;
+  }
 
   // autoStart at VS Code startup: activate even when the sidebar view is never
   // opened. connectNow() is null-safe — no WebviewView resolved yet is fine, the
@@ -1171,26 +1405,15 @@ async function deactivate() {
     }
     return undefined;
   } finally {
-    for (const disposable of notificationSubscriptions) {
-      disposable?.dispose?.();
+    // R25: feature teardowns run in reverse setup order; per-teardown
+    // failures are contained inside the registry (dispose never throws).
+    if (registry) {
+      try {
+        await registry.dispose();
+      } catch (err) {
+        console.error('dsh-vs-sidebar: feature registry dispose failed:', err);
+      }
     }
-    notificationSubscriptions = [];
-    notificationNotifier?.dispose();
-    notificationNotifier = null;
-    await versionedBridge?.close().catch(() => {});
-    versionedBridge = null;
-    await textDocumentBridge?.close().catch(() => {});
-    textDocumentBridge = null;
-    threadAttachmentCoordinator?.dispose();
-    threadAttachmentCoordinator = null;
-    try {
-      statusBar?.dispose?.();
-    } catch {
-      // status bar disposal is best-effort during extension shutdown
-    }
-    statusBar = null;
-    workspaceBinding?.dispose();
-    workspaceBinding = null;
     currentView = null;
     currentServer = null;
     currentExternalUrl = null;
@@ -1199,4 +1422,4 @@ async function deactivate() {
   }
 }
 
-module.exports = { activate, deactivate, activateWithDependencies, isRetryableStartupError };
+module.exports = { activate, deactivate, activateWithDependencies, isRetryableStartupError, FEATURE_CATALOG };

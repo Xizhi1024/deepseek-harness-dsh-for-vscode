@@ -285,6 +285,26 @@
           "type": "string",
           "default": "",
           "description": "%dsh.cfg.runtime.version%"
+        },
+        "dsh.features.clipboard-bridge": {
+          "type": "boolean",
+          "default": true,
+          "description": "%dsh.cfg.features.clipboard-bridge%"
+        },
+        "dsh.features.thread-attachment": {
+          "type": "boolean",
+          "default": true,
+          "description": "%dsh.cfg.features.thread-attachment%"
+        },
+        "dsh.features.editor-links": {
+          "type": "boolean",
+          "default": true,
+          "description": "%dsh.cfg.features.editor-links%"
+        },
+        "dsh.features.statusbar-basic": {
+          "type": "boolean",
+          "default": true,
+          "description": "%dsh.cfg.features.statusbar-basic%"
         }
       }
     }

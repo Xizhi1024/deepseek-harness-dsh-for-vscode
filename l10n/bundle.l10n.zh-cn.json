@@ -75,5 +75,6 @@
   "stopped": "已停止",
   "listening": "监听中",
   "closed": "已关闭",
-  "Webview 桥版本不匹配": "Webview 桥版本不匹配"
+  "Feature {label} failed: {error}": "特性 {label} 启动失败：{error}",
+  "Degraded features: {items}": "已降级特性：{items}"
 }
