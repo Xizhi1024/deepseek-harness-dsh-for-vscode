@@ -7,7 +7,12 @@ const MANAGED_PROFILE = 'web';
 const PROFILE_NAME_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 
 function assertValidProfileName(profileName) {
-  if (typeof profileName !== 'string' || !PROFILE_NAME_PATTERN.test(profileName)) {
+  if (
+    typeof profileName !== 'string' ||
+    !PROFILE_NAME_PATTERN.test(profileName) ||
+    profileName === '.' ||
+    profileName === '..'
+  ) {
     const error = new Error(`Managed DSH profile name must match ${PROFILE_NAME_PATTERN.source}`);
     error.code = 'CONFIG_PROFILE_INVALID';
     throw error;
@@ -145,7 +150,6 @@ function buildManagedLaunchSpec(runtimeInput, host, port, platform = process.pla
 
 module.exports = {
   MANAGED_PROFILE,
-  PROFILE_NAME_PATTERN,
   assertValidProfileName,
   assertLaunchableRuntime,
   buildManagedLaunchSpec,

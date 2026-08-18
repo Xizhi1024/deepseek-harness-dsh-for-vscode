@@ -387,7 +387,7 @@ async function connectNow(context) {
     let server = null;
     // autoStart uses the locally installed official DSH package by default and
     // an explicitly configured verified release manifest as an opt-in path.
-    // Both launch with the independently selected shared/isolated home and web profile.
+    // Both launch with the independently selected shared/isolated home and the configured dsh.profile.
     // One exception: when no managed runtime can be provided but a DSH
     // instance is already serving the configured endpoint, adopt that
     // instance as a reused external server instead of stranding the sidebar.

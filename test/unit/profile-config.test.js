@@ -116,7 +116,7 @@ test('invalid profile names are rejected with CONFIG_PROFILE_INVALID across all 
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const home = path.join(root, 'home');
   const extension = createExtensionTree(root);
-  const badNames = ['', 'x'.repeat(65), 'bad/name', 'bad\\name', 'bad name', '中文'];
+  const badNames = ['', '.', '..', 'x'.repeat(65), 'bad/name', 'bad\\name', 'bad name', '中文'];
 
   for (const bad of badNames) {
     assert.throws(
