@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { assertValidProfileName, MANAGED_PROFILE } = require('./managedRuntimeLaunch');
 
 const INTEGRATION_PACKAGE_NAME = 'dsh-vscode-integration';
 const INTEGRATION_FILES = Object.freeze([
@@ -39,8 +40,10 @@ function atomicCopy(source, destination, operations = {}) {
 function installDshIntegration(dshHome, extensionPath, options = {}) {
   const home = requireAbsolute(dshHome, 'DSH home');
   const extension = requireAbsolute(extensionPath, 'Extension path');
+  const profileName = options.profileName === undefined ? MANAGED_PROFILE : options.profileName;
+  assertValidProfileName(profileName);
   const sourceRoot = path.join(extension, 'runtime-integration', INTEGRATION_PACKAGE_NAME);
-  const nodeModulesPath = path.join(home, 'profiles', 'web', 'node_modules');
+  const nodeModulesPath = path.join(home, 'profiles', profileName, 'node_modules');
   const packageRoot = path.join(nodeModulesPath, INTEGRATION_PACKAGE_NAME);
   const existsSync = options.existsSync || fs.existsSync;
   for (const relative of INTEGRATION_FILES) {

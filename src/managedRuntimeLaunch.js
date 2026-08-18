@@ -4,6 +4,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const MANAGED_PROFILE = 'web';
+const PROFILE_NAME_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
+
+function assertValidProfileName(profileName) {
+  if (typeof profileName !== 'string' || !PROFILE_NAME_PATTERN.test(profileName)) {
+    const error = new Error(`Managed DSH profile name must match ${PROFILE_NAME_PATTERN.source}`);
+    error.code = 'CONFIG_PROFILE_INVALID';
+    throw error;
+  }
+  return profileName;
+}
 
 function samePath(left, right, platform = process.platform) {
   const normalizedLeft = path.resolve(left);
@@ -33,15 +43,17 @@ function normalizeResolvedRuntime(input, platform = process.platform) {
   if (typeof dshHome !== 'string' || !path.isAbsolute(dshHome)) {
     throw new Error('Managed DSH dshHome must be absolute');
   }
-  if (profileName !== MANAGED_PROFILE) {
-    throw new Error(`Managed DSH profile must be ${MANAGED_PROFILE}`);
-  }
-  const expectedProfileHome = path.join(path.resolve(dshHome), 'profiles', MANAGED_PROFILE);
+  assertValidProfileName(profileName);
+  const expectedProfileHome = path.join(path.resolve(dshHome), 'profiles', profileName);
   if (typeof profileHome !== 'string' || !path.isAbsolute(profileHome)) {
-    throw new Error('Managed DSH profileHome must be absolute');
+    const error = new Error('Managed DSH profileHome must be absolute');
+    error.code = 'CONFIG_PROFILE_INVALID';
+    throw error;
   }
   if (!samePath(profileHome, expectedProfileHome, platform)) {
-    throw new Error('Managed DSH profileHome does not match dshHome/profiles/web');
+    const error = new Error(`Managed DSH profileHome does not match dshHome/profiles/${profileName}`);
+    error.code = 'CONFIG_PROFILE_INVALID';
+    throw error;
   }
   if (!Array.isArray(entrypointArgs) || entrypointArgs.length > 1) {
     throw new Error('Managed DSH entrypointArgs must contain at most one verified script path');
@@ -133,6 +145,8 @@ function buildManagedLaunchSpec(runtimeInput, host, port, platform = process.pla
 
 module.exports = {
   MANAGED_PROFILE,
+  PROFILE_NAME_PATTERN,
+  assertValidProfileName,
   assertLaunchableRuntime,
   buildManagedLaunchSpec,
   normalizeResolvedRuntime,

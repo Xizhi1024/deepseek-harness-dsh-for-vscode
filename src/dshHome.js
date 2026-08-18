@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { assertValidProfileName, MANAGED_PROFILE } = require('./managedRuntimeLaunch');
 
 const HOME_MODES = Object.freeze({
   SHARED: 'shared',
@@ -146,17 +147,18 @@ async function migrateLegacyHomeMode({ vscode, context, sharedHome, isolatedHome
 }
 
 /** Attach the selected user-data home to a verified runtime payload. */
-function bindRuntimeHome(runtime, dshHome) {
+function bindRuntimeHome(runtime, dshHome, profileName = MANAGED_PROFILE) {
   if (!runtime || typeof runtime !== 'object') throw new Error('DSH runtime is unavailable');
   if (typeof dshHome !== 'string' || !path.isAbsolute(dshHome)) {
     throw new Error('DSH home must be absolute');
   }
   const resolvedHome = path.resolve(dshHome);
+  assertValidProfileName(profileName);
   return Object.freeze({
     ...runtime,
     dshHome: resolvedHome,
-    profileHome: path.join(resolvedHome, 'profiles', 'web'),
-    profileName: 'web',
+    profileHome: path.join(resolvedHome, 'profiles', profileName),
+    profileName,
   });
 }
 

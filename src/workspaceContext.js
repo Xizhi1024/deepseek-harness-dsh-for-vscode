@@ -18,6 +18,7 @@ function createWorkspaceContext(vscode, extensionContext) {
         host: settings.get('host', DEFAULT_HOST),
         port: settings.get('port', DEFAULT_PORT),
         autoStart: settings.get('autoStart', true),
+        profile: String(settings.get('profile', 'web') || 'web'),
         closePolicy: normalizeClosePolicy(settings.get('closePolicy')),
         runtimeManifestUrl: String(settings.get('runtime.manifestUrl', '') || ''),
         runtimeVersion: String(settings.get('runtime.version', '') || ''),

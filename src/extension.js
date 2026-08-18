@@ -90,6 +90,7 @@ const NON_RETRYABLE_STARTUP_CODES = new Set([
   'CONFIG_PACKAGE_ROOT_INVALID',
   'CONFIG_NODE_PATH_INVALID',
   'CONFIG_HOME_PATH_INVALID',
+  'CONFIG_PROFILE_INVALID',
 ]);
 
 function isRetryableStartupError(err) {
@@ -227,7 +228,8 @@ function prepareDshHome(config, context) {
   activeDshHome = resolved.path;
   const integration = installDshIntegration(
     activeDshHome,
-    context.extensionPath || path.resolve(__dirname, '..')
+    context.extensionPath || path.resolve(__dirname, '..'),
+    { profileName: config.profile }
   );
   const info = {
     ...resolved,
@@ -421,7 +423,7 @@ async function connectNow(context) {
         server = adopted;
       }
       if (server === null) {
-        resolvedRuntime = bindRuntimeHome(resolvedRuntime, activeDshHome);
+        resolvedRuntime = bindRuntimeHome(resolvedRuntime, activeDshHome, cfg.profile);
         manager.setResolvedRuntime(resolvedRuntime);
       }
     }
@@ -598,6 +600,7 @@ function scheduleConfigReconcile(context) {
       || String(prev.localNodePath || '') !== String(next.localNodePath || '')
       || String(prev.homeMode || '') !== String(next.homeMode || '')
       || String(prev.homePath || '') !== String(next.homePath || '')
+      || String(prev.profile || '') !== String(next.profile || '')
     );
 
     if (decision.shouldReconnect || runtimeChanged) {
@@ -772,6 +775,7 @@ async function setupCoreServer({ context, services }) {
         e.affectsConfiguration("dsh.local.nodePath")
         || e.affectsConfiguration("dsh.home.mode")
         || e.affectsConfiguration("dsh.home.path")
+        || e.affectsConfiguration("dsh.profile")
       ) {
         scheduleConfigReconcile(context);
       }
