@@ -119,6 +119,8 @@ Ctrl+L（C/0.7.1）：keybinding + 既有 addSelectionToThread + focus，零新�
 
 Spike：①1.106 dts API 形状 ②apps/web 端点复用性 ③E2E 原生 Chat 跑通 dsh 模型。
 
+**Spike 结论（2026-08-18，.slim/spikes/r23-lm-route.md，PASS）**：① lm provider 稳定自 **1.104**（1.106–1.125 接口逐字一致，单份实现全覆盖；已装 @types/vscode 实为 1.125）；**stable 符号 = LanguageModelResponsePart / LanguageModelChatRequestMessage**（上文 LanguageModelChatResponsePart/LanguageModelChatRequest 命名作废）；② 扩展**必须声明 contributes.languageModelChatProviders**（vendor dsh，主线程按贡献点校验否则 prune）；provideTokenCount 必需（可复用 harness packages/llm/token-meter 的 estimate）；无 token 上报 API。③ 落点 b 证实：集成包注册 /api/lm/models|chat exact WebRoute（ctx.webServer.register），SSE 复用现有流式先例；桥 token 在插件 handler 内校验（读 DSH_LM_BRIDGE_TOKEN，扩展 spawnEnv 注入，先例 DSH_VSCODE_OPEN_TOKEN）；loopback 现无鉴权层（源码明示 isTrustedApiRequest 非 auth），token 必须插件自加。rc.5→rc.7 关键面一致，结论可迁移。
+
 ### R24 DSH 自暴露 exports API（E/0.9）
 `activate()` return 版化公共面：`{ version:'1', ask(prompt,opts), listSessions(), addContext(uri,range?) }`——他扩把 DSH 当编程式 agent 调用。三条暴露通道各司其职：**exports**（扩展间强类型集成）/**MCP serve**（进程外客户端）/**模型路由 R23**（原生 UI 消费模型）。exports 面进 README 持久契约清单（破坏性变更需 major）。我们不声明 extensionDependencies（动态发现）；欢迎第三方依赖我们。
 
@@ -199,12 +201,14 @@ at-file（附件同时生成 @file 提及，C）；session-checkpoint-policy（R
 | 批 | 版本 | 内容 | 扩展仓门禁 | DSH 仓门禁 |
 |---|---|---|---|---|
 | P0 | 0.6.1 | WIP 落地（check:w0→提交→merge）+ safe.directory ✅ **已完成**（`c27856f` 经 `be91d20` 合入并推送；2026-08-17 复跑 check:w0 绿） | check:w0 + test:extension-host | — |
-| A | 0.7.0 | **R25 featureRegistry + 分层 + 故障隔离（存量迁移）** + R1 + R2 + R5 错误分类 + R23 spike | +contracts+l10n | —（动 harness 端点则其门禁） |
+| A | 0.7.0 | **R25 featureRegistry + 分层 + 故障隔离（存量迁移）** ✅ 已合入 `d9808e81`（审计 2 轮：首 FAIL l10n 键误删→修复→PASS）+ R1 + R2 + R5 错误分类 + R23 spike ✅ PASS（见 §5 结论） | +contracts+l10n | —（动 harness 端点则其门禁） |
 | B | 0.7.0 | R5 干净重启 + R12 主题 | 同上 | boot-theme：test:gui + replay test:web |
 | C | 0.7.1 | R10 + R15 + Ctrl+L + OutputChannel + watchdog（防误杀四件套）+ 孤儿清扫 + dshCompat + **onboarding（编辑器内提示→向导→告知怎么改）** | 同上 | client.js（VSIX 内）：node:test |
 | C2 | 0.7.2 | R16 多开（双击/图标入口） | +多实例生命周期测试 | — |
 | D | 0.8.0 | R6 v3a（运行>调试>测试>远程 smoke）+ v3a 上下文/UI 扩充（editor 门控读取、progress/statusbar/output/confirm）+ R22 MCP 消费 + DSH tools + R14S1（changes/push）+ Ctrl+K（D8✅ 不绑默认）+ MCP serve + 市场 deep-link +（spike 过）R23 实现 | +审批门测试+WSL/SSH smoke | tools.js 测试；上收则 REAL+快照+Note |
 | E | 0.9 | R14S2（D5）+ Ctrl+I + R20 + T2 + R24 + R18 POC（D13）+ R23（未提前时） | — | harness 全门禁 + FIM 日志政策（D10） |
+
+并行组执行注记（2026-08-18 取样裁决）：R5 错误码集中化实际触碰 dshHome/extension/localRuntimeResolver（R1/R2 领地），执行提示词原「R1/R2/R5 三线并行」示例作废；裁定 R1∥R2 先派（真不相交），R5 于两者合入后派（一次到位迁移）。
 
 回归锁定（每批必过）：#3/#9 双窗口独立 owned child 端口顺延互不接管、deactivate 按策略树杀；#4 自动发现+失败复用；#8 四修复；#11 cwd=工作区多根随活动编辑器；#13 草稿链接与 DSH Read… 本窗口打开。
 

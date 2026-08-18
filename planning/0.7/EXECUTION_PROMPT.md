@@ -34,7 +34,7 @@
 2. **契约已冻结**：桥方法名+参数 schema、端口/env 变量、数据结构（registry 条目、featureRegistry 条目、错误码表）已在任务卡写死；实现者要改契约必须先回报改卡。
 3. **无构建耦合**：A 批 R25（featureRegistry 横切，独占装配线）先行单独合入，之后各功能任务注册进 registry 才具备并行前提。
 
-典型并行组（计划已定）：A 批 R1/R2/R5-错误分类 三线并行（文件不相交，R25 合入后）；D 批 v3a 各 handler（`src/bridge/*.js` 每文件一 agent）在 ch1.js 方法表冻结后并行；R23 的三个 spike 天然并行。
+典型并行组（2026-08-18 裁决修正）：A 批 R1/R2 双线并行（真不相交；R5 因触碰 R1/R2 领地殿后派发），R25 合入后；D 批 v3a 各 handler（`src/bridge/*.js` 每文件一 agent）在 ch1.js 方法表冻结后并行；R23 的三个 spike 天然并行。
 
 ## 六、VS Code API 先验证规则（spike-first）
 
