@@ -1,8 +1,9 @@
 # dsh-vs-sidebar × DSH 全生命周期实现计划 v2（合并稿，供审计裁决）
 
 > 本文件是唯一权威版本，合并并取代此前增量草稿。
-> 基线：扩展仓 master `d49e18e`（0.6.0）+ 未提交 `fix/0.6.1-orphan-lifecycle` WIP；DSH 仓为本地 checkout（遵循其 AGENTS.md 全部门禁）。
-> 状态：**全部决策已闭环（§12 终裁表，2026-08 用户终裁）**；待发令从 P0 开工。
+> 基线：扩展仓 master `4d54c46`（0.6.0 + 0.6.1 修复 + 0.7 规划语料，均已推送）；DSH 上游最新 `v0.1.0-rc.7`（`99f6f02`）。
+> 版本核对（2026-08-17，A 批开工前）：rc.5→rc.7 无扩展契约面变更——spawn `--profile`/`--patch`、embed URL 参数（dsh_embed/dsh_session 先例在 `packages/client/web` app-shell）、`boot-theme.ts`、`packages/fs`、`test:gui`/`test:web` 门禁均在；**计划无需修订**。B/D/E 批 DSH 侧任务开工前先把本地 checkout 快进到 rc.7，并遵循其 AGENTS.md 全部门禁。
+> 状态：**全部决策已闭环（§12 终裁表，2026-08 用户终裁）**；P0 已完成，A 批开工。
 > 执行方式：多 agent 编排（主模型只计划/集成，子 agent 分支实现+独立审计），完整规程见 `planning/0.7/EXECUTION_PROMPT.md`。
 
 ## 1. 目标与非目标
@@ -197,7 +198,7 @@ at-file（附件同时生成 @file 提及，C）；session-checkpoint-policy（R
 
 | 批 | 版本 | 内容 | 扩展仓门禁 | DSH 仓门禁 |
 |---|---|---|---|---|
-| P0 | 0.6.1 | WIP 落地（check:w0→提交→merge）+ safe.directory | check:w0 + test:extension-host | — |
+| P0 | 0.6.1 | WIP 落地（check:w0→提交→merge）+ safe.directory ✅ **已完成**（`c27856f` 经 `be91d20` 合入并推送；2026-08-17 复跑 check:w0 绿） | check:w0 + test:extension-host | — |
 | A | 0.7.0 | **R25 featureRegistry + 分层 + 故障隔离（存量迁移）** + R1 + R2 + R5 错误分类 + R23 spike | +contracts+l10n | —（动 harness 端点则其门禁） |
 | B | 0.7.0 | R5 干净重启 + R12 主题 | 同上 | boot-theme：test:gui + replay test:web |
 | C | 0.7.1 | R10 + R15 + Ctrl+L + OutputChannel + watchdog（防误杀四件套）+ 孤儿清扫 + dshCompat + **onboarding（编辑器内提示→向导→告知怎么改）** | 同上 | client.js（VSIX 内）：node:test |
