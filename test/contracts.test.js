@@ -55,6 +55,10 @@ test('editor title exposes one persistent icon and DSH view title exposes no pri
     command: 'dsh.addFileToThread',
     group: 'dsh@1',
     when: '!explorerResourceIsFolder && resourceScheme == file'
+  }, {
+    command: 'dsh.addFolderToThread',
+    group: 'dsh@2',
+    when: 'explorerResourceIsFolder && resourceScheme == file'
   }]);
 
   const focusCommand = manifest.contributes.commands.find(
@@ -93,6 +97,7 @@ test('extension-host smoke expectations cover every contributed command id', () 
     'dsh.addActiveFile',
     'dsh.addActiveSelection',
     'dsh.addFileToThread',
+    'dsh.addFolderToThread',
     'dsh.addProblems',
     'dsh.addSelectionToThread',
     'dsh.capabilities',

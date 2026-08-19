@@ -53,6 +53,8 @@
   "DSH sidebar is unavailable": "DSH 侧边栏不可用",
   "Selection added to the DSH conversation": "已将选区添加到 DSH 对话",
   "File added to the DSH conversation": "已将文件添加到 DSH 对话",
+  "Folder added to the DSH conversation": "已将文件夹添加到 DSH 对话",
+  "A folder URI is required": "需要文件夹 URI",
   "Capability unavailable": "能力不可用",
   "Add to DSH conversation failed: {message}": "添加到 DSH 对话失败：{message}",
   "Session created: {sessionId}": "已创建会话：{sessionId}",

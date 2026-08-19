@@ -53,6 +53,8 @@
   "DSH sidebar is unavailable": "DSH sidebar is unavailable",
   "Selection added to the DSH conversation": "Selection added to the DSH conversation",
   "File added to the DSH conversation": "File added to the DSH conversation",
+  "Folder added to the DSH conversation": "Folder added to the DSH conversation",
+  "A folder URI is required": "A folder URI is required",
   "Capability unavailable": "Capability unavailable",
   "Add to DSH conversation failed: {message}": "Add to DSH conversation failed: {message}",
   "Session created: {sessionId}": "Session created: {sessionId}",

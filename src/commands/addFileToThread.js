@@ -82,6 +82,82 @@ function createAddFileToThreadCommand({
   };
 }
 
+/**
+ * Build the `dsh.addFolderToThread` command body.
+ *
+ * Flow mirrors `dsh.addFileToThread` but for an Explorer folder resource:
+ *  1. Attach a bounded directory listing (relative paths only — never file
+ *     contents) to the editor context pool. The listing is the value DSH
+ *     reads back; the draft receives only a compact clickable folder link.
+ *  2. Reveal and focus the DSH sidebar so the draft is visible.
+ *  3. Hand the clickable folder link to the thread attachment coordinator.
+ *
+ * VS Code passes the Explorer folder's `Uri` as the first command argument
+ * when invoked from the `explorer/context` menu.
+ *
+ * @param {object} deps - Injected dependencies.
+ * @param {object} deps.vscode - VS Code facade.
+ * @param {object} deps.editorContext - Editor context with attachFolder().
+ * @param {object} deps.coordinator - ThreadAttachmentCoordinator with request().
+ * @param {Function} deps.formatFolderAttachment - Formats a folder attachment.
+ * @param {Function} deps.waitForResolvedView - Resolves the current sidebar view.
+ * @param {Function} deps.ensureConnected - Ensures a DSH server is connected.
+ * @param {Function} [deps.loc] - Localization helper.
+ * @returns {Function} Async command body taking the folder URI argument.
+ */
+function createAddFolderToThreadCommand({
+  vscode,
+  editorContext,
+  coordinator,
+  formatFolderAttachment,
+  waitForResolvedView,
+  ensureConnected,
+  loc = defaultLoc,
+}) {
+  if (!vscode || !vscode.commands || typeof vscode.commands.executeCommand !== 'function') {
+    throw new TypeError('vscode.commands.executeCommand is required');
+  }
+  if (!editorContext || typeof editorContext.attachFolder !== 'function') {
+    throw new TypeError('editorContext.attachFolder is required');
+  }
+  if (!coordinator || typeof coordinator.request !== 'function') {
+    throw new TypeError('coordinator.request is required');
+  }
+  if (typeof formatFolderAttachment !== 'function') {
+    throw new TypeError('formatFolderAttachment must be a function');
+  }
+  if (typeof waitForResolvedView !== 'function') {
+    throw new TypeError('waitForResolvedView must be a function');
+  }
+  if (typeof ensureConnected !== 'function') {
+    throw new TypeError('ensureConnected must be a function');
+  }
+
+  return async function addFolderToThread(uri) {
+    try {
+      if (!uri || typeof uri !== 'object') {
+        throw new Error(loc('A folder URI is required'));
+      }
+      // Explicit reader action: like Add File to DSH Thread, a trusted
+      // file:// folder outside the open workspace folders may be listed.
+      const attachment = editorContext.attachFolder(uri, { allowOutsideWorkspace: true });
+      await vscode.commands.executeCommand('workbench.view.extension.' + CONTAINER_ID);
+      await vscode.commands.executeCommand(VIEW_ID + '.focus');
+      const view = await waitForResolvedView();
+      if (!view) throw new Error(loc('DSH sidebar is unavailable'));
+      if (!(await ensureConnected())) throw new Error(loc('DSH: unavailable'));
+      const text = formatFolderAttachment(attachment, attachment.document.uri);
+      await coordinator.request(view.webview, text);
+      await vscode.window.showInformationMessage(loc('Folder added to the DSH conversation'));
+    } catch (err) {
+      await vscode.window.showErrorMessage(loc('Add to DSH conversation failed: {message}', {
+        message: err && err.message ? err.message : String(err),
+      }));
+    }
+  };
+}
+
 module.exports = {
   createAddFileToThreadCommand,
+  createAddFolderToThreadCommand,
 };

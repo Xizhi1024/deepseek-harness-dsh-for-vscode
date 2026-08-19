@@ -1,6 +1,12 @@
 'use strict';
 
 const { Buffer } = require('node:buffer');
+const {
+  buildFolderListing,
+  formatFolderListing,
+  DEFAULT_MAX_FOLDER_DEPTH: MAX_FOLDER_DEPTH,
+  DEFAULT_MAX_FOLDER_ENTRIES: MAX_FOLDER_ENTRIES,
+} = require('./threadAttachment');
 
 /**
  * Default maximum attachment content size in UTF-8 bytes.
@@ -24,7 +30,7 @@ const DEFAULT_MAX_DIAGNOSTIC_MESSAGE_CHARS = 2000;
  * Supported editor attachment kinds, in wire-protocol spelling.
  * @type {readonly string[]}
  */
-const ATTACHMENT_KINDS = Object.freeze(['active-file', 'selection', 'problems']);
+const ATTACHMENT_KINDS = Object.freeze(['active-file', 'selection', 'problems', 'folder']);
 
 /**
  * Error raised by editor-context operations. Carries a stable bridge code
@@ -109,6 +115,9 @@ function assertVscodeFacade(vscode) {
  * @param {number} [options.limits.maxAttachmentBytes] - Attachment byte cap.
  * @param {number} [options.limits.maxDiagnosticItems] - Diagnostic count cap.
  * @param {number} [options.limits.maxDiagnosticMessageChars] - Message cap.
+ * @param {number} [options.limits.maxFolderDepth] - Folder listing depth cap.
+ * @param {number} [options.limits.maxFolderEntries] - Folder listing entry cap.
+ * @param {Function} [options.folderListing] - Bounded folder walker (defaults to threadAttachment.buildFolderListing).
  * @param {(payload: {revision: number, attachmentIds: string[]}) => void} [options.onChange] - Change callback.
  * @param {() => string} [options.now] - Timestamp provider.
  * @returns {object} Frozen editor context API.
@@ -121,6 +130,9 @@ function createEditorContext(options = {}) {
   const maxAttachmentBytes = limits.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES;
   const maxDiagnosticItems = limits.maxDiagnosticItems ?? DEFAULT_MAX_DIAGNOSTIC_ITEMS;
   const maxDiagnosticMessageChars = limits.maxDiagnosticMessageChars ?? DEFAULT_MAX_DIAGNOSTIC_MESSAGE_CHARS;
+  const maxFolderDepth = limits.maxFolderDepth ?? MAX_FOLDER_DEPTH;
+  const maxFolderEntries = limits.maxFolderEntries ?? MAX_FOLDER_ENTRIES;
+  const folderListing = typeof options.folderListing === 'function' ? options.folderListing : buildFolderListing;
   const now = typeof options.now === 'function' ? options.now : () => new Date().toISOString();
   const onChange = typeof options.onChange === 'function' ? options.onChange : () => {};
 
@@ -399,6 +411,50 @@ function createEditorContext(options = {}) {
   }
 
   /**
+   * Attach a bounded directory listing for an approved folder.
+   *
+   * Like `attachActiveFile` this supports an explicit-user-command mode
+   * (`options.allowOutsideWorkspace`) that attains the same trust boundary as
+   * `dsh.addFileToThread`: a trusted `file://` folder outside the open
+   * workspace folders may be listed. The listing contains relative paths
+   * only — never file contents — so the walk is safe on any trusted folder.
+   *
+   * @param {object} uri - File-scheme folder URI.
+   * @param {object} [options] - Attachment options.
+   * @param {boolean} [options.allowOutsideWorkspace=false] - Explicit-user-command
+   *   mode (the explorer `dsh.addFolderToThread` command).
+   * @returns {object} Folder attachment whose `content` is the bounded listing text.
+   */
+  function attachFolder(uri, options = {}) {
+    const allowOutsideWorkspace = options && options.allowOutsideWorkspace === true;
+    assertDocumentUriSafe(uri, { requireWorkspace: !allowOutsideWorkspace });
+    const fsPath = uri.fsPath;
+    if (typeof fsPath !== 'string' || fsPath.length === 0) {
+      throw invalidParams('Folder URI must resolve to a file-system path');
+    }
+    const listing = folderListing(fsPath, {
+      depth: maxFolderDepth,
+      maxEntries: maxFolderEntries,
+      skipHidden: true,
+    });
+    if (listing.rootIsDirectory === false) {
+      throw new EditorContextError('VSCODE_NOT_A_FOLDER', `Explorer resource is not a folder: ${describeUri(uri)}`);
+    }
+    const content = formatFolderListing(listing);
+    assertAttachmentFits(content);
+    return addAttachment({
+      id: nextAttachmentId(),
+      kind: 'folder',
+      document: { uri: describeUri(uri) },
+      content,
+      itemCount: listing.entries.length,
+      truncated: listing.truncated === true,
+      createdAt: now(),
+      explicit: allowOutsideWorkspace,
+    });
+  }
+
+  /**
    * Clear all attachments and bump the revision.
    *
    * @returns {void}
@@ -433,10 +489,33 @@ function createEditorContext(options = {}) {
     if (!attachment || !attachment.document || typeof attachment.document.uri !== 'string') {
       throw new EditorContextError('VSCODE_ATTACHMENT_NOT_FOUND', 'Editor attachment is no longer available');
     }
+    if (attachment.kind === 'folder') {
+      return openFolderAttachment(attachment);
+    }
     return openHandler(
       { document: attachment.document, range: attachment.range, preserveFocus: false },
       { allowApprovedExternal: attachment.explicit === true }
     );
+  }
+
+  /**
+   * Open a folder attachment by revealing its folder in the Explorer.
+   *
+   * `revealInExplorer` is a core VS Code command available on every platform
+   * (Windows, macOS, Linux), so no win32-specific fallback is required. The
+   * folder attachment holds only a path listing, never file contents, so this
+   * never reads or opens document content — the same read boundary as every
+   * other `openAttachment` target.
+   *
+   * @param {object} attachment - Approved folder attachment.
+   * @returns {Promise<{opened: boolean}>} Open result.
+   */
+  async function openFolderAttachment(attachment) {
+    const uri = parseWireUri(attachment.document.uri);
+    if (attachment.explicit === true) assertTrusted();
+    else assertUriInWorkspace(uri);
+    await vscode.commands.executeCommand('revealInExplorer', uri);
+    return { opened: true };
   }
 
   /**
@@ -610,6 +689,7 @@ function createEditorContext(options = {}) {
     attachActiveFile,
     attachActiveSelection,
     attachProblems,
+    attachFolder,
     clearAttachments,
     attachmentSnapshot,
     openAttachment,
@@ -622,6 +702,8 @@ module.exports = {
   DEFAULT_MAX_ATTACHMENT_BYTES,
   DEFAULT_MAX_DIAGNOSTIC_ITEMS,
   DEFAULT_MAX_DIAGNOSTIC_MESSAGE_CHARS,
+  DEFAULT_MAX_FOLDER_DEPTH: MAX_FOLDER_DEPTH,
+  DEFAULT_MAX_FOLDER_ENTRIES: MAX_FOLDER_ENTRIES,
   EditorContextError,
   createEditorContext,
 };

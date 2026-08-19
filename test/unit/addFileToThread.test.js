@@ -3,8 +3,8 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { createAddFileToThreadCommand } = require('../../src/commands/addFileToThread');
-const { formatFileAttachment } = require('../../src/threadAttachment');
+const { createAddFileToThreadCommand, createAddFolderToThreadCommand } = require('../../src/commands/addFileToThread');
+const { formatFileAttachment, formatFolderAttachment } = require('../../src/threadAttachment');
 
 function fakeVscode() {
   const executed = [];
@@ -121,6 +121,108 @@ test('createAddFileToThreadCommand validates required dependencies', () => {
     editorContext: {},
     coordinator: {},
     formatFileAttachment() {},
+    waitForResolvedView() {},
+    ensureConnected() {},
+  }), TypeError);
+});
+
+function makeFolderDeps(overrides = {}) {
+  const requests = [];
+  const attachCalls = [];
+  const folderUri = { scheme: 'file', fsPath: 'D:\\ws\\src' };
+  const state = {
+    view: { webview: {} },
+    connected: true,
+    attachError: null,
+  };
+  const deps = {
+    vscode: fakeVscode().api,
+    editorContext: {
+      attachFolder(uri, options) {
+        attachCalls.push({ uri, options });
+        if (state.attachError) throw state.attachError;
+        return {
+          id: 'ctx-1',
+          kind: 'folder',
+          content: 'folder: 1 entry (depth <= 2)\na.ts',
+          document: { uri: 'file:///D:/ws/src' },
+        };
+      },
+    },
+    coordinator: {
+      async request(webview, text) {
+        requests.push({ webview, text });
+      },
+    },
+    formatFolderAttachment,
+    waitForResolvedView: async () => state.view,
+    ensureConnected: async () => state.connected,
+    loc: defaultLoc,
+    ...overrides,
+  };
+  return { deps, requests, state, attachCalls, folderUri };
+}
+
+test('addFolderToThread attaches the explorer folder and posts a clickable folder link', async () => {
+  const { deps, requests, state, attachCalls, folderUri } = makeFolderDeps();
+  const command = createAddFolderToThreadCommand(deps);
+
+  await command(folderUri);
+
+  assert.deepStrictEqual(attachCalls, [{ uri: folderUri, options: { allowOutsideWorkspace: true } }]);
+  assert.deepStrictEqual(deps.vscode.commands.executed, [
+    ['workbench.view.extension.dsh-sidebar'],
+    ['dsh.webview.focus'],
+  ]);
+  assert.strictEqual(requests.length, 1);
+  assert.strictEqual(requests[0].webview, state.view.webview);
+  assert.strictEqual(requests[0].text, '[src](https://dsh-vscode.invalid/attachment/ctx-1)');
+  assert.deepStrictEqual(deps.vscode.window.infoMessages, ['Folder added to the DSH conversation']);
+  assert.deepStrictEqual(deps.vscode.window.errorMessages, []);
+});
+
+test('addFolderToThread does not post when the DSH server is unavailable', async () => {
+  const { deps, requests, folderUri } = makeFolderDeps();
+  deps.vscode = fakeVscode().api;
+  deps.ensureConnected = async () => false;
+  const command = createAddFolderToThreadCommand(deps);
+
+  await command(folderUri);
+
+  assert.strictEqual(requests.length, 0);
+  assert.deepStrictEqual(deps.vscode.window.errorMessages, ['Add to DSH conversation failed: DSH: unavailable']);
+  assert.deepStrictEqual(deps.vscode.window.infoMessages, []);
+});
+
+test('addFolderToThread surfaces a missing folder URI without posting', async () => {
+  const { deps, requests, attachCalls } = makeFolderDeps();
+  const command = createAddFolderToThreadCommand(deps);
+
+  await command();
+
+  assert.strictEqual(requests.length, 0);
+  assert.deepStrictEqual(attachCalls, []);
+  assert.deepStrictEqual(deps.vscode.window.errorMessages, ['Add to DSH conversation failed: A folder URI is required']);
+});
+
+test('addFolderToThread surfaces attach failures without posting', async () => {
+  const { deps, requests, state, folderUri } = makeFolderDeps();
+  state.attachError = new Error('not a folder');
+  const command = createAddFolderToThreadCommand(deps);
+
+  await command(folderUri);
+
+  assert.strictEqual(requests.length, 0);
+  assert.deepStrictEqual(deps.vscode.window.errorMessages, ['Add to DSH conversation failed: not a folder']);
+});
+
+test('createAddFolderToThreadCommand validates required dependencies', () => {
+  assert.throws(() => createAddFolderToThreadCommand({}), TypeError);
+  assert.throws(() => createAddFolderToThreadCommand({
+    vscode: { commands: { executeCommand() {} } },
+    editorContext: {},
+    coordinator: {},
+    formatFolderAttachment() {},
     waitForResolvedView() {},
     ensureConnected() {},
   }), TypeError);

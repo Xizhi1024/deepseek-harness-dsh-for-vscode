@@ -44,7 +44,7 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 ## Usage
 
 - `Ctrl+Alt+B` opens the auxiliary sidebar → **DeepSeek Harness (DSH)** tab
-- Commands (all 15): **Open DSH in Browser** · **New Session** · **Switch Session** · **Restart DSH Server** · **Restart DSH Server Cleanly** · **Stop DSH Server** · **Focus DSH Sidebar** · **Add File to DSH Thread** · **Add to DSH Thread** · **Add Active File to DSH Context** · **Add Active Selection to DSH Context** · **Add Problems to DSH Context** · **Capabilities and Integrations** · **Diagnose** · **Clean Up Orphan DSH Servers**
+- Commands (all 16): **Open DSH in Browser** · **New Session** · **Switch Session** · **Restart DSH Server** · **Restart DSH Server Cleanly** · **Stop DSH Server** · **Focus DSH Sidebar** · **Add File to DSH Thread** · **Add Folder to DSH Thread** · **Add to DSH Thread** · **Add Active File to DSH Context** · **Add Active Selection to DSH Context** · **Add Problems to DSH Context** · **Capabilities and Integrations** · **Diagnose** · **Clean Up Orphan DSH Servers**
 - With `dsh.autoStart` on, the server is started at VS Code startup even if the sidebar is never opened
 
 > **Restart DSH Server Cleanly** disables every non-core (non-`@deepseek-ai/*`, non-embed) plugin in the active profile via `vscode-clean.overlay.yml` before restarting. When startup fails with `HEALTH_TIMEOUT` or `SPAWN_EXITED_EARLY`, the status page offers a **Restart-Clean** entry; in clean mode it shows a banner with **Restart-normal**, which restarts with the normal embed overlay. A startup that exits early while a `--patch` overlay is in effect automatically retries exactly once without the patch (recorded in Diagnose).
@@ -57,12 +57,14 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 
 Right-click the editor body and choose **Add File to DSH Thread** (no selection required) or, with a selection, **Add to DSH Thread**. Both focus the DSH sidebar and append only a Markdown link such as `[app.js](…)` / `[app.js:5-8](…)`; no source text is pasted into the draft. After the message is rendered, clicking the link reopens the approved file range in the owning VS Code window. Existing draft text is preserved, and the extension does not send automatically.
 
-**Add File to DSH Thread** is the only command that may attach a trusted `file://` document located outside the open workspace folders (for example a file opened via `File > Open File…`). That explicit-user-action approval only applies to the command itself and to the produced attachment link; the versioned bridge's `open`, `openDiff`, and wire-supplied diagnostics requests remain workspace-only, and `Add Active File / Selection / Problems` keep their implicit-attachment workspace gate.
+Right-click a **folder** in the Explorer and choose **Add Folder to DSH Thread**. The draft receives only a compact folder link; DSH reads back a bounded listing of relative paths (depth ≤ 2, at most 500 entries, skipping `node_modules`, `.git`, and hidden entries) through the same attachment channel — never the folder's file contents. Clicking the rendered link reveals the folder in the Explorer (`revealInExplorer`), available on every platform.
 
-The extension never sends editor content implicitly. The active file, selection, and Problems stay out of DSH until you run one of the **Add …** commands; the resulting attachment is the only thing the `vscode_editor` tool can read back through the versioned bridge.
+**Add File to DSH Thread** and **Add Folder to DSH Thread** are the only commands that may attach a trusted `file://` document/folder located outside the open workspace folders (for example a file opened via `File > Open File…`, or a trusted folder). That explicit-user-action approval only applies to the command itself and to the produced attachment link; the versioned bridge's `open`, `openDiff`, and wire-supplied diagnostics requests remain workspace-only, and `Add Active File / Selection / Problems` keep their implicit-attachment workspace gate.
 
-- File, selection, and Problems attachments are window-memory only and are cleared when the workspace root changes.
-- Attachments over 1 MiB (UTF-8) are rejected instead of silently truncated; diagnostics are capped at 1000 items and 2000 chars per message.
+The extension never sends editor content implicitly. The active file, selection, folder listing, and Problems stay out of DSH until you run one of the **Add …** commands; the resulting attachment is the only thing the `vscode_editor` tool can read back through the versioned bridge.
+
+- File, selection, folder, and Problems attachments are window-memory only and are cleared when the workspace root changes.
+- Attachments over 1 MiB (UTF-8) are rejected instead of silently truncated; diagnostics are capped at 1000 items and 2000 chars per message; folder listings are capped at 2 levels / 500 entries.
 - Bridge `open`/`openDiff`/wire-supplied diagnostics only accept `file` URIs inside an open, trusted workspace folder — the bridge exposes no arbitrary command, URI, or file read.
 - DSH receives `vscode/contextChanged` notifications carrying revision and attachment ids only, never content. CH1 v2 adds metadata-only `selectionChanged` / `activeEditorChanged` / `diagnosticsChanged` notifications, validated against `V2_NOTIFICATION_SCHEMA` at the host boundary.
 

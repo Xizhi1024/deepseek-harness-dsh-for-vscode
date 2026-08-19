@@ -8,6 +8,8 @@ const {
   DEFAULT_MAX_ATTACHMENT_BYTES,
   DEFAULT_MAX_DIAGNOSTIC_ITEMS,
   DEFAULT_MAX_DIAGNOSTIC_MESSAGE_CHARS,
+  DEFAULT_MAX_FOLDER_DEPTH,
+  DEFAULT_MAX_FOLDER_ENTRIES,
   EditorContextError,
   createEditorContext,
 } = require('../src/editorContext');
@@ -481,10 +483,12 @@ test('errors expose bridgeCode and public objects are frozen', () => {
   assert.strictEqual(Object.isFrozen(ctx), true);
   assert.strictEqual(Object.isFrozen(ctx.handlers), true);
   assert.strictEqual(Object.isFrozen(ATTACHMENT_KINDS), true);
-  assert.deepStrictEqual(ATTACHMENT_KINDS, ['active-file', 'selection', 'problems']);
+  assert.deepStrictEqual(ATTACHMENT_KINDS, ['active-file', 'selection', 'problems', 'folder']);
   assert.strictEqual(DEFAULT_MAX_ATTACHMENT_BYTES, 1 * 1024 * 1024);
   assert.strictEqual(DEFAULT_MAX_DIAGNOSTIC_ITEMS, 1000);
   assert.strictEqual(DEFAULT_MAX_DIAGNOSTIC_MESSAGE_CHARS, 2000);
+  assert.strictEqual(DEFAULT_MAX_FOLDER_DEPTH, 2);
+  assert.strictEqual(DEFAULT_MAX_FOLDER_ENTRIES, 500);
 
   const error = new EditorContextError('VSCODE_TEST', 'boom');
   assert.ok(error instanceof Error);
@@ -566,4 +570,94 @@ test('explicit addFileToThread mode still rejects untrusted and non-file documen
     () => untitled.attachActiveFile({ allowOutsideWorkspace: true }),
     (error) => error instanceof EditorContextError && error.bridgeCode === 'VSCODE_UNSUPPORTED_DOCUMENT'
   );
+});
+
+function cannedFolderListing(entries = [], overrides = {}) {
+  return {
+    root: 'file:///ws/src',
+    entries,
+    depth: 2,
+    truncated: false,
+    rootIsDirectory: true,
+    ...overrides,
+  };
+}
+
+test('attachFolder stores a bounded listing text and document metadata', () => {
+  const { vscode } = createHarness();
+  const ctx = createEditorContext({
+    vscode,
+    folderListing: () => cannedFolderListing([
+      { relPath: 'lib', kind: 'dir' },
+      { relPath: 'a.ts', kind: 'file' },
+      { relPath: 'lib/b.ts', kind: 'file' },
+    ]),
+  });
+
+  const attachment = ctx.attachFolder(fakeUri('file', 'file:///ws/src'));
+
+  assert.match(attachment.id, /^ctx-\d+$/);
+  assert.strictEqual(attachment.kind, 'folder');
+  assert.strictEqual(attachment.document.uri, 'file:///ws/src');
+  assert.strictEqual(attachment.itemCount, 3);
+  assert.strictEqual(attachment.truncated, false);
+  assert.strictEqual(attachment.content, 'folder: 3 entries (depth <= 2)\nlib/\na.ts\nlib/b.ts');
+  assert.strictEqual(attachment.explicit, false);
+});
+
+test('attachFolder supports explicit outside-workspace folders and flags the listing truncated', () => {
+  const { vscode } = createHarness({ workspaceFolders: [] });
+  const ctx = createEditorContext({
+    vscode,
+    folderListing: () => cannedFolderListing([{ relPath: 'a.ts', kind: 'file' }], { truncated: true }),
+  });
+
+  assert.throws(
+    () => ctx.attachFolder(fakeUri('file', 'file:///outside/src')),
+    (error) => error instanceof EditorContextError && error.bridgeCode === 'VSCODE_URI_OUTSIDE_WORKSPACE'
+  );
+
+  const attachment = ctx.attachFolder(fakeUri('file', 'file:///outside/src'), { allowOutsideWorkspace: true });
+  assert.strictEqual(attachment.explicit, true);
+  assert.strictEqual(attachment.truncated, true);
+  assert.match(attachment.content, /, truncated/);
+});
+
+test('attachFolder rejects non-folder roots, non-file schemes, and untrusted workspaces', () => {
+  const { vscode } = createHarness();
+  const notADirectory = createEditorContext({ vscode, folderListing: () => cannedFolderListing([], { rootIsDirectory: false }) });
+  assert.throws(
+    () => notADirectory.attachFolder(fakeUri('file', 'file:///ws/file.ts')),
+    (error) => error instanceof EditorContextError && error.bridgeCode === 'VSCODE_NOT_A_FOLDER'
+  );
+
+  const untrusted = createHarness({ trusted: false });
+  const untrustedCtx = createEditorContext({ vscode: untrusted.vscode, folderListing: () => cannedFolderListing() });
+  assert.throws(
+    () => untrustedCtx.attachFolder(fakeUri('file', 'file:///ws/src')),
+    (error) => error instanceof EditorContextError && error.bridgeCode === 'VSCODE_WORKSPACE_UNTRUSTED'
+  );
+
+  const unsupported = createEditorContext({ vscode, folderListing: () => cannedFolderListing() });
+  assert.throws(
+    () => unsupported.attachFolder(fakeUri('untitled', 'untitled:src')),
+    (error) => error instanceof EditorContextError && error.bridgeCode === 'VSCODE_UNSUPPORTED_DOCUMENT'
+  );
+});
+
+test('openAttachment on a folder reveals it in the Explorer and never reads document contents', async () => {
+  const { vscode, calls } = createHarness();
+  const ctx = createEditorContext({
+    vscode,
+    folderListing: () => cannedFolderListing([{ relPath: 'a.ts', kind: 'file' }]),
+  });
+  const attachment = ctx.attachFolder(fakeUri('file', 'file:///ws/src'));
+
+  assert.deepStrictEqual(await ctx.openAttachment(attachment.id), { opened: true });
+  assert.strictEqual(calls.executeCommand.length, 1);
+  assert.strictEqual(calls.executeCommand[0][0], 'revealInExplorer');
+  assert.strictEqual(uriText(calls.executeCommand[0][1]), 'file:///ws/src');
+  // No text document is ever opened for a folder attachment.
+  assert.strictEqual(calls.openTextDocument.length, 0);
+  assert.strictEqual(calls.showTextDocument.length, 0);
 });
