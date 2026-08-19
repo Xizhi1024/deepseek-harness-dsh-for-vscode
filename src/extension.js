@@ -82,6 +82,7 @@ const {
 } = require('./dshHome');
 const { LifecycleQueue } = require("./lifecycle");
 const { createFeatureRegistry } = require("./featureRegistry");
+const { maybeOnboard, runOnboardingWizard } = require("./onboarding");
 
 // Startup/connect retry semantics are centralized in src/startupErrors.js:
 // classified codes decide Retry enablement, unknown codes stay retryable.
@@ -739,6 +740,37 @@ const FEATURE_CATALOG = [
   { id: 'statusbar-basic', label: 'Status bar indicator', layer: 'L1', defaultEnabled: true, core: false, setup: setupStatusbarBasic },
   { id: 'theme-follow', label: 'Theme follow (dark/light)', layer: 'L1', defaultEnabled: true, core: false, setup: setupThemeFollow },
 ];
+
+/**
+ * C2 onboarding: the implemented feature switches the wizard can toggle.
+ * L0 features are never configurable and L2 features do not exist yet, so
+ * only the L1 `dsh.features.*` switches are offered (the plan's full list is
+ * covered by a roadmap placeholder step — declared deviation).
+ */
+const ONBOARDING_FEATURE_SWITCHES = FEATURE_CATALOG
+  .filter((feature) => feature.layer !== 'L0')
+  .map((feature) => ({ id: feature.id, label: feature.label }));
+
+/**
+ * C2 onboarding: the workspace adapter passed to runOnboardingWizard. It
+ * injects the VS Code facade, the localization function, the dsh.* read/write
+ * seams, and the implemented feature switch list so src/onboarding.js stays a
+ * pure module (no top-level require('vscode')).
+ */
+function createOnboardingWorkspace(vscode, loc) {
+  return {
+    vscode,
+    loc,
+    featureSwitches: ONBOARDING_FEATURE_SWITCHES,
+    getSetting(key, fallback) {
+      return vscode.workspace.getConfiguration('dsh').get(key, fallback);
+    },
+    async updateSetting(key, value) {
+      // Global target: the wizard's choices apply to the user, not one folder.
+      return vscode.workspace.getConfiguration('dsh').update(key, value, true);
+    },
+  };
+}
 
 /**
  * R25: L0 core-server. ServerManager startup/health/restart/stop lifecycle,
@@ -1582,6 +1614,26 @@ async function activateWithDependencies(context, dependencies = {}) {
       scheduleConnect(context).catch(() => {});
     });
   }
+
+  // C2 post-install onboarding command — registered outside the feature
+  // subscription batches: it must be available even when a feature setup
+  // failed, and the QuickPick/InputBox wizard self-manages (contract: no new
+  // context.subscriptions entry).
+  vscode.commands.registerCommand("dsh.onboarding", () =>
+    runOnboardingWizard({ context, workspace: createOnboardingWorkspace(vscode, loc) })
+  );
+
+  // C2 first-activation prompt: after L0 setup completed successfully, ask once
+  // (globalState gate) whether to run the wizard. Deliberately not awaited —
+  // the wizard must never block activation (contract: dangling promise).
+  maybeOnboard({
+    vscode,
+    context,
+    loc,
+    workspace: createOnboardingWorkspace(vscode, loc),
+  }).catch((error) => {
+    console.error("dsh-vs-sidebar: onboarding prompt failed:", error);
+  });
 }
 
 async function activate(context) {
