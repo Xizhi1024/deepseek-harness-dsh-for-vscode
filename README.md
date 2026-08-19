@@ -82,7 +82,7 @@ The extension never sends editor content implicitly. The active file, selection,
 
 The extension never installs third-party providers. **Every third-party provider is `manual-assist` in this round**; none is marked `integrated` because the stable-interface audit (G3) is still open. `vscode/extensions/openDetails` only opens the catalog-controlled VS Code extension details page or an official `https://` documentation page — there is no install code path.
 
-**Diagnose** reads the `dsh.*` configuration, server state, bridge state, catalog revision, and provider detection results, then shows a single summary message. Full diagnostics output and an OutputChannel are intentionally deferred to a later W4 slice.
+**Diagnose** reads the `dsh.*` configuration, server state, bridge state, catalog revision, and provider detection results, then shows a single summary message. Diagnostics are also mirrored to the **`DSH` OutputChannel** (VS Code → Output → DSH) — the last link of the failure-degradation chain — including feature failures, startup errors, self-heal events and orphan-sweep events.
 
 ## 0.6 capabilities
 
@@ -187,7 +187,7 @@ Achieving a Cursor/Claude Code-like experience requires both sides of the bridge
 |---|---|
 | `onVscodeExit` | Stop the owned server only when VS Code exits (default) |
 | `onViewClose` | Also stop the owned server when the sidebar view is closed |
-| `never` | Never stop automatically — use the **Stop DSH Server** command; after a window crash, survivors are listed by **Clean Up Orphan DSH Servers** |
+| `never` | Never stop automatically — use the **Stop DSH Server** command; the child watchdog is disabled, and the process keeps running after VS Code exits (a later activation's orphan sweep, or **Clean Up Orphan DSH Servers**, reclaims it) |
 
 A reused (non-owned) instance is never stopped by any policy or command.
 
@@ -245,8 +245,8 @@ B batch and is not implemented in A batch.
 
 - **Real browser provider not integrated**: the capability catalog only lists `browser-provider-placeholder`; provider selection and verification are deferred to W5.
 - **Extension Host smoke version**: the smoke test currently runs against VS Code 1.106 by default.
-- **Spawn output goes to a per-spawn log, not the OutputChannel**: the DSH child's stdout/stderr is captured in `<globalStorage>/dsh-server-<port>-<pid>.log` (truncated on each spawn) when the instance registry is writable; unexpected crashes still surface primarily as exit codes on the status page. A VS Code OutputChannel view is a later hardening item.
-- **Crash leftovers require one manual cleanup step**: after a VS Code crash or `closePolicy: never`, a surviving owned DSH is deliberately not auto-killed (it may still be in use). Run **Clean Up Orphan DSH Servers** to list registry entries with live pids; it probes each endpoint and only terminates processes that still answer as DSH, otherwise it offers record-only removal.
+- **Spawn output goes to a per-spawn log, not the OutputChannel**: the DSH child's stdout/stderr is captured in `<globalStorage>/dsh-server-<port>-<pid>.log` (truncated on each spawn) when the instance registry is writable; the `DSH` OutputChannel carries **extension-side diagnostics** (feature failures, startup errors, self-heal, orphan sweeps), not the child's raw stdout/stderr.
+- **Orphan DSH processes are reclaimed automatically**: registry entries carry the owning window (`vscodePid` + `windowId`). On every activation the extension tree-kills entries whose owner extension-host is confirmed dead (living owners are never touched), and a **watchdog** (default on, off under `closePolicy: never`) lets a VS Code-managed DSH child self-terminate once its heartbeat file goes stale **and** its parent process is gone (dual condition, plus window-ownership and PID-reuse guards). **Clean Up Orphan DSH Servers** remains for user-driven review of surviving/legacy instances.
 - **Startup failures are centrally classified**: startup error codes live in `src/startupErrors.js` with `retryable` / `template` / `diagnoseHint`; the Retry button is hidden for configuration-only classes and stays available for runtime/spawn/health classes. Clean restart (`Restart-Clean`) is a separate B-batch item.
 - **Some DSH copy buttons may still fail**: the bridge only replaces `navigator.clipboard.writeText`; a DSH UI fallback that uses `document.execCommand('copy')` writes to the webview clipboard instead of the VS Code clipboard and belongs to the DSH UI side. Model-output Copy through the standard clipboard API works.
 
