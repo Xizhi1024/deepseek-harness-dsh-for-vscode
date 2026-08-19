@@ -45,6 +45,11 @@ test('editor title exposes one persistent icon and DSH view title exposes no pri
     command: 'dsh.focusSidebar',
     key: 'ctrl+alt+b',
     when: '!terminalFocus'
+  }, {
+    command: 'dsh.addSelectionToThread',
+    key: 'ctrl+l',
+    mac: 'cmd+l',
+    when: 'config.dsh.keybindings.ctrlL && editorTextFocus'
   }]);
   assert.deepStrictEqual(menus['editor/title/context'], [{
     command: 'dsh.addFileToThread',

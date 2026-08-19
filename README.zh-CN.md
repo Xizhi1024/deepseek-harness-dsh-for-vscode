@@ -44,6 +44,7 @@
 ## 使用
 
 - `Ctrl+Alt+B` 打开辅助侧边栏 → **DeepSeek Harness (DSH)** 标签
+- 可选 `Ctrl+L`（macOS 为 `Cmd+L`）：开启 `dsh.keybindings.ctrlL` 后，在编辑器中按下即可把当前选区加入 DSH 对话
 - 命令（全部 16 条）：**在浏览器中打开 DSH** · **新建会话** · **切换会话** · **重启 DSH 服务** · **干净重启 DSH 服务** · **停止 DSH 服务** · **聚焦 DSH 侧边栏** · **将文件添加到 DSH 对话** · **添加到 DSH 对话** · **将活动文件添加到 DSH 上下文** · **将活动选区添加到 DSH 上下文** · **将 Problems 添加到 DSH 上下文** · **能力与集成** · **诊断** · **清理孤儿 DSH 服务** · **设置 DSH**
 - `dsh.autoStart` 开启时，VS Code 启动即拉取服务，即使侧边栏从未打开
 
@@ -178,6 +179,7 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 | `dsh.features.editor-links` | true | 在本 VS Code 窗口中打开 DSH 的 `Read …` 与草稿附件链接（L1 功能；关闭后不启动文本文档桥） |
 | `dsh.features.statusbar-basic` | true | 状态栏中的基础 DSH 状态指示（L1 功能；关闭后失败时仍会以 L0 `$(error)` 兜底呈现） |
 | `dsh.features.theme-follow` | true | 内嵌 DSH iframe 跟随 VS Code 当前颜色主题（深色/浅色）（L1 功能；关闭后不附加 `dsh_theme` URL 参数、不监听主题变化） |
+| `dsh.keybindings.ctrlL` | false | 启用 Ctrl+L（macOS 为 Cmd+L）键位：将当前编辑器选区加入 DSH 对话（默认关闭） |
 
 `dsh.closePolicy` 取值：
 

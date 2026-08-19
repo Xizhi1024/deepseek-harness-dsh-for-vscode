@@ -22,6 +22,10 @@ function parseInteractionRequest(message) {
     if (Buffer.byteLength(message.params.text, 'utf8') > MAX_COPY_BYTES) return null;
     return { requestId: message.requestId, method: message.method, text: message.params.text };
   }
+  if (message.method === 'clipboard/readText') {
+    // No params: the read payload rides the bridge result back to the caller.
+    return { requestId: message.requestId, method: message.method };
+  }
   if (message.method === 'link/open') {
     if (typeof message.params.url !== 'string') return null;
     let parsed;
@@ -36,7 +40,7 @@ function parseInteractionRequest(message) {
   return null;
 }
 
-function resultMessage(requestId, ok, error = undefined) {
+function resultMessage(requestId, ok, error = undefined, data = undefined) {
   return {
     type: MESSAGE_TYPES.BRIDGE_RESULT,
     channel: CHANNEL,
@@ -44,6 +48,7 @@ function resultMessage(requestId, ok, error = undefined) {
     requestId,
     ok,
     ...(ok || !error ? {} : { error: String(error).slice(0, 500) }),
+    ...(ok && data !== undefined ? { data } : {}),
   };
 }
 
@@ -51,15 +56,25 @@ async function handleInteractionRequest({ vscode, webview, message, openAttachme
   const request = parseInteractionRequest(message);
   if (!request) return false;
   try {
+    let data;
     if (request.method === 'clipboard/writeText') {
       await vscode.env.clipboard.writeText(request.text);
+    } else if (request.method === 'clipboard/readText') {
+      const text = await vscode.env.clipboard.readText();
+      // Cap the paste payload at the same budget as writes; byte-approximate
+      // truncation keeps one bad clipboard from flooding the iframe.
+      let bounded = text;
+      while (bounded.length > 0 && Buffer.byteLength(bounded, 'utf8') > MAX_COPY_BYTES) {
+        bounded = bounded.slice(0, Math.floor(bounded.length / 2));
+      }
+      data = { text: bounded };
     } else if (request.method === 'link/open') {
       await vscode.commands.executeCommand('simpleBrowser.show', request.url);
     } else {
       if (typeof openAttachment !== 'function') throw new Error('Editor attachment opener is unavailable');
       await openAttachment(request.attachmentId);
     }
-    await webview.postMessage(resultMessage(request.requestId, true));
+    await webview.postMessage(resultMessage(request.requestId, true, undefined, data));
   } catch (error) {
     await webview.postMessage(resultMessage(
       request.requestId,

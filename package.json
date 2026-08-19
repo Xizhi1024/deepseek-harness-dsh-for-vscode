@@ -199,6 +199,12 @@
         "command": "dsh.focusSidebar",
         "key": "ctrl+alt+b",
         "when": "!terminalFocus"
+      },
+      {
+        "command": "dsh.addSelectionToThread",
+        "key": "ctrl+l",
+        "mac": "cmd+l",
+        "when": "config.dsh.keybindings.ctrlL && editorTextFocus"
       }
     ],
     "menus": {
@@ -343,6 +349,11 @@
           "type": "boolean",
           "default": true,
           "description": "%dsh.cfg.features.theme-follow%"
+        },
+        "dsh.keybindings.ctrlL": {
+          "type": "boolean",
+          "default": false,
+          "description": "%dsh.cfg.keybindings.ctrlL%"
         }
       }
     }

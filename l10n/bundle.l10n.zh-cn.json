@@ -153,5 +153,6 @@
   "DSH setup complete. The profile change takes effect after reloading the VS Code window. You can change any setting later in Settings (dsh.*) or run the \"Set up DSH\" command again.": "DSH 设置完成。Profile 变更在重新加载 VS Code 窗口后生效。之后可在设置（dsh.*）中修改，或再次运行「设置 DSH」命令。",
   "DSH setup complete. You can change any setting later in Settings (dsh.*) or run the \"Set up DSH\" command again.": "DSH 设置完成。之后可在设置（dsh.*）中修改，或再次运行「设置 DSH」命令。",
   "none": "无",
-  "Orphan sweep: terminated {count} DSH process(es) from dead VS Code windows ({pids})": "孤儿清扫：已终止 {count} 个来自已退出 VS Code 窗口的 DSH 进程（{pids}）"
+  "Orphan sweep: terminated {count} DSH process(es) from dead VS Code windows ({pids})": "孤儿清扫：已终止 {count} 个来自已退出 VS Code 窗口的 DSH 进程（{pids}）",
+  "DSH compat: {compat}": "DSH 兼容性：{compat}"
 }

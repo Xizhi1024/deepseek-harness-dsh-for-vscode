@@ -86,6 +86,7 @@ function normalizeResolvedRuntime(input, platform = process.platform) {
     dshHome: path.resolve(dshHome),
     profileHome: path.resolve(profileHome),
     profileName,
+    dshVersion: typeof input.dshVersion === 'string' && input.dshVersion.length > 0 ? input.dshVersion : null,
     entrypointArgs: Object.freeze(normalizedArgs),
     ...(input.payloadRoot === undefined ? {} : { payloadRoot: path.resolve(input.payloadRoot) }),
   });

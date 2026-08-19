@@ -143,7 +143,7 @@ window.__ModuleLoader__.load({
       if (!waiter) return;
       pending.delete(message.requestId);
       clearTimeout(waiter.timer);
-      if (message.ok) waiter.resolve();
+      if (message.ok) waiter.resolve(message.data);
       else waiter.reject(new Error(message.error || 'VS Code interaction failed'));
     }
 
@@ -191,6 +191,41 @@ window.__ModuleLoader__.load({
       return () => document.removeEventListener('keydown', onKeyDown, true);
     }
 
+    // R15: execCommand fallback. When the embedded page runs
+    // document.execCommand('copy'/'cut') and the browser denies it, forward the
+    // selection through the clipboard bridge; when execCommand('paste') is
+    // denied (the macOS webview case), read the clipboard through the bridge
+    // and insert the text ourselves.
+    function installExecCommandFallback() {
+      if (typeof document.execCommand !== 'function') return () => {};
+      const native = document.execCommand.bind(document);
+      document.execCommand = function execCommandBridged(command, showUi, value) {
+        const result = native(command, showUi, value);
+        if (result) return result;
+        if (!enabled()) return result;
+        if (command === 'copy' || command === 'cut') {
+          const selection = window.getSelection ? String(window.getSelection()) : '';
+          const text = selection || (typeof value === 'string' ? value : '');
+          if (text) {
+            request('clipboard/writeText', { text }).catch(() => {});
+            return true;
+          }
+          return result;
+        }
+        if (command === 'paste') {
+          request('clipboard/readText', {}).then((data) => {
+            const text = data && typeof data.text === 'string' ? data.text : '';
+            if (text) native('insertText', false, text);
+          }).catch(() => {});
+          return true;
+        }
+        return result;
+      };
+      return () => {
+        try { delete document.execCommand; } catch { document.execCommand = native; }
+      };
+    }
+
     function onClick(event) {
       if (event.defaultPrevented || event.button !== 0) return;
       const element = event.target instanceof Element ? event.target.closest('a[href]') : null;
@@ -216,6 +251,7 @@ window.__ModuleLoader__.load({
         window.addEventListener('message', listener);
         document.addEventListener('click', onClick, true);
         const restoreClipboard = installClipboardBridge();
+        const restoreExecFallback = installExecCommandFallback();
         const restoreMacPasteShortcut = installMacPasteShortcutBridge();
         window.parent.postMessage({
           type: 'dshThreadReady', channel: THREAD_CHANNEL, version: THREAD_VERSION,
@@ -223,6 +259,7 @@ window.__ModuleLoader__.load({
         return () => {
           if (handshakeTimer) clearTimeout(handshakeTimer);
           restoreClipboard();
+          restoreExecFallback();
           restoreMacPasteShortcut();
           document.removeEventListener('click', onClick, true);
           window.removeEventListener('message', listener);

@@ -153,5 +153,6 @@
   "DSH setup complete. The profile change takes effect after reloading the VS Code window. You can change any setting later in Settings (dsh.*) or run the \"Set up DSH\" command again.": "DSH setup complete. The profile change takes effect after reloading the VS Code window. You can change any setting later in Settings (dsh.*) or run the \"Set up DSH\" command again.",
   "DSH setup complete. You can change any setting later in Settings (dsh.*) or run the \"Set up DSH\" command again.": "DSH setup complete. You can change any setting later in Settings (dsh.*) or run the \"Set up DSH\" command again.",
   "none": "none",
-  "Orphan sweep: terminated {count} DSH process(es) from dead VS Code windows ({pids})": "Orphan sweep: terminated {count} DSH process(es) from dead VS Code windows ({pids})"
+  "Orphan sweep: terminated {count} DSH process(es) from dead VS Code windows ({pids})": "Orphan sweep: terminated {count} DSH process(es) from dead VS Code windows ({pids})",
+  "DSH compat: {compat}": "DSH compat: {compat}"
 }
