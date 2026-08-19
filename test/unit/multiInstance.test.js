@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const { activateWithDependencies, deactivate, openInstancePanel, focusedComposerWebview } = require('../../src/extension');
+const { createVscodeFacade } = require('../../src/vscodeFacade');
 
 function disposable() {
   return { dispose() {} };
@@ -159,7 +160,8 @@ test('openInstancePanel shares the one DSH child and gives the panel its own ses
       sessionCalls.push({ baseUrl, opts });
       return 'sess-42';
     },
-    vscode: fake.api,
+    // No explicit vscode param: exercise the default module facade path
+    // exactly as production does (regression for the ViewColumn crash).
   });
 
   assert.strictEqual(fake.panels.length, 1);
@@ -187,7 +189,8 @@ test('a failed session creation disposes the panel and surfaces the error', asyn
     openInstancePanel({
       server: sharedServer,
       createSessionFn: async () => { throw new Error('session api down'); },
-      vscode: fake.api,
+      // No explicit vscode param: exercise the default module facade path
+    // exactly as production does (regression for the ViewColumn crash).
     }),
     /session api down/,
   );
@@ -204,7 +207,8 @@ test('deactivate disposes instance panels without touching the shared server', a
   await openInstancePanel({
     server: sharedServer,
     createSessionFn: async () => 'sess-1',
-    vscode: fake.api,
+    // No explicit vscode param: exercise the default module facade path
+    // exactly as production does (regression for the ViewColumn crash).
   });
   const panel = fake.panels[0];
   await deactivate();
