@@ -423,7 +423,13 @@ class BridgeGeneration {
       waiter.signal.removeEventListener('abort', waiter.onAbort);
     }
     if (message.error) {
-      waiter.reject(jsonRpcError(message.error.code || 'VSCODE_BRIDGE_ERROR', message.error.message || 'VS Code bridge error'));
+      const detail = message.error;
+      // Server error frames carry the bridge code in error.data.code; the
+      // top-level error.code is the numeric JSON-RPC code (-32xxx).
+      const bridgeCode = detail.data && typeof detail.data.code === 'string' && detail.data.code.length > 0
+        ? detail.data.code
+        : (detail.code || 'VSCODE_BRIDGE_ERROR');
+      waiter.reject(jsonRpcError(bridgeCode, detail.message || 'VS Code bridge error'));
     } else {
       waiter.resolve(message.result);
     }

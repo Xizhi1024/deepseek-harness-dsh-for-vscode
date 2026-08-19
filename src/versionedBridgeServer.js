@@ -222,6 +222,20 @@ class VersionedBridgeServer {
       this._writeError(connection.socket, isRecord(frame) ? frame.id ?? null : null, -32600, 'VSCODE_INVALID_PARAMS', 'Invalid JSON-RPC request');
       return;
     }
+    try {
+      await this._dispatchFrame(connection, frame);
+    } catch (error) {
+      // Last-resort guard: _onData fires this as a void-ed promise, so an
+      // uncaught throw anywhere in dispatch would leave the request
+      // unanswered and the client hanging until its own timeout (F5 smoke
+      // round 2 root cause: initialize crashed on the notifications table
+      // and the socket just sat there accepting bytes).
+      const id = typeof frame.id === 'string' || typeof frame.id === 'number' ? frame.id : null;
+      this._writeError(connection.socket, id, -32603, 'VSCODE_INTERNAL_ERROR', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async _dispatchFrame(connection, frame) {
     if (frame.method === '$/cancelRequest' && frame.id === undefined) {
       const targetId = isRecord(frame.params) ? frame.params.id : undefined;
       const controller = connection.pending.get(targetId);

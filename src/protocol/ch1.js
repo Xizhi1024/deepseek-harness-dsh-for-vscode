@@ -75,9 +75,14 @@ const METHODS_BY_VERSION = Object.freeze({
   3: METHODS_V3,
 });
 
+// v3a froze the request-method surface only (METHODS_V3); the push set is
+// unchanged from v2, so v3 connections carry the same notifications.
+const NOTIFICATIONS_V3 = NOTIFICATIONS_V2;
+
 const NOTIFICATIONS_BY_VERSION = Object.freeze({
   1: NOTIFICATIONS_V1,
   2: NOTIFICATIONS_V2,
+  3: NOTIFICATIONS_V3,
 });
 
 /**
