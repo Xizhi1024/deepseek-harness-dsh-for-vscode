@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { createWebviewMessageHandler } = require('../src/webviewMessages');
+const { createWebviewMessageHandler, DSH_THEME_CHANGED } = require('../src/webviewMessages');
 
 test('Webview messages route only the fixed openBrowser and retry actions', () => {
   const calls = [];
@@ -45,4 +45,8 @@ test('Webview messages route DSH thread acknowledgements when configured', () =>
   const message = { type: 'dshThreadAttachResult', requestId: 'one', ok: true };
   assert.strictEqual(handle(message), true);
   assert.deepStrictEqual(calls, [message]);
+});
+
+test('Webview messages expose the dshThemeChanged protocol constant', () => {
+  assert.strictEqual(DSH_THEME_CHANGED, 'dshThemeChanged');
 });

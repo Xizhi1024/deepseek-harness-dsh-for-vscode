@@ -47,7 +47,7 @@ const { VersionedBridgeServer } = require("./versionedBridgeServer");
 const { createBridgeWorkspaceIdentity } = require("./bridgeWorkspace");
 const { DEFAULT_HOST, DEFAULT_PORT, VIEW_ID, CONTAINER_ID } = require("./types");
 const { createVscodeFacade } = require("./vscodeFacade");
-const { createWebviewMessageHandler } = require("./webviewMessages");
+const { createWebviewMessageHandler, DSH_THEME_CHANGED } = require("./webviewMessages");
 const {
   handleInteractionRequest,
   parseInteractionRequest,
@@ -88,6 +88,7 @@ let manager = null; // ServerManager instance (created in activate)
 let currentServer = null; // RunningServer | null
 let currentExternalUrl = null; // client-reachable URL (forwarded in remote workspaces)
 let currentSessionId = null; // DSH session id to pass to the iframe (dsh_session)
+let currentDshTheme = null; // active VS Code theme ('dark'|'light') for dsh_theme / dshThemeChanged
 let currentView = null; // vscode.WebviewView | null
 let statusBar = null; // vscode.StatusBarItem | null
 let boundCwd = null; // workspace root the current server is bound to (null = none)
@@ -236,6 +237,25 @@ function loc(template, params) {
 }
 
 /**
+ * Map a VS Code active color theme kind to the DSH theme marker (`dark` or
+ * `light`). Dark and HighContrast resolve to `dark`, Light and
+ * HighContrastLight to `light`; unknown kinds resolve to undefined so no
+ * `dsh_theme` URL parameter is emitted.
+ *
+ * @param {{kind?: number}|undefined} theme - `vscode.window.activeColorTheme`.
+ * @returns {'dark'|'light'|undefined}
+ */
+function themeFromColorThemeKind(theme) {
+  const kind = theme && theme.kind;
+  if (kind === undefined || kind === null) return undefined;
+  if (kind === vscode?.ColorThemeKind?.Dark || kind === 2) return 'dark';
+  if (kind === vscode?.ColorThemeKind?.HighContrast || kind === 3) return 'dark';
+  if (kind === vscode?.ColorThemeKind?.Light || kind === 1) return 'light';
+  if (kind === vscode?.ColorThemeKind?.HighContrastLight || kind === 4) return 'light';
+  return undefined;
+}
+
+/**
  * The directory the DSH server should treat as its workspace root.
  * Defaults to the current VS Code workspace: in multi-root setups the
  * workspace of the active editor wins, otherwise the first folder.
@@ -289,6 +309,7 @@ function renderFrame(context) {
     openBrowserLabel: loc("Open in browser"),
     retryLabel: loc("Retry"),
     sessionId: currentSessionId,
+    theme: currentDshTheme,
   }));
 }
 
@@ -626,6 +647,7 @@ const FEATURE_CATALOG = [
   { id: 'thread-attachment', label: 'Add to DSH thread', layer: 'L1', defaultEnabled: true, core: false, setup: setupThreadAttachment },
   { id: 'editor-links', label: 'Editor links (Read…)', layer: 'L1', defaultEnabled: true, core: false, setup: setupEditorLinks },
   { id: 'statusbar-basic', label: 'Status bar indicator', layer: 'L1', defaultEnabled: true, core: false, setup: setupStatusbarBasic },
+  { id: 'theme-follow', label: 'Theme follow (dark/light)', layer: 'L1', defaultEnabled: true, core: false, setup: setupThemeFollow },
 ];
 
 /**
@@ -1006,6 +1028,39 @@ async function setupEditorLinks({ context, services }) {
     interactionHandlers = interactionHandlers.filter((h) => h !== handler);
     await textDocumentBridge?.close().catch(() => {});
     textDocumentBridge = null;
+  };
+}
+
+/**
+ * R25/R12: L1 theme-follow (dsh.features.theme-follow). Follows the VS Code
+ * active color theme: the initial theme is stamped on the iframe URL via
+ * `dsh_theme`, and every onDidChangeActiveColorTheme event is pushed through
+ * the existing webview message channel (`dshThemeChanged`) so the shell can
+ * forward it to the DSH iframe without reloading. When the API is unavailable
+ * (test/legacy hosts) the setup degrades to a no-op subscription so the
+ * feature lifecycle still participates in context.subscriptions.
+ */
+async function setupThemeFollow({ context }) {
+  const initialTheme = themeFromColorThemeKind(vscode.window.activeColorTheme);
+  if (initialTheme) {
+    currentDshTheme = initialTheme;
+  }
+  let themeListener = null;
+  if (typeof vscode.window.onDidChangeActiveColorTheme === 'function') {
+    themeListener = vscode.window.onDidChangeActiveColorTheme((theme) => {
+      const nextTheme = themeFromColorThemeKind(theme);
+      if (!nextTheme) return;
+      currentDshTheme = nextTheme;
+      try {
+        currentView?.webview?.postMessage?.({ type: DSH_THEME_CHANGED, theme: nextTheme });
+      } catch (_) { /* theme notification is advisory */ }
+    });
+  }
+  const subscription = { dispose() { themeListener?.dispose?.(); } };
+  context.subscriptions.push(subscription);
+  return () => {
+    themeListener?.dispose?.();
+    currentDshTheme = null;
   };
 }
 
@@ -1433,8 +1488,9 @@ async function deactivate() {
     currentServer = null;
     currentExternalUrl = null;
     currentSessionId = null;
+    currentDshTheme = null;
     boundCwd = null;
   }
 }
 
-module.exports = { activate, deactivate, activateWithDependencies, isRetryableStartupError, FEATURE_CATALOG };
+module.exports = { activate, deactivate, activateWithDependencies, isRetryableStartupError, themeFromColorThemeKind, FEATURE_CATALOG };

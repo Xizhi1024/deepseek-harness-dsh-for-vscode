@@ -210,7 +210,7 @@ test('activation registers the public host surface through injected dependencies
   assert.strictEqual(typeof versionedBridgeOptions.handlers['vscode/workspace/getDiagnostics'], 'function');
   assert.strictEqual(typeof versionedBridgeOptions.handlers['vscode/extensions/getProviderStates'], 'function');
   assert.strictEqual(typeof versionedBridgeOptions.handlers['vscode/extensions/openDetails'], 'function');
-  assert.strictEqual(context.subscriptions.length, 22);
+  assert.strictEqual(context.subscriptions.length, 23);
   assert.strictEqual(ensureRuntimeCalls, 0, 'autoStart=false must not resolve the managed runtime');
 
   fake.api.workspace.workspaceFolders = [

@@ -3,6 +3,13 @@
 const { CHANNELS, MESSAGE_TYPES, VERSIONS } = require('./protocol/webview');
 
 /**
+ * Extension-host → Webview shell theme synchronization message type.
+ * The shell forwards a message with this type to the DSH iframe via
+ * postMessage; old DSH clients ignore the extra message and degrade silently.
+ */
+const DSH_THEME_CHANGED = 'dshThemeChanged';
+
+/**
  * Create the fixed message router used by the status-page Webview.
  * Unknown and malformed messages are deliberately ignored.
  *
@@ -52,6 +59,7 @@ function createWebviewMessageHandler({
 
 module.exports = {
   CHANNELS,
+  DSH_THEME_CHANGED,
   MESSAGE_TYPES,
   VERSIONS,
   createWebviewMessageHandler,

@@ -77,3 +77,30 @@ test('withVscodeEmbedMode accepts http and https URLs and adds markers', () => {
     assert.strictEqual(parsed.searchParams.get('dsh_session'), 's');
   }
 });
+
+test('withVscodeEmbedMode adds dsh_theme only for dark/light and never overwrites existing params', () => {
+  for (const theme of ['dark', 'light']) {
+    const parsed = new URL(withVscodeEmbedMode('http://127.0.0.1:3080/?a=1', 's', theme));
+    assert.strictEqual(parsed.searchParams.get('dsh_embed'), 'vscode');
+    assert.strictEqual(parsed.searchParams.get('dsh_theme'), theme);
+    assert.strictEqual(parsed.searchParams.get('a'), '1');
+  }
+  for (const bad of [undefined, null, '', 'highContrast', 'Dark', 2]) {
+    const parsed = new URL(withVscodeEmbedMode('http://127.0.0.1:3080/', 's', bad));
+    assert.strictEqual(parsed.searchParams.get('dsh_theme'), null);
+  }
+});
+
+test('framePage embeds dsh_theme in the iframe src when a theme is supplied', () => {
+  const html = framePage({ url: 'http://127.0.0.1:3080', theme: 'dark' });
+  assert.ok(html.includes('dsh_theme=dark'));
+  const noTheme = framePage({ url: 'http://127.0.0.1:3080' });
+  assert.ok(!noTheme.includes('dsh_theme='));
+});
+
+test('framePage shell forwards dshThemeChanged messages to the DSH iframe without reloading', () => {
+  const html = framePage({ url: 'http://127.0.0.1:3080', theme: 'light' });
+  assert.ok(html.includes('"dshThemeChanged"'));
+  assert.ok(html.includes('message.theme === "dark" || message.theme === "light"'));
+  assert.ok(html.includes('frame.contentWindow.postMessage'));
+});
