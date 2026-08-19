@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const { ServerError, ServerManager } = require('./serverManager');
 const { MANAGED_PROFILE } = require('./managedRuntimeLaunch');
+const { STARTUP_ERRORS } = require('./startupErrors');
 
 function unique(values, platform) {
   const seen = new Set();
@@ -232,11 +233,13 @@ async function resolveLocalDshRuntime({
   if (packageRoot && !isConfiguredPathAbsolute(packageRoot, platform)) {
     const error = new Error('dsh.local.packageRoot must be absolute (Windows drive-letter path on win32)');
     error.code = 'CONFIG_PACKAGE_ROOT_INVALID';
+    error.params = { path: packageRoot };
     throw error;
   }
   if (nodePath && !isConfiguredPathAbsolute(nodePath, platform)) {
     const error = new Error('dsh.local.nodePath must be absolute (Windows drive-letter path on win32)');
     error.code = 'CONFIG_NODE_PATH_INVALID';
+    error.params = { path: nodePath };
     throw error;
   }
 
@@ -262,12 +265,14 @@ async function resolveLocalDshRuntime({
     if (packageRoot) {
       throw new ServerError(
         `The configured dsh.local.packageRoot does not contain the official @deepseek-ai/dsh package: ${packageRoot}`,
-        {},
+        { path: packageRoot },
         'CONFIG_PACKAGE_ROOT_INVALID'
       );
     }
     throw new ServerError(
-      'Official DSH is not installed. Install it with `npm install -g @deepseek-ai/dsh`, then reload VS Code; the extension will create or reuse the selected DSH home automatically.'
+      STARTUP_ERRORS.RUNTIME_NOT_INSTALLED.template,
+      {},
+      'RUNTIME_NOT_INSTALLED'
     );
   }
 
@@ -294,12 +299,14 @@ async function resolveLocalDshRuntime({
     if (nodePath) {
       throw new ServerError(
         `The configured dsh.local.nodePath is not a usable Node.js executable: ${nodePath}`,
-        {},
+        { path: nodePath },
         'CONFIG_NODE_PATH_INVALID'
       );
     }
     throw new ServerError(
-      'Node.js was not found for the installed DSH package. Set dsh.local.nodePath to the absolute Node executable path.'
+      STARTUP_ERRORS.RUNTIME_NODE_MISSING.template,
+      {},
+      'RUNTIME_NODE_MISSING'
     );
   }
 

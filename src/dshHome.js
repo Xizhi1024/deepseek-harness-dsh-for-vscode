@@ -22,6 +22,7 @@ function validateConfiguredHome(value) {
   if (candidate.includes('\0') || !path.isAbsolute(candidate)) {
     const error = new Error('dsh.home.path must be an absolute path');
     error.code = 'CONFIG_HOME_PATH_INVALID';
+    error.params = { path: candidate };
     throw error;
   }
   return path.resolve(candidate);
@@ -56,6 +57,7 @@ function resolveDshHome({
     if (inherited.includes('\0')) {
       const error = new Error('DSH_HOME must not contain NUL');
       error.code = 'CONFIG_HOME_PATH_INVALID';
+      error.params = { path: inherited };
       throw error;
     }
     return Object.freeze({

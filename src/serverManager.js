@@ -22,6 +22,7 @@ const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { buildManagedLaunchSpec, normalizeResolvedRuntime } = require('./managedRuntimeLaunch');
+const { STARTUP_ERRORS } = require('./startupErrors');
 
 // Shared contract constants normally come from ./types. Fall back to local
 // defaults so this file stays independently testable when copied in isolation.
@@ -552,13 +553,13 @@ class ServerManager {
   async ensureServer({ host = DEFAULT_HOST, port = DEFAULT_PORT, autoStart = true, cwd, registryFile } = {}) {
     const generation = this._cancelGeneration;
     if (host !== DEFAULT_HOST) {
-      throw new ServerError('Unsupported dsh.host "{host}"; this extension requires {expected}', {
+      throw new ServerError(STARTUP_ERRORS.CONFIG_HOST_UNSUPPORTED.template, {
         host,
         expected: DEFAULT_HOST,
       }, 'CONFIG_HOST_UNSUPPORTED');
     }
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      throw new ServerError('Invalid dsh.port "{port}"; expected an integer from 1 to 65535', { port }, 'CONFIG_PORT_INVALID');
+      throw new ServerError(STARTUP_ERRORS.CONFIG_PORT_INVALID.template, { port }, 'CONFIG_PORT_INVALID');
     }
     // Step 1: a repeated ensure in this extension host keeps ownership of its
     // own child, including when that child lives on a scanned-forward port.
@@ -587,7 +588,7 @@ class ServerManager {
         this._emit('reusing', 'Found a running DSH instance at http://{host}:{port}, reusing', { host, port });
         return this._reuseHandle(host, port);
       }
-      throw new ServerError('DSH is not running and dsh.autoStart is disabled', {}, 'AUTOSTART_DISABLED');
+      throw new ServerError(STARTUP_ERRORS.AUTOSTART_DISABLED.template, {}, 'AUTOSTART_DISABLED');
     }
 
     // Step 4: any occupied port belongs to another owner and must not be
@@ -621,10 +622,10 @@ class ServerManager {
       const probeResult = await this.probe(host, candidate);
       if (!probeResult.reachable && probeResult.reason === 'refused') return candidate;
     }
-    throw new ServerError('No free port found within {limit} ports starting from {start}', {
+    throw new ServerError(STARTUP_ERRORS.NO_FREE_PORT.template, {
       limit: PORT_SCAN_LIMIT,
       start: startPort,
-    });
+    }, 'NO_FREE_PORT');
   }
 
   /**
@@ -828,17 +829,18 @@ class ServerManager {
         settled = true;
         if (this._child === child) this._child = null;
         this._ownedServer = null;
-        this._emit('error', 'Failed to start dsh: {error}', { error: err.message, log: logPath });
-        reject(new Error('Failed to start dsh: ' + err.message));
+        this._emit('error', STARTUP_ERRORS.SPAWN_ERROR.template, { error: err.message, log: logPath });
+        reject(new ServerError(STARTUP_ERRORS.SPAWN_ERROR.template, { error: err.message }, 'SPAWN_ERROR'));
       });
 
       child.once('exit', (code, signal) => {
         if (settled) return;
         settled = true;
-        const template = this._stopping
-          ? 'DSH process was stopped'
-          : 'DSH process exited early (code={code}, signal={signal})';
-        reject(new ServerError(template, this._stopping ? {} : { code, signal }));
+        if (this._stopping) {
+          reject(new ServerError('DSH process was stopped'));
+          return;
+        }
+        reject(new ServerError(STARTUP_ERRORS.SPAWN_EXITED_EARLY.template, { code, signal }, 'SPAWN_EXITED_EARLY'));
       });
 
       const poll = async () => {
@@ -867,8 +869,9 @@ class ServerManager {
           child.removeListener('exit', onUnexpectedExit);
           await this._killChild(child); // best-effort cleanup of the hung process
           reject(new ServerError(
-            'DSH service did not become ready within {seconds}s; process terminated (pid={pid})',
-            { seconds: HEALTH_TIMEOUT_MS / 1000, pid: child.pid }
+            STARTUP_ERRORS.HEALTH_TIMEOUT.template,
+            { seconds: HEALTH_TIMEOUT_MS / 1000, pid: child.pid },
+            'HEALTH_TIMEOUT'
           ));
           return;
         }

@@ -206,13 +206,39 @@ The extension runs **two bridges with two different trust scopes**, and the boun
 
 If you use shared-home DSH sessions with a model you do not fully trust, keep workspace trust on and treat the embedded DSH like an agent with editor-open capability — not like a sandboxed webview.
 
+## Startup error codes
+
+Startup failures are classified centrally in `src/startupErrors.js`. Each code
+carries `retryable`, a localized `template`, and a `diagnoseHint`; `dsh.diagnose`
+prints the healthy code table. Unknown codes fall back to the original error text.
+
+| Code | Retryable | Template |
+|---|---|---|
+| `AUTOSTART_DISABLED` | no | `DSH is not running and dsh.autoStart is disabled` |
+| `CONFIG_HOST_UNSUPPORTED` | no | `Unsupported dsh.host "{host}"; this extension requires {expected}` |
+| `CONFIG_PORT_INVALID` | no | `Invalid dsh.port "{port}"; expected an integer from 1 to 65535` |
+| `CONFIG_PACKAGE_ROOT_INVALID` | no | `Invalid dsh.local.packageRoot: {path}` |
+| `CONFIG_NODE_PATH_INVALID` | no | `Invalid dsh.local.nodePath: {path}` |
+| `CONFIG_HOME_PATH_INVALID` | no | `Invalid DSH home path: {path}` |
+| `CONFIG_PROFILE_INVALID` | no | `Invalid dsh.profile: {profile}` |
+| `RUNTIME_NOT_INSTALLED` | yes | `Official DSH is not installed. …` |
+| `RUNTIME_NODE_MISSING` | yes | `Node.js was not found …` |
+| `NO_FREE_PORT` | yes | `No free port found within {limit} ports starting from {start}` |
+| `SPAWN_ERROR` | yes | `Failed to start dsh: {error}` |
+| `SPAWN_EXITED_EARLY` | yes | `DSH process exited early (code={code}, signal={signal})` |
+| `HEALTH_TIMEOUT` | yes | `DSH service did not become ready within {seconds}s; process terminated (pid={pid})` |
+| `BRIDGE_INIT_TIMEOUT` | yes | `VS Code bridge initialization timed out` |
+
+Clean-restart handling for `HEALTH_TIMEOUT` / `SPAWN_EXITED_EARLY` is part of the
+B batch and is not implemented in A batch.
+
 ## Known limitations
 
 - **Real browser provider not integrated**: the capability catalog only lists `browser-provider-placeholder`; provider selection and verification are deferred to W5.
 - **Extension Host smoke version**: the smoke test currently runs against VS Code 1.106 by default.
 - **Spawn output goes to a per-spawn log, not the OutputChannel**: the DSH child's stdout/stderr is captured in `<globalStorage>/dsh-server-<port>-<pid>.log` (truncated on each spawn) when the instance registry is writable; unexpected crashes still surface primarily as exit codes on the status page. A VS Code OutputChannel view is a later hardening item.
 - **Crash leftovers require one manual cleanup step**: after a VS Code crash or `closePolicy: never`, a surviving owned DSH is deliberately not auto-killed (it may still be in use). Run **Clean Up Orphan DSH Servers** to list registry entries with live pids; it probes each endpoint and only terminates processes that still answer as DSH, otherwise it offers record-only removal.
-- **Startup failures are only partially classified**: 0.6.0 gives configuration-only failures (host/port invalid, `autoStart=false` with no server, invalid configured root/node/home) stable codes and hides the Retry button because retrying cannot help. Runtime/spawn/download failures remain free-text with Retry. The full per-class switch-case startup detection (stable codes + per-class messages + Retry behavior for every failure class) is tracked in Troubleshooting.
+- **Startup failures are centrally classified**: startup error codes live in `src/startupErrors.js` with `retryable` / `template` / `diagnoseHint`; the Retry button is hidden for configuration-only classes and stays available for runtime/spawn/health classes. Clean restart (`Restart-Clean`) is a separate B-batch item.
 - **Some DSH copy buttons may still fail**: the bridge only replaces `navigator.clipboard.writeText`; a DSH UI fallback that uses `document.execCommand('copy')` writes to the webview clipboard instead of the VS Code clipboard and belongs to the DSH UI side. Model-output Copy through the standard clipboard API works.
 
 ## Implementation
@@ -301,7 +327,7 @@ Fix: remove `dsh.local.packageRoot` and `dsh.local.nodePath` from the affected m
 
 Planned hardening (recorded here, not yet implemented):
 
-- **Complete switch-case startup classification**: 0.6.0 already codes configuration-only failures and hides Retry for them. Runtime resolution / connect / spawn / health failures still need stable per-class codes, messages, diagnose entries, and Retry behavior — no free-text matching.
+- **Clean restart (Restart-Clean)**: A-batch startup classification is complete; the clean-overlay restart flow for `HEALTH_TIMEOUT` / `SPAWN_EXITED_EARLY` is still planned.
 
 ## License
 

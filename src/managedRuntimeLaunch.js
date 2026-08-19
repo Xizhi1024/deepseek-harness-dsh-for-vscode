@@ -15,6 +15,7 @@ function assertValidProfileName(profileName) {
   ) {
     const error = new Error(`Managed DSH profile name must match ${PROFILE_NAME_PATTERN.source}`);
     error.code = 'CONFIG_PROFILE_INVALID';
+    error.params = { profile: String(profileName) };
     throw error;
   }
   return profileName;
@@ -53,11 +54,13 @@ function normalizeResolvedRuntime(input, platform = process.platform) {
   if (typeof profileHome !== 'string' || !path.isAbsolute(profileHome)) {
     const error = new Error('Managed DSH profileHome must be absolute');
     error.code = 'CONFIG_PROFILE_INVALID';
+    error.params = { profile: String(profileName) };
     throw error;
   }
   if (!samePath(profileHome, expectedProfileHome, platform)) {
     const error = new Error(`Managed DSH profileHome does not match dshHome/profiles/${profileName}`);
     error.code = 'CONFIG_PROFILE_INVALID';
+    error.params = { profile: String(profileName) };
     throw error;
   }
   if (!Array.isArray(entrypointArgs) || entrypointArgs.length > 1) {

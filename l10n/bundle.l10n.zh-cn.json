@@ -77,5 +77,14 @@
   "closed": "已关闭",
   "Feature {label} failed: {error}": "特性 {label} 启动失败：{error}",
   "Degraded features: {items}": "已降级特性：{items}",
-  "Webview 桥版本不匹配": "Webview 桥版本不匹配"
+  "Webview 桥版本不匹配": "Webview 桥版本不匹配",
+  "Invalid dsh.local.packageRoot: {path}": "dsh.local.packageRoot 无效：{path}",
+  "Invalid dsh.local.nodePath: {path}": "dsh.local.nodePath 无效：{path}",
+  "Invalid DSH home path: {path}": "DSH 目录路径无效：{path}",
+  "Invalid dsh.profile: {profile}": "dsh.profile 无效：{profile}",
+  "Official DSH is not installed. Install it with `npm install -g @deepseek-ai/dsh`, then reload VS Code; the extension will create or reuse the selected DSH home automatically.": "尚未安装官方 DSH。请先执行 `npm install -g @deepseek-ai/dsh` 安装，然后重新加载 VS Code；扩展会自动创建或复用所选的 DSH 目录。",
+  "Node.js was not found for the installed DSH package. Set dsh.local.nodePath to the absolute Node executable path.": "在已安装的 DSH 包中未找到 Node.js。请将 dsh.local.nodePath 设置为 Node 可执行文件的绝对路径。",
+  "VS Code bridge initialization timed out": "VS Code 桥接初始化超时",
+  "DSH workspace binding failed": "DSH 工作区绑定失败",
+  "Unknown workspace binding error": "未知工作区绑定错误"
 }
