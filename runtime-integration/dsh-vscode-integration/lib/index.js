@@ -3,10 +3,11 @@ import { execFileSync } from 'node:child_process';
 import net from 'node:net';
 
 import { createBridgeTools } from './tools.js';
+import { createLmRoutes } from './lmRoute.js';
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
-const inject = ['apiProxy', 'tools'];
+const inject = ['apiProxy', 'tools', 'llm'];
 const name = 'dsh-vscode-integration';
 
 // ---------------------------------------------------------------------------
@@ -365,6 +366,11 @@ function apply(ctx) {
       if (started && typeof started.stop === 'function') started.stop();
     };
   }, 'dsh-vscode-integration: vscode bridge tools');
+
+  ctx.effect(() => {
+    const routes = createLmRoutes({ env: process.env, ctx });
+    return () => routes.dispose();
+  }, 'dsh-vscode-integration: /api/lm routes');
 }
 
 export {
