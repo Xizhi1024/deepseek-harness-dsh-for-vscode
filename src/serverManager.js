@@ -896,10 +896,13 @@ class ServerManager {
         if (this._child !== child) return; // already detached (timeout cleanup)
         this._child = null;
         this._ownedServer = null;
+        // code/signal are null on the opposite exit paths (Windows clean
+        // exit has signal=null); the {placeholder} renderer keeps nulls as
+        // literal "{signal}", so normalize both to a visible value.
         this._emit('error', 'DSH process exited unexpectedly (pid={pid}, code={code}, signal={signal})', {
           pid: child.pid,
-          code,
-          signal,
+          code: code == null ? 'none' : code,
+          signal: signal == null ? 'none' : signal,
           log: logPath,
         });
       };
@@ -921,7 +924,10 @@ class ServerManager {
           reject(new ServerError('DSH process was stopped'));
           return;
         }
-        reject(new ServerError(STARTUP_ERRORS.SPAWN_EXITED_EARLY.template, { code, signal }, 'SPAWN_EXITED_EARLY'));
+        reject(new ServerError(STARTUP_ERRORS.SPAWN_EXITED_EARLY.template, {
+          code: code == null ? 'none' : code,
+          signal: signal == null ? 'none' : signal,
+        }, 'SPAWN_EXITED_EARLY'));
       });
 
       const poll = async () => {

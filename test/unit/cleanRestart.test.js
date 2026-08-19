@@ -141,3 +141,39 @@ test('registry clean field writes through and old entries read as non-clean', (t
   assert.strictEqual(ServerManager.isCleanEntry({ pid: 41001, port: 32011 }), false);
   assert.strictEqual(ServerManager.isCleanEntry(null), false);
 });
+test('early-exit and crash rendering normalize null code/signal (no {signal} leaks)', async () => {
+  // Windows clean exits carry signal=null; the placeholder renderer keeps
+  // nulls as literal "{signal}" on the user-facing error page.
+  const harness = new CleanSpawnHarness({ embedPatchPath: null });
+  harness.spawnFn = makeSpawnFn(harness, [{ code: 1, signal: null }]);
+  await assert.rejects(
+    harness._spawnAndWait('127.0.0.1', 4302, null, null),
+    (err) => err && err.code === 'SPAWN_EXITED_EARLY'
+      && err.params.signal === 'none'
+      && err.params.code === 1,
+  );
+
+  // Post-ready crash path: the persistent onUnexpectedExit listener must
+  // emit params that render without placeholder leaks too.
+  const statuses = [];
+  const crashHarness = new CleanSpawnHarness({
+    onStatus: (payload) => statuses.push(payload),
+  });
+  crashHarness.spawnFn = (command, args, opts) => {
+    crashHarness.spawnCalls += 1;
+    const child = new FakeChild(crashHarness.pidCounter++);
+    crashHarness.lastChild = child;
+    return child;
+  };
+  crashHarness.probeReadyAt = 1;
+  const server = await crashHarness._spawnAndWait('127.0.0.1', 4303, null, null);
+  assert.strictEqual(server.owned, true);
+  crashHarness.lastChild.emit('exit', 1, null);
+  const crash = statuses.find((s) => s.state === 'error' && String(s.message).includes('exited unexpectedly'));
+  assert.ok(crash, 'unexpected exit is reported through onStatus');
+  assert.strictEqual(crash.params.signal, 'none');
+  assert.strictEqual(crash.params.code, 1);
+  const rendered = String(crash.message).replace(/\{(\w+)\}/g, (_, key) => crash.params[key]);
+  assert.ok(!rendered.includes('{signal') && !rendered.includes('{code'), 'rendered message carries no leftover placeholders');
+  assert.ok(rendered.includes('signal=none'), 'null signal renders as none: ' + rendered);
+});

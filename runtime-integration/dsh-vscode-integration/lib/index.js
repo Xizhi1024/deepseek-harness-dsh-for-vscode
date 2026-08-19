@@ -7,7 +7,13 @@ import { createLmRoutes } from './lmRoute.js';
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
-const inject = ['apiProxy', 'tools', 'llm'];
+// 'webServer' MUST be declared: createLmRoutes touches ctx.webServer at
+// construction time and cordis throws 'cannot get property "webServer"
+// without inject' — which aborts the whole plugin tree at boot (the DSH
+// process exits before the sidebar ever connects). This package is only
+// installed into extension-owned homes, where the web profile always
+// provides the webServer service.
+const inject = ['apiProxy', 'tools', 'llm', 'webServer'];
 const name = 'dsh-vscode-integration';
 
 // ---------------------------------------------------------------------------
