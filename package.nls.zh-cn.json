@@ -37,5 +37,6 @@
   "dsh.cmd.capabilities": "能力与集成",
   "dsh.cmd.diagnose": "诊断",
   "dsh.cmd.cleanupOrphans": "清理孤儿 DSH 服务",
-  "dsh.cmd.restartClean": "干净重启 DSH 服务"
+  "dsh.cmd.restartClean": "干净重启 DSH 服务",
+  "dsh.cmd.onboarding": "设置 DSH"
 }

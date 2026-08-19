@@ -62,7 +62,8 @@
     "onCommand:dsh.capabilities",
     "onCommand:dsh.diagnose",
     "onCommand:dsh.cleanupOrphans",
-    "onCommand:dsh.restartClean"
+    "onCommand:dsh.restartClean",
+    "onCommand:dsh.onboarding"
   ],
   "extensionKind": [
     "workspace"
@@ -179,6 +180,11 @@
       {
         "command": "dsh.restartClean",
         "title": "%dsh.cmd.restartClean%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.onboarding",
+        "title": "%dsh.cmd.onboarding%",
         "category": "%dsh.cmd.category%"
       }
     ],

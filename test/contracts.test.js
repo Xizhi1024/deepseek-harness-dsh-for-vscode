@@ -105,6 +105,7 @@ test('extension-host smoke expectations cover every contributed command id', () 
     'dsh.restartClean',
     'dsh.stopServer',
     'dsh.switchSession',
+    'dsh.onboarding',
   ].sort();
   assert.deepStrictEqual(smokeExpected, contributed);
 });
