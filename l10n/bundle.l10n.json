@@ -156,6 +156,5 @@
   "Orphan sweep: terminated {count} DSH process(es) from dead VS Code windows ({pids})": "Orphan sweep: terminated {count} DSH process(es) from dead VS Code windows ({pids})",
   "DSH compat: {compat}": "DSH compat: {compat}",
   "Connect the DSH sidebar before opening extra instances.": "Connect the DSH sidebar before opening extra instances.",
-  "Extra instances need the managed auto-start mode (dsh.autoStart).": "Extra instances need the managed auto-start mode (dsh.autoStart).",
   "New DSH instance failed: {message}": "New DSH instance failed: {message}"
 }

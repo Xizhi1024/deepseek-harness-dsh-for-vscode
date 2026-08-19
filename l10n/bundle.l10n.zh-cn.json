@@ -156,6 +156,5 @@
   "Orphan sweep: terminated {count} DSH process(es) from dead VS Code windows ({pids})": "孤儿清扫：已终止 {count} 个来自已退出 VS Code 窗口的 DSH 进程（{pids}）",
   "DSH compat: {compat}": "DSH 兼容性：{compat}",
   "Connect the DSH sidebar before opening extra instances.": "请先连接 DSH 侧栏，再打开附加实例。",
-  "Extra instances need the managed auto-start mode (dsh.autoStart).": "附加实例需要托管自动启动模式（dsh.autoStart）。",
   "New DSH instance failed: {message}": "新建 DSH 实例失败：{message}"
 }

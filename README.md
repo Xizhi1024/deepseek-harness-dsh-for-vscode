@@ -47,6 +47,7 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 - Opt-in `Ctrl+L` (`Cmd+L` on macOS): with `dsh.keybindings.ctrlL` enabled, pressing it in the editor adds the active selection to the DSH conversation
 - Commands (all 18): **Open DSH in Browser** · **New Session** · **Switch Session** · **Restart DSH Server** · **Restart DSH Server Cleanly** · **Stop DSH Server** · **Focus DSH Sidebar** · **Add File to DSH Thread** · **Add Folder to DSH Thread** · **Add to DSH Thread** · **Add Active File to DSH Context** · **Add Active Selection to DSH Context** · **Add Problems to DSH Context** · **Capabilities and Integrations** · **Diagnose** · **Clean Up Orphan DSH Servers** · **Set up DSH** · **New DSH Instance**
 - With `dsh.autoStart` on, the server is started at VS Code startup even if the sidebar is never opened
+- Extra surfaces: run **DSH: New DSH Instance** (or enable the sidebar title-bar entry with `dsh.multiInstance.entry`) to open another DSH panel in the editor area. All surfaces share the window's single DSH process; each panel gets its own DSH session (`dsh_session`), and closing a panel releases that session only
 
 > **Restart DSH Server Cleanly** disables every non-core (non-`@deepseek-ai/*`, non-embed) plugin in the active profile via `vscode-clean.overlay.yml` before restarting. When startup fails with `HEALTH_TIMEOUT` or `SPAWN_EXITED_EARLY`, the status page offers a **Restart-Clean** entry; in clean mode it shows a banner with **Restart-normal**, which restarts with the normal embed overlay. A startup that exits early while a `--patch` overlay is in effect automatically retries exactly once without the patch (recorded in Diagnose).
 
@@ -182,6 +183,8 @@ Achieving a Cursor/Claude Code-like experience requires both sides of the bridge
 | `dsh.features.statusbar-basic` | true | Basic DSH status indicator in the status bar (L1 feature, off = the L0 `$(error)` fallback still surfaces on failure) |
 | `dsh.features.theme-follow` | true | Follow the VS Code active color theme (dark/light) in the embedded DSH iframe (L1 feature, off = no `dsh_theme` URL param and no theme listener) |
 | `dsh.keybindings.ctrlL` | false | Enable the Ctrl+L (Cmd+L on macOS) keybinding that adds the active editor selection to the DSH conversation (off by default) |
+
+| `dsh.multiInstance.entry` | false | Show the new-instance entry in the DSH sidebar title bar (off by default) |
 
 `dsh.closePolicy` values:
 
