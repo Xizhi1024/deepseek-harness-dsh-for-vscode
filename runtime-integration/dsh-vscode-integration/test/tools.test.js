@@ -6,6 +6,7 @@ import {
   bridgeEnv,
   bridgeTimeoutMs,
   createBridgeTools,
+  descriptorFor,
   jsonRpcError,
   toolNameFor,
 } from '../lib/tools.js';
@@ -193,13 +194,25 @@ test('toolNameFor: derives snake_case DSH tool names from advertised bridge meth
   assert.strictEqual(toolNameFor('vscode/mcp/callTool'), 'vscode_mcp_call_tool');
   assert.strictEqual(toolNameFor('vscode/editor/getContext'), 'vscode_editor_get_context');
   assert.strictEqual(toolNameFor('vscode/editor/openDiff'), 'vscode_editor_open_diff');
+  assert.strictEqual(toolNameFor('vscode/extensions/callExport'), 'vscode_extensions_call_export');
 });
 
-test('bridgeTimeoutMs: confirm/ask, changes/push and mcp/callTool get the 120s fail-closed timeout', () => {
+test('bridgeTimeoutMs: confirm/ask, changes/push, mcp/callTool and callExport get the 120s fail-closed timeout', () => {
   assert.strictEqual(bridgeTimeoutMs('vscode/confirm/ask'), 120000);
   assert.strictEqual(bridgeTimeoutMs('vscode/changes/push'), 120000);
   assert.strictEqual(bridgeTimeoutMs('vscode/mcp/callTool'), 120000);
+  assert.strictEqual(bridgeTimeoutMs('vscode/extensions/callExport'), 120000);
   assert.strictEqual(bridgeTimeoutMs('vscode/tasks/list'), 15000);
+});
+
+test('descriptorFor: callExport maps to vscode_extensions_call_export and passes the runtime contract', () => {
+  const descriptor = descriptorFor('vscode/extensions/callExport');
+  assert.ok(descriptor, 'callExport must have a DSH tool descriptor');
+  assert.strictEqual(descriptor.name, 'vscode_extensions_call_export');
+  assertToolRuntimeContract(descriptor);
+  const ctx = fakeCtx();
+  ctx.tools.register(descriptor);
+  assert.strictEqual(ctx._registered.length, 1);
 });
 
 test('createBridgeTools: env missing => running:false, zero registration, zero errors', () => {

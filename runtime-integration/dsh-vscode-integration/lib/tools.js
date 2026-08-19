@@ -19,6 +19,7 @@ const LONG_TIMEOUT_METHODS = new Set([
   'vscode/confirm/ask',
   'vscode/changes/push',
   'vscode/mcp/callTool',
+  'vscode/extensions/callExport',
 ]);
 const DEFAULT_BACKOFF_MS = [2_000, 5_000, 15_000, 30_000];
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;
@@ -92,8 +93,8 @@ function jsonRpcError(bridgeCode, message) {
 }
 
 // ---------------------------------------------------------------------------
-// Method -> tool schema table. This mirrors METHODS_V3 (31 entries: 6
-// inherited v1/v2 methods + 25 v3a additions).
+// Method -> tool schema table. This mirrors METHODS_V3 (32 entries: 6
+// inherited v1/v2 methods + 26 v3 additions incl. E-batch callExport).
 // ---------------------------------------------------------------------------
 
 function objectSchema(properties = {}, required = []) {
@@ -229,6 +230,14 @@ const METHOD_SCHEMAS = {
   'vscode/extensions/list': {
     description: 'List installed VS Code extensions with activation state.',
     parameters: objectSchema(),
+  },
+  'vscode/extensions/callExport': {
+    description: 'Call an exported method of a VS Code extension (consent-gated; may activate the extension as a side effect).',
+    parameters: objectSchema({
+      extensionId: stringProp('Extension id in publisher.name form'),
+      method: stringProp('Export method name to call (max 128 characters)'),
+      args: { type: 'object', description: 'Arguments for the export call (object; use an array for positional arguments)' },
+    }, ['extensionId', 'method']),
   },
   'vscode/git/getStatus': {
     description: 'Read the working-tree status of the first Git repository.',

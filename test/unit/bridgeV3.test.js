@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
-  createV3Handlers, MAX_TERMINALS, MAX_FIND_FILES, MAX_PROGRESS, RING_BYTES,
+  createV3Handlers, CALL_EXPORT_TIMEOUT_MS, MAX_TERMINALS, MAX_FIND_FILES, MAX_PROGRESS, RING_BYTES,
 } = require('../../src/bridge/v3');
 const { METHODS_V3, METHODS_BY_VERSION, PROTOCOL_VERSIONS } = require('../../src/protocol/ch1');
 
@@ -108,13 +108,13 @@ function fakeVscode(overrides = {}) {
 
 const flags = (map = {}) => (key) => Boolean(map[key]);
 
-test('protocol v3 freezes the full v3a method table and versions', () => {
+test('protocol v3 freezes the full v3 method table and versions', () => {
   assert.ok(PROTOCOL_VERSIONS.includes(3));
   assert.strictEqual(METHODS_BY_VERSION[3], METHODS_V3);
-  for (const method of ['vscode/terminal/create', 'vscode/tasks/run', 'vscode/git/getStatus', 'vscode/editor/read', 'vscode/confirm/ask', 'vscode/changes/push', 'vscode/mcp/callTool']) {
+  for (const method of ['vscode/terminal/create', 'vscode/tasks/run', 'vscode/git/getStatus', 'vscode/editor/read', 'vscode/confirm/ask', 'vscode/changes/push', 'vscode/mcp/callTool', 'vscode/extensions/callExport']) {
     assert.ok(METHODS_V3.includes(method), method + ' must be frozen in v3');
   }
-  assert.ok(!METHODS_V3.includes('vscode/extensions/callExport'), 'T2 callExport stays E-batch');
+  assert.strictEqual(METHODS_V3.length, 32, 'E-T2a freezes the v3 method table at 32 entries');
 });
 
 test('consent gates keep terminal, editor/read and UI surfaces unmounted by default', () => {
@@ -324,4 +324,191 @@ test('mcp/* handlers are gated by features.mcp-consume; a missing manager degrad
   resolved = manager;
   const lazyTools = await lazy['vscode/mcp/listTools']({ server: 's2' });
   assert.deepStrictEqual(lazyTools, { server: 's2', tools: [] });
+});
+
+test('extensions/callExport is gated by dsh.features.call-export', () => {
+  const fake = fakeVscode();
+  const off = createV3Handlers({ vscode: fake.api, getFlag: flags() });
+  assert.strictEqual(off['vscode/extensions/callExport'], undefined, 'callExport is an L2 feature, off by default');
+  const on = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.call-export': true }) });
+  assert.ok(typeof on['vscode/extensions/callExport'] === 'function', 'callExport mounts when the feature is enabled');
+});
+
+test('extensions/callExport rejects invalid params as VSCODE_INVALID_PARAMS', async () => {
+  const fake = fakeVscode();
+  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.call-export': true }) });
+  const invalid = [
+    null,
+    {},
+    { extensionId: 7, method: 'run' },
+    { extensionId: 'pub.a', method: '' },
+    { extensionId: 'pub.a', method: 'x'.repeat(129) },
+    { extensionId: 'not-an-id', method: 'run' },
+    { extensionId: 'pub.a', method: 'run', args: 'nope' },
+    { extensionId: 'pub.a', method: 'run', args: { f() {} } },
+    { extensionId: 'pub.a', method: 'run', args: { n: 1n } },
+  ];
+  for (const params of invalid) {
+    await assert.rejects(
+      handlers['vscode/extensions/callExport'](params),
+      (error) => error.bridgeCode === 'VSCODE_INVALID_PARAMS',
+    );
+  }
+  const circular = {};
+  circular.self = circular;
+  await assert.rejects(
+    handlers['vscode/extensions/callExport']({ extensionId: 'pub.a', method: 'run', args: circular }),
+    (error) => error.bridgeCode === 'VSCODE_INVALID_PARAMS',
+  );
+});
+
+test('extensions/callExport returns model-visible not-approved on rejection', async () => {
+  const fake = fakeVscode();
+  fake.api.window.showWarningMessage = async () => 'Reject';
+  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.call-export': true }) });
+  const result = await handlers['vscode/extensions/callExport']({ extensionId: 'pub.a', method: 'run', args: {} });
+  assert.deepStrictEqual(result, { called: false, approved: false, reason: 'user-rejected' });
+});
+
+test('extensions/callExport consent timeout fails closed without throwing', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const fake = fakeVscode();
+  fake.api.window.showWarningMessage = () => new Promise(() => {});
+  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.call-export': true }) });
+  const pending = handlers['vscode/extensions/callExport']({ extensionId: 'pub.a', method: 'run', args: {} });
+  await Promise.resolve();
+  t.mock.timers.tick(120000);
+  const result = await pending;
+  assert.deepStrictEqual(result, { called: false, approved: false, reason: 'timeout-or-dismissed' });
+});
+
+test('extensions/callExport Allow Session skips the next modal for the same extension+method', async () => {
+  const fake = fakeVscode();
+  let asks = 0;
+  const calls = [];
+  fake.api.window.showWarningMessage = async () => {
+    asks += 1;
+    return asks === 1 ? 'Allow Session' : 'Allow Once';
+  };
+  fake.api.extensions.getExtension = () => ({
+    id: 'pub.a',
+    isActive: true,
+    exports: {
+      run(v) {
+        calls.push(v);
+        return v.n * 2;
+      },
+    },
+  });
+  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.call-export': true }) });
+  const first = await handlers['vscode/extensions/callExport']({ extensionId: 'pub.a', method: 'run', args: { n: 2 } });
+  const second = await handlers['vscode/extensions/callExport']({ extensionId: 'pub.a', method: 'run', args: { n: 3 } });
+  assert.deepStrictEqual(first, { called: true, approved: true, result: 4 });
+  assert.deepStrictEqual(second, { called: true, approved: true, result: 6 });
+  assert.strictEqual(asks, 1, 'session approval must skip the second modal');
+  assert.deepStrictEqual(calls, [{ n: 2 }, { n: 3 }]);
+});
+
+test('extensions/callExport passes arrays as positional arguments', async () => {
+  const fake = fakeVscode();
+  fake.api.window.showWarningMessage = async () => 'Allow Once';
+  const calls = [];
+  fake.api.extensions.getExtension = () => ({
+    isActive: true,
+    exports: {
+      add(a, b) {
+        calls.push([a, b]);
+        return a + b;
+      },
+    },
+  });
+  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.call-export': true }) });
+  const result = await handlers['vscode/extensions/callExport']({ extensionId: 'pub.a', method: 'add', args: [2, 3] });
+  assert.deepStrictEqual(result, { called: true, approved: true, result: 5 });
+  assert.deepStrictEqual(calls, [[2, 3]]);
+});
+
+test('extensions/callExport maps missing extension/method/throw/timeout to bridge codes', async (t) => {
+  const fake = fakeVscode();
+  fake.api.window.showWarningMessage = async () => 'Allow Once';
+  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.call-export': true }) });
+
+  fake.api.extensions.getExtension = () => undefined;
+  await assert.rejects(
+    handlers['vscode/extensions/callExport']({ extensionId: 'pub.nope', method: 'run' }),
+    (error) => error.bridgeCode === 'VSCODE_EXTENSION_NOT_FOUND',
+  );
+
+  fake.api.extensions.getExtension = () => ({ isActive: true, exports: { nope: 42 } });
+  await assert.rejects(
+    handlers['vscode/extensions/callExport']({ extensionId: 'pub.a', method: 'run' }),
+    (error) => error.bridgeCode === 'VSCODE_CALL_EXPORT_METHOD_NOT_FOUND',
+  );
+
+  fake.api.extensions.getExtension = () => ({ isActive: true, exports: { run() { throw new Error('boom-original'); } } });
+  await assert.rejects(
+    handlers['vscode/extensions/callExport']({ extensionId: 'pub.a', method: 'run' }),
+    (error) => error.bridgeCode === 'VSCODE_CALL_EXPORT_FAILED' && /boom-original/.test(error.message),
+  );
+
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  fake.api.extensions.getExtension = () => ({ isActive: true, exports: { run() { return new Promise(() => {}); } } });
+  const pending = handlers['vscode/extensions/callExport']({ extensionId: 'pub.a', method: 'run' });
+  await new Promise((resolve) => setImmediate(resolve));
+  t.mock.timers.tick(CALL_EXPORT_TIMEOUT_MS);
+  await assert.rejects(pending, (error) => error.bridgeCode === 'VSCODE_CALL_EXPORT_TIMEOUT');
+});
+
+test('extensions/callExport journals only summary metadata and skips when journal is null', async () => {
+  const entries = [];
+  const fake = fakeVscode();
+  fake.api.window.showWarningMessage = async () => 'Allow Once';
+  fake.api.extensions.getExtension = () => ({
+    isActive: true,
+    exports: {
+      echo(v) {
+        return v;
+      },
+      boom() {
+        throw new Error('boom');
+      },
+    },
+  });
+  const handlers = createV3Handlers({
+    vscode: fake.api,
+    getFlag: flags({ 'features.call-export': true }),
+    callExportJournal: { record(entry) { entries.push(entry); } },
+  });
+
+  const argValue = { secret: 'do-not-log', nested: [1, 2] };
+  await handlers['vscode/extensions/callExport']({ extensionId: 'pub.a', method: 'echo', args: argValue });
+  assert.strictEqual(entries.length, 1);
+  const okEntry = entries[0];
+  assert.strictEqual(okEntry.extensionId, 'pub.a');
+  assert.strictEqual(okEntry.method, 'echo');
+  assert.deepStrictEqual(okEntry.argsSummary, {
+    type: 'object',
+    keys: ['secret', 'nested'],
+    bytes: Buffer.byteLength(JSON.stringify(argValue), 'utf8'),
+  });
+  assert.deepStrictEqual(okEntry.result, { ok: true });
+  assert.ok(!('args' in okEntry), 'journal never stores the full args');
+  assert.ok(!JSON.stringify(okEntry).includes('do-not-log'), 'journal content must not include arg values');
+
+  await assert.rejects(
+    handlers['vscode/extensions/callExport']({ extensionId: 'pub.a', method: 'boom' }),
+    (error) => error.bridgeCode === 'VSCODE_CALL_EXPORT_FAILED',
+  );
+  assert.strictEqual(entries.length, 2);
+  assert.deepStrictEqual(entries[1].result, { ok: false, errorCode: 'VSCODE_CALL_EXPORT_FAILED' });
+  assert.deepStrictEqual(entries[1].argsSummary, { type: 'undefined', keys: [], bytes: 0 });
+
+  const noJournal = createV3Handlers({
+    vscode: fake.api,
+    getFlag: flags({ 'features.call-export': true }),
+    callExportJournal: null,
+  });
+  fake.api.extensions.getExtension = () => ({ isActive: true, exports: { echo: (v) => v } });
+  const result = await noJournal['vscode/extensions/callExport']({ extensionId: 'pub.a', method: 'echo', args: { a: 1 } });
+  assert.strictEqual(result.called, true);
 });

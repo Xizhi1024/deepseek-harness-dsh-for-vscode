@@ -40,6 +40,7 @@ const METHODS_V3 = Object.freeze([
   'vscode/workspace/findFiles',
   'vscode/window/showMessage',
   'vscode/extensions/list',
+  'vscode/extensions/callExport',
   'vscode/git/getStatus',
   'vscode/git/getDiff',
   'vscode/editor/getState',

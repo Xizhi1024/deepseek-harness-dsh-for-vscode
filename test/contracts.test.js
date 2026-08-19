@@ -6,6 +6,7 @@ const test = require('node:test');
 const manifest = require('../package.json');
 const { CONTAINER_ID, VIEW_ID } = require('../src/types');
 const { FEATURE_CATALOG } = require('../src/extension');
+const { METHODS_V3 } = require('../src/protocol/ch1');
 
 test('published sidebar and Webview IDs remain stable across manifest and runtime', () => {
   assert.strictEqual(CONTAINER_ID, 'dsh-sidebar');
@@ -184,6 +185,11 @@ test('dsh.features.* configuration keys mirror the featureRegistry catalog (L1/L
     assert.strictEqual(entry.type, 'boolean', feature.id + ' must be a boolean switch');
     assert.strictEqual(entry.default, feature.defaultEnabled, feature.id + ' default must match defaultEnabled');
   }
+});
+
+test('CH1 v3 method table freezes 32 methods including extensions/callExport', () => {
+  assert.strictEqual(METHODS_V3.length, 32);
+  assert.ok(METHODS_V3.includes('vscode/extensions/callExport'));
 });
 
 test('R23 language-model chat provider contribution and routing config are frozen', () => {
