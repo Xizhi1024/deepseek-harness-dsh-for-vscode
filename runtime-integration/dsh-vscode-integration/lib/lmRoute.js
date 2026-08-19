@@ -39,6 +39,21 @@ function writeJson(response, status, payload) {
   response.end(body);
 }
 
+/**
+ * Best-effort JSON error reply. Never throws: WebRoute handlers must be
+ * fault-contained on this side — an escaping throw travels through the
+ * cordis context proxy and can escalate to a boot-level fatal that kills
+ * the whole DSH process (F5 smoke round 4).
+ */
+function respondWithError(response, status, code, error) {
+  const message = error && error.message ? error.message : String(error);
+  try {
+    writeJson(response, status, { error: code, message });
+  } catch {
+    // response already closed or destroyed — nothing more to do
+  }
+}
+
 async function readRequestBody(request, maxBytes = MAX_BODY_BYTES) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -153,16 +168,25 @@ function createLmRoutes({ env = process.env, ctx = null } = {}) {
   }
 
   registerRoute('/api/lm/models', (request, response) => {
-    if (!authorized(request, response)) return;
-    if (request.method !== 'GET') {
-      writeJson(response, 405, { error: 'method-not-allowed' });
-      return;
+    try {
+      if (!authorized(request, response)) return;
+      if (request.method !== 'GET') {
+        writeJson(response, 405, { error: 'method-not-allowed' });
+        return;
+      }
+      // Real hosts throw LlmError from listModels() when a configured
+      // provider has no registered adapter; provider-less entries cannot
+      // be routed anyway, so they are skipped instead of advertised.
+      const models = collectModels(ctx)
+        .map(mapModel)
+        .filter((model) => model.provider.length > 0);
+      writeJson(response, 200, { models });
+    } catch (error) {
+      respondWithError(response, 500, 'llm-unavailable', error);
     }
-    const models = collectModels(ctx).map(mapModel);
-    writeJson(response, 200, { models });
   });
 
-  registerRoute('/api/lm/chat', async (request, response) => {
+  async function handleChat(request, response, markSseStarted) {
     if (!authorized(request, response)) return;
     if (request.method !== 'POST') {
       writeJson(response, 405, { error: 'method-not-allowed' });
@@ -192,42 +216,55 @@ function createLmRoutes({ env = process.env, ctx = null } = {}) {
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
     });
-    try {
-      const stream = ctx.llm.stream({
-        provider: typeof body.provider === 'string' ? body.provider : '',
-        model: body.model,
-        messages: body.messages,
-        maxTokens: Number.isInteger(body.maxTokens) && body.maxTokens > 0 ? body.maxTokens : undefined,
-        temperature: Number.isFinite(body.temperature) ? body.temperature : undefined,
-      });
-      if (stream && typeof stream[Symbol.asyncIterator] === 'function') {
-        for await (const chunk of stream) {
-          const text = chunkText(chunk);
-          if (text.length > 0) await writeSseChunk(response, { text });
-        }
-      } else if (stream && typeof stream.on === 'function') {
-        await new Promise((resolve, reject) => {
-          stream.on('data', async (chunk) => {
-            try {
-              const text = chunkText(chunk);
-              if (text.length > 0) await writeSseChunk(response, { text });
-            } catch (error) {
-              reject(error);
-            }
-          });
-          stream.on('end', resolve);
-          stream.on('error', reject);
+    markSseStarted();
+    const stream = ctx.llm.stream({
+      provider: typeof body.provider === 'string' ? body.provider : '',
+      model: body.model,
+      messages: body.messages,
+      maxTokens: Number.isInteger(body.maxTokens) && body.maxTokens > 0 ? body.maxTokens : undefined,
+      temperature: Number.isFinite(body.temperature) ? body.temperature : undefined,
+    });
+    if (stream && typeof stream[Symbol.asyncIterator] === 'function') {
+      for await (const chunk of stream) {
+        const text = chunkText(chunk);
+        if (text.length > 0) await writeSseChunk(response, { text });
+      }
+    } else if (stream && typeof stream.on === 'function') {
+      await new Promise((resolve, reject) => {
+        stream.on('data', async (chunk) => {
+          try {
+            const text = chunkText(chunk);
+            if (text.length > 0) await writeSseChunk(response, { text });
+          } catch (error) {
+            reject(error);
+          }
         });
-      }
-      response.write('data: [DONE]\n\n');
-      response.end();
+        stream.on('end', resolve);
+        stream.on('error', reject);
+      });
+    }
+    response.write('data: [DONE]\n\n');
+    response.end();
+  }
+
+  registerRoute('/api/lm/chat', async (request, response) => {
+    let sseStarted = false;
+    try {
+      await handleChat(request, response, () => { sseStarted = true; });
     } catch (error) {
-      try {
-        response.write(`event: error\ndata: ${JSON.stringify({ message: error && error.message ? error.message : String(error) })}\n\n`);
-      } catch {
-        // the response may already be closed
+      // Same containment rule as /models: never let a throw escape the
+      // WebRoute handler — the cordis context proxy escalates escapes to
+      // a boot-level fatal that kills the whole process.
+      if (sseStarted) {
+        try {
+          response.write(`event: error\ndata: ${JSON.stringify({ message: error && error.message ? error.message : String(error) })}\n\n`);
+        } catch {
+          // response already closed
+        }
+        try { response.end(); } catch { /* already closed */ }
+      } else {
+        respondWithError(response, 500, 'llm-unavailable', error);
       }
-      response.end();
     }
   });
 

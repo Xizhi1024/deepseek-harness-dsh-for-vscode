@@ -157,3 +157,53 @@ test('POST /api/lm/chat rejects malformed JSON with 400', async () => {
   assert.strictEqual(response.ended, true);
   routes.dispose();
 });
+test('/api/lm/models contains a throwing listModels: 500 llm-unavailable, nothing escapes', async () => {
+  // F5 smoke round 4 regression: the real dsh-llm listModels() throws
+  // LlmError for providers without a registered adapter; the pre-fix
+  // handler let it escape and the whole DSH process died.
+  const ctx = fakeCtx([], null);
+  ctx.llm.listModels = () => { throw new Error('no adapter registered for provider "undefined"'); };
+  createLmRoutes({ env: { DSH_LM_BRIDGE_TOKEN: 'tok' }, ctx });
+  const registered = ctx.routes.find((entry) => entry.path === '/api/lm/models');
+  assert.ok(registered, 'models route is registered');
+  const request = bodyRequest('', { method: 'GET' });
+  const response = fakeResponse();
+  await registered.handler(request, response); // must resolve, never throw
+  assert.strictEqual(response.statusCode, 500);
+  const payload = JSON.parse(response.writes[response.writes.length - 1]);
+  assert.strictEqual(payload.error, 'llm-unavailable');
+  assert.ok(payload.message.includes('no adapter registered'), payload.message);
+});
+
+test('/api/lm/models skips provider-less catalog entries', async () => {
+  const ctx = fakeCtx([{ id: 'm1', provider: 'p1' }, { id: 'm2' }], null);
+  createLmRoutes({ env: { DSH_LM_BRIDGE_TOKEN: 'tok' }, ctx });
+  const registered = ctx.routes.find((entry) => entry.path === '/api/lm/models');
+  const request = bodyRequest('', { method: 'GET' });
+  const response = fakeResponse();
+  await registered.handler(request, response);
+  assert.strictEqual(response.statusCode, 200);
+  const payload = JSON.parse(response.writes[response.writes.length - 1]);
+  assert.deepStrictEqual(payload.models.map((model) => model.id), ['m1'],
+    'provider-less entries cannot be routed and must not be advertised');
+});
+
+test('/api/lm/chat contains a throwing ctx.llm access: 500, not a crash', async () => {
+  // Simulates the cordis "inactive context" proxy throw on property access.
+  const routes = [];
+  const ctx = {
+    webServer: {
+      register(route) { routes.push(route); return () => {}; },
+    },
+    get llm() { throw new Error('cannot get required service "llm" in inactive context'); },
+  };
+  createLmRoutes({ env: { DSH_LM_BRIDGE_TOKEN: 'tok' }, ctx });
+  const registered = routes.find((entry) => entry.path === '/api/lm/chat');
+  assert.ok(registered, 'chat route is registered');
+  const request = bodyRequest(JSON.stringify({ model: 'm1', messages: [{ role: 'user', content: 'hi' }] }));
+  const response = fakeResponse();
+  await registered.handler(request, response); // must resolve, never throw
+  assert.strictEqual(response.statusCode, 500);
+  const payload = JSON.parse(response.writes[response.writes.length - 1]);
+  assert.strictEqual(payload.error, 'llm-unavailable');
+});
