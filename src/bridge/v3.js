@@ -1,5 +1,6 @@
 "use strict";
 
+const { deepStrictEqual } = require('node:assert');
 const { createChangeTracker, validateWireEdits, MAX_LABEL_CHARS } = require('../changeTracker');
 
 /**
@@ -11,8 +12,9 @@ const { createChangeTracker, validateWireEdits, MAX_LABEL_CHARS } = require('../
  * setting is enabled; unmounted methods never reach the initialize
  * advertisement, so DSH registers no tool for them.
  *
- * Deliberately NOT mounted yet (frozen in METHODS_V3, later D slices):
- * vscode/changes/push (R14S1), vscode/mcp/* (R22).
+ * L2 surfaces (changes/push, mcp/*, extensions/callExport) are mounted only
+ * when their dsh.features.* gate is enabled; unmounted methods never reach
+ * the initialize advertisement, so DSH registers no tool for them.
  */
 
 const MAX_TERMINALS = 8;
@@ -21,6 +23,7 @@ const MAX_FIND_FILES = 500;
 const MAX_PROGRESS = 2;
 const PROGRESS_AUTO_END_MS = 120000;
 const CONFIRM_TIMEOUT_MS = 120000;
+const CALL_EXPORT_TIMEOUT_MS = 30000;
 
 function v3Error(bridgeCode, message) {
   const error = new Error(message);
@@ -35,6 +38,69 @@ const withTimeout = (promise, ms) => Promise.race([
     if (timer.unref) timer.unref();
   }),
 ]);
+
+// Unlike withTimeout (where `undefined` legitimately means "dismissed"), the
+// export call needs to distinguish `undefined` as a real return value from a
+// timeout, so this settles with a sentinel error instead.
+function callWithTimeout(promise, ms, timeoutCode, timeoutMessage) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(v3Error(timeoutCode, timeoutMessage));
+    }, ms);
+    if (timer.unref) timer.unref();
+    Promise.resolve(promise).then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+function isJsonRoundTripLossless(value) {
+  let serialized;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    return false;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(serialized);
+  } catch {
+    return false;
+  }
+  try {
+    deepStrictEqual(value, parsed);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function summarizeArgs(value) {
+  if (value === undefined) return { type: 'undefined', keys: [], bytes: 0 };
+  const type = Array.isArray(value) ? 'array' : 'object';
+  const keys = Object.keys(value);
+  let bytes = 0;
+  try {
+    bytes = Buffer.byteLength(JSON.stringify(value), 'utf8');
+  } catch {
+    bytes = 0; // unreachable after round-trip validation
+  }
+  return { type, keys, bytes };
+}
 
 function isRecord(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -55,9 +121,10 @@ function requireString(value, field) {
  * @param {Function} deps.getFlag - (key) => boolean setting lookup for consent gates.
  * @param {Function} [deps.appendOutputLine] - DSH OutputChannel sink (best-effort).
  * @param {Function} [deps.getMcpManager] - lazy () => MCP manager resolver (L0 construction may degrade to null).
+ * @param {object} [deps.callExportJournal] - optional { record(entry) } summary sink (E-T2b wires the real journal file; null skips).
  * @returns {object} method name -> handler.
  */
-function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, changeTracker = null, mcpManager = null, getMcpManager = null }) {
+function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, changeTracker = null, mcpManager = null, getMcpManager = null, callExportJournal = null }) {
   if (!vscode || !vscode.window || !vscode.workspace) {
     throw new TypeError('createV3Handlers requires a vscode facade');
   }
@@ -224,7 +291,7 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
     };
   }
 
-  // ---- extensions (declared surface, no callExport in v3a) ------------------
+  // ---- extensions (declared read surface; callExport is feature-gated below) --
   handlers['vscode/extensions/list'] = async () => {
     const all = vscode.extensions.all || [];
     return {
@@ -237,6 +304,122 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
         })),
     };
   };
+
+  // ---- extensions/callExport (L2 gate: dsh.features.call-export) ------------
+  // D12': activation and invocation share one consent gate. Not-approved paths
+  // return a model-visible result instead of throwing, so the DSH agent can
+  // report the user's decision without a bridge error.
+  if (getFlag('features.call-export')) {
+    const sessionApprovals = new Set();
+    const journal = callExportJournal && typeof callExportJournal.record === 'function' ? callExportJournal : null;
+    const recordJournal = (entry) => {
+      if (!journal) return;
+      try {
+        journal.record(entry);
+      } catch {
+        // The journal is a best-effort summary until E-T2b wires the real file;
+        // a journal failure must never change the call outcome.
+      }
+    };
+    let callExportSeq = 0;
+    const nextJournalEntry = (extensionId, method, args) => ({
+      id: 'ce-' + (++callExportSeq),
+      at: new Date().toISOString(),
+      extensionId,
+      method,
+      argsSummary: summarizeArgs(args),
+    });
+
+    const invokeCallExport = async ({ extensionId, method, args }) => {
+      const extension = vscode.extensions && typeof vscode.extensions.getExtension === 'function'
+        ? vscode.extensions.getExtension(extensionId)
+        : undefined;
+      if (!extension) {
+        throw v3Error('VSCODE_EXTENSION_NOT_FOUND', 'VS Code extension not found: ' + extensionId);
+      }
+      let exported;
+      try {
+        exported = extension.isActive ? extension.exports : await extension.activate();
+      } catch (error) {
+        throw v3Error(
+          'VSCODE_CALL_EXPORT_FAILED',
+          `callExport ${extensionId}.${method}() failed while activating the extension: ${error && error.message ? error.message : String(error)}`,
+        );
+      }
+      if (exported == null || typeof exported[method] !== 'function') {
+        throw v3Error('VSCODE_CALL_EXPORT_METHOD_NOT_FOUND', `Export method not found: ${extensionId}.${method}`);
+      }
+      const callArgs = args === undefined ? [] : (Array.isArray(args) ? args : [args]);
+      try {
+        return await callWithTimeout(
+          exported[method](...callArgs),
+          CALL_EXPORT_TIMEOUT_MS,
+          'VSCODE_CALL_EXPORT_TIMEOUT',
+          `callExport ${extensionId}.${method}() timed out after ${CALL_EXPORT_TIMEOUT_MS}ms`,
+        );
+      } catch (error) {
+        if (error && error.bridgeCode === 'VSCODE_CALL_EXPORT_TIMEOUT') throw error;
+        throw v3Error(
+          'VSCODE_CALL_EXPORT_FAILED',
+          `callExport ${extensionId}.${method}() failed: ${error && error.message ? error.message : String(error)}`,
+        );
+      }
+    };
+
+    handlers['vscode/extensions/callExport'] = async (params) => {
+      if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'callExport params must be an object');
+      const extensionId = requireString(params.extensionId, 'extensionId');
+      if (!/^[A-Za-z0-9][A-Za-z0-9-]*\.[A-Za-z0-9][A-Za-z0-9-]*$/.test(extensionId)) {
+        throw v3Error('VSCODE_INVALID_PARAMS', 'callExport extensionId must look like publisher.name');
+      }
+      const method = requireString(params.method, 'method');
+      if (method.length > 128) {
+        throw v3Error('VSCODE_INVALID_PARAMS', 'callExport method must be at most 128 characters');
+      }
+      if (params.args !== undefined) {
+        if (params.args === null || typeof params.args !== 'object') {
+          throw v3Error('VSCODE_INVALID_PARAMS', 'callExport args must be an object or an array');
+        }
+        if (!isJsonRoundTripLossless(params.args)) {
+          throw v3Error('VSCODE_INVALID_PARAMS', 'callExport args must survive JSON.stringify/parse losslessly');
+        }
+      }
+
+      const approvalKey = `${extensionId}\0${method}`;
+      if (!sessionApprovals.has(approvalKey)) {
+        const choice = await withTimeout(
+          vscode.window.showWarningMessage(
+            `DSH requests to call the "${extensionId}" extension export "${method}"(). This will activate the extension, which can run code as a side effect.`,
+            { modal: true },
+            'Allow Once',
+            'Allow Session',
+            'Reject',
+          ),
+          CONFIRM_TIMEOUT_MS,
+        );
+        if (choice === 'Allow Session') {
+          sessionApprovals.add(approvalKey);
+        } else if (choice !== 'Allow Once') {
+          return {
+            called: false,
+            approved: false,
+            reason: choice === 'Reject' ? 'user-rejected' : 'timeout-or-dismissed',
+          };
+        }
+      }
+
+      const entry = nextJournalEntry(extensionId, method, params.args);
+      try {
+        const result = await invokeCallExport({ extensionId, method, args: params.args });
+        recordJournal({ ...entry, result: { ok: true } });
+        return { called: true, approved: true, result };
+      } catch (error) {
+        const errorCode = error && error.bridgeCode ? error.bridgeCode : 'VSCODE_CALL_EXPORT_FAILED';
+        recordJournal({ ...entry, result: { ok: false, errorCode } });
+        throw error;
+      }
+    };
+  }
 
   // ---- git (read-only, best-effort via the built-in vscode.git) -------------
   const gitApi = async () => {
@@ -498,6 +681,7 @@ function stringifyEdits(edits) {
 }
 
 module.exports = {
+  CALL_EXPORT_TIMEOUT_MS,
   CONFIRM_TIMEOUT_MS,
   MAX_FIND_FILES,
   MAX_PROGRESS,

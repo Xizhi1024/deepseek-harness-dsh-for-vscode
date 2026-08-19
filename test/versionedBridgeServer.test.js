@@ -8,6 +8,7 @@ const {
   VSCODE_MAX_FRAME_BYTES,
   VersionedBridgeServer,
 } = require('../src/versionedBridgeServer');
+const { METHODS_BY_VERSION } = require('../src/protocol/ch1');
 
 function client(port) {
   const socket = net.createConnection({ host: '127.0.0.1', port });
@@ -52,6 +53,11 @@ function initializeFrame(server, id = 1, overrides = {}) {
     },
   };
 }
+
+test('protocol v3 advertises the frozen 32-method table including extensions/callExport', () => {
+  assert.strictEqual(METHODS_BY_VERSION[3].length, 32);
+  assert.ok(METHODS_BY_VERSION[3].includes('vscode/extensions/callExport'));
+});
 
 test('VersionedBridgeServer authenticates, negotiates, and dispatches only allowed methods', async (t) => {
   const server = await new VersionedBridgeServer({
