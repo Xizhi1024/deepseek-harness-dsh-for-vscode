@@ -77,5 +77,14 @@
   "closed": "closed",
   "Feature {label} failed: {error}": "Feature {label} failed: {error}",
   "Degraded features: {items}": "Degraded features: {items}",
-  "Webview 桥版本不匹配": "Webview bridge version mismatch"
+  "Webview 桥版本不匹配": "Webview bridge version mismatch",
+  "Invalid dsh.local.packageRoot: {path}": "Invalid dsh.local.packageRoot: {path}",
+  "Invalid dsh.local.nodePath: {path}": "Invalid dsh.local.nodePath: {path}",
+  "Invalid DSH home path: {path}": "Invalid DSH home path: {path}",
+  "Invalid dsh.profile: {profile}": "Invalid dsh.profile: {profile}",
+  "Official DSH is not installed. Install it with `npm install -g @deepseek-ai/dsh`, then reload VS Code; the extension will create or reuse the selected DSH home automatically.": "Official DSH is not installed. Install it with `npm install -g @deepseek-ai/dsh`, then reload VS Code; the extension will create or reuse the selected DSH home automatically.",
+  "Node.js was not found for the installed DSH package. Set dsh.local.nodePath to the absolute Node executable path.": "Node.js was not found for the installed DSH package. Set dsh.local.nodePath to the absolute Node executable path.",
+  "VS Code bridge initialization timed out": "VS Code bridge initialization timed out",
+  "DSH workspace binding failed": "DSH workspace binding failed",
+  "Unknown workspace binding error": "Unknown workspace binding error"
 }

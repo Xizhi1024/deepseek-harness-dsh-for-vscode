@@ -27,6 +27,7 @@ const {
 } = require("./serverManager");
 const { ensureManagedRuntime } = require("./runtimeProvisioner");
 const { resolveLocalDshRuntime } = require("./localRuntimeResolver");
+const { isRetryableStartupError, renderStartupError, startupErrorTable } = require("./startupErrors");
 const { deriveVscodeCapabilities } = require("./vscodeCapabilities");
 const { framePage, statusPage, safeHttpUrl } = require("./webviewHtml");
 const {
@@ -78,25 +79,8 @@ const {
 const { LifecycleQueue } = require("./lifecycle");
 const { createFeatureRegistry } = require("./featureRegistry");
 
-/**
- * Startup/connect failure classes that a bare Retry can never fix: the user
- * must change a dsh.* setting or launch mode first. Everything else (install
- * missing, download/provision failure, spawn crash, health timeout) stays
- * retryable because the environment may have changed between attempts.
- */
-const NON_RETRYABLE_STARTUP_CODES = new Set([
-  'AUTOSTART_DISABLED',
-  'CONFIG_HOST_UNSUPPORTED',
-  'CONFIG_PORT_INVALID',
-  'CONFIG_PACKAGE_ROOT_INVALID',
-  'CONFIG_NODE_PATH_INVALID',
-  'CONFIG_HOME_PATH_INVALID',
-  'CONFIG_PROFILE_INVALID',
-]);
-
-function isRetryableStartupError(err) {
-  return !(err && typeof err.code === 'string' && NON_RETRYABLE_STARTUP_CODES.has(err.code));
-}
+// Startup/connect retry semantics are centralized in src/startupErrors.js:
+// classified codes decide Retry enablement, unknown codes stay retryable.
 
 let vscode = null; // injected during activation; avoids loading vscode in node:test
 let hostContext = null; // workspace/config facade bound during activation
@@ -450,7 +434,7 @@ async function connectNow(context) {
       try {
         render(statusPage({
           title: loc("DeepSeek Harness unavailable"),
-          detail: err && err.template ? loc(err.template, err.params) : String(err && err.message ? err.message : err),
+          detail: renderStartupError(err, loc),
           url,
           showOpenBrowser: Boolean(currentExternalUrl),
           showRetry: isRetryableStartupError(err),
@@ -1293,6 +1277,7 @@ function registerFeatureCommands(context, featureOk) {
           : " — " + loc("Degraded features: {items}", {
             items: featureFailures.map((f) => f.id + ": " + f.error).join(" | "),
           });
+        const startupTableSuffix = "\n\n" + startupErrorTable();
         const hostCapabilities = deriveVscodeCapabilities(vscode.version);
         const hostVersion = typeof vscode.version === 'string' && vscode.version.length > 0
           ? vscode.version
@@ -1313,7 +1298,7 @@ function registerFeatureCommands(context, featureOk) {
             installed: String(installed),
             total: String(snapshot.providers.length),
           }
-        ) + failuresSuffix);
+        ) + failuresSuffix + startupTableSuffix);
       } catch (err) {
         vscode.window.showErrorMessage(loc("DSH diagnose failed: {message}", {
           message: err && err.message ? err.message : String(err),
