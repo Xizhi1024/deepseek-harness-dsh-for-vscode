@@ -539,7 +539,7 @@ test('activation registers dsh.onboarding last and the command re-opens the wiza
   });
 
   assert.ok(fake.commands.has('dsh.onboarding'), 'dsh.onboarding command must be registered');
-  assert.strictEqual([...fake.commands.keys()].at(-1), 'dsh.onboarding');
+  assert.strictEqual([...fake.commands.keys()].at(-2), 'dsh.onboarding');
   // 'never' suppresses the first-run prompt.
   assert.strictEqual(fake.infos.length, 0);
 

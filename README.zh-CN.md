@@ -45,7 +45,8 @@
 
 - `Ctrl+Alt+B` 打开辅助侧边栏 → **DeepSeek Harness (DSH)** 标签
 - 可选 `Ctrl+L`（macOS 为 `Cmd+L`）：开启 `dsh.keybindings.ctrlL` 后，在编辑器中按下即可把当前选区加入 DSH 对话
-- 命令（全部 16 条）：**在浏览器中打开 DSH** · **新建会话** · **切换会话** · **重启 DSH 服务** · **干净重启 DSH 服务** · **停止 DSH 服务** · **聚焦 DSH 侧边栏** · **将文件添加到 DSH 对话** · **添加到 DSH 对话** · **将活动文件添加到 DSH 上下文** · **将活动选区添加到 DSH 上下文** · **将 Problems 添加到 DSH 上下文** · **能力与集成** · **诊断** · **清理孤儿 DSH 服务** · **设置 DSH**
+- 命令（全部 18 条）：**在浏览器中打开 DSH** · **新建会话** · **切换会话** · **重启 DSH 服务** · **干净重启 DSH 服务** · **停止 DSH 服务** · **聚焦 DSH 侧边栏** · **将文件添加到 DSH 对话** · **将文件夹添加到 DSH 对话** · **添加到 DSH 对话** · **将活动文件添加到 DSH 上下文** · **将活动选区添加到 DSH 上下文** · **将 Problems 添加到 DSH 上下文** · **能力与集成** · **诊断** · **清理孤儿 DSH 服务** · **设置 DSH** · **新建 DSH 实例**
+- 附加实例：运行 **DSH: 新建 DSH 实例**（或开启 `dsh.multiInstance.entry` 显示侧栏标题栏入口）在编辑器区域打开一个拥有独立 DSH 子进程的新面板；`dsh.multiInstance.stopOnClose` 控制其是否随面板关闭而停止
 - `dsh.autoStart` 开启时，VS Code 启动即拉取服务，即使侧边栏从未打开
 
 > **干净重启 DSH 服务** 会在重启前通过 `vscode-clean.overlay.yml` 禁用活动 profile 中所有非核心（非 `@deepseek-ai/*`、非 embed）插件。当启动以 `HEALTH_TIMEOUT` 或 `SPAWN_EXITED_EARLY` 失败时，状态页提供 **Restart-Clean** 入口；干净模式下会显示带 **Restart-normal** 的横幅，后者以正常 embed overlay 重启。当 `--patch` overlay 生效期间发生提前退出时，会自动不带该 patch 重试恰好一次（记录在 Diagnose 中）。
@@ -180,6 +181,10 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 | `dsh.features.statusbar-basic` | true | 状态栏中的基础 DSH 状态指示（L1 功能；关闭后失败时仍会以 L0 `$(error)` 兜底呈现） |
 | `dsh.features.theme-follow` | true | 内嵌 DSH iframe 跟随 VS Code 当前颜色主题（深色/浅色）（L1 功能；关闭后不附加 `dsh_theme` URL 参数、不监听主题变化） |
 | `dsh.keybindings.ctrlL` | false | 启用 Ctrl+L（macOS 为 Cmd+L）键位：将当前编辑器选区加入 DSH 对话（默认关闭） |
+| `dsh.multiInstance.entry` | false | 在 DSH 侧栏标题栏显示「新建实例」入口（默认关闭） |
+| `dsh.multiInstance.stopOnClose` | true | 附加实例的编辑器面板关闭时停止其服务 |
+| `dsh.multiInstance.entry` | false | 在 DSH 侧栏标题栏显示「新建实例」入口（默认关闭） |
+| `dsh.multiInstance.stopOnClose` | true | 附加实例的编辑器面板关闭时停止其服务 |
 
 `dsh.closePolicy` 取值：
 

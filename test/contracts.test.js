@@ -22,7 +22,7 @@ test('published sidebar and Webview IDs remain stable across manifest and runtim
   assert.ok(manifest.activationEvents.includes('onCommand:dsh.addFileToThread'));
 });
 
-test('editor title exposes one persistent icon and DSH view title exposes no primary actions', () => {
+test('editor title exposes one persistent icon and DSH view title exposes only the gated instance entry', () => {
   const menus = manifest.contributes.menus;
   assert.deepStrictEqual(menus['editor/title'], [
     {
@@ -30,7 +30,11 @@ test('editor title exposes one persistent icon and DSH view title exposes no pri
       group: 'navigation@40'
     }
   ]);
-  assert.ok(!Object.hasOwn(menus, 'view/title'));
+  assert.deepStrictEqual(menus['view/title'], [{
+    command: 'dsh.newInstance',
+    when: 'config.dsh.multiInstance.entry && view == dsh.webview',
+    group: 'navigation@10'
+  }]);
   assert.deepStrictEqual(menus['editor/context'], [{
     command: 'dsh.addFileToThread',
     when: 'resourceScheme == file',
@@ -116,6 +120,7 @@ test('extension-host smoke expectations cover every contributed command id', () 
     'dsh.stopServer',
     'dsh.switchSession',
     'dsh.onboarding',
+    'dsh.newInstance',
   ].sort();
   assert.deepStrictEqual(smokeExpected, contributed);
 });

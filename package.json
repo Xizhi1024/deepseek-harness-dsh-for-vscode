@@ -64,7 +64,8 @@
     "onCommand:dsh.diagnose",
     "onCommand:dsh.cleanupOrphans",
     "onCommand:dsh.restartClean",
-    "onCommand:dsh.onboarding"
+    "onCommand:dsh.onboarding",
+    "onCommand:dsh.newInstance"
   ],
   "extensionKind": [
     "workspace"
@@ -192,6 +193,15 @@
         "command": "dsh.onboarding",
         "title": "%dsh.cmd.onboarding%",
         "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.newInstance",
+        "title": "%dsh.cmd.newInstance%",
+        "category": "%dsh.cmd.category%",
+        "icon": {
+          "light": "media/deepseek-light.svg",
+          "dark": "media/deepseek-dark.svg"
+        }
       }
     ],
     "keybindings": [
@@ -208,6 +218,13 @@
       }
     ],
     "menus": {
+      "view/title": [
+        {
+          "command": "dsh.newInstance",
+          "when": "config.dsh.multiInstance.entry && view == dsh.webview",
+          "group": "navigation@10"
+        }
+      ],
       "editor/title": [
         {
           "command": "dsh.focusSidebar",
@@ -354,6 +371,16 @@
           "type": "boolean",
           "default": false,
           "description": "%dsh.cfg.keybindings.ctrlL%"
+        },
+        "dsh.multiInstance.entry": {
+          "type": "boolean",
+          "default": false,
+          "description": "%dsh.cfg.multiInstance.entry%"
+        },
+        "dsh.multiInstance.stopOnClose": {
+          "type": "boolean",
+          "default": true,
+          "description": "%dsh.cfg.multiInstance.stopOnClose%"
         }
       }
     }

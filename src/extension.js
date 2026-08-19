@@ -120,6 +120,9 @@ let threadAttachmentCoordinator = null; // owning-window request/ack bridge into
 let injectedDependencies = {}; // activation seams shared with the feature setups (deps stays { context, services })
 let registry = null; // R25 feature registry (created in activateWithDependencies)
 let featureFailures = []; // R25 [{ id, error, at }] folded into dsh.diagnose
+const instancePanels = new Map(); // R16: instanceId -> { panel, manager }
+let instanceSeq = 0; // R16: monotonically increasing instance counter
+let lastFocusedInstanceId = null; // R16: most recently focused DSH surface (null = sidebar)
 let interactionHandlers = []; // webview interaction routers registered by L1/L2 features
 let cleanMode = false; // D1 clean-restart mode: spawns with vscode-clean.overlay.yml
 let cleanPatchPath = null; // absolute clean overlay currently in effect
@@ -138,6 +141,120 @@ async function waitForResolvedView(timeoutMs = 3000) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   return currentView;
+}
+
+/**
+ * R16: composer webview for thread attachments — the most recently focused
+ * DSH surface wins: an active instance panel, else the sidebar view. A panel
+ * that was disposed is never returned (it is removed from the map on dispose).
+ */
+function focusedComposerWebview() {
+  const inst = lastFocusedInstanceId === null ? null : instancePanels.get(lastFocusedInstanceId);
+  if (inst && inst.panel) return inst.panel.webview;
+  return currentView ? currentView.webview : null;
+}
+
+/**
+ * R16 (D7): open one extra DSH instance as an editor-area WebviewPanel with
+ * its own DSH child process. The window-level bridge token is shared (the live
+ * bridgeEnv bag), so bridge features keep working across surfaces. Extra
+ * children write their own registry entries (owner identity is window-level).
+ *
+ * Requires the sidebar's managed runtime: a reused external instance cannot
+ * seed additional children, and user-managed mode (dsh.autoStart=false) only
+ * ever reuses.
+ *
+ * @param {object} deps
+ * @param {Function} deps.createServerManager - injected ServerManager factory.
+ * @param {object} deps.spawnEnv - live shared bridge env bag.
+ * @returns {Promise<void>}
+ */
+async function openInstancePanel({
+  createServerManager,
+  spawnEnv,
+  server = currentServer,
+  runtime = (manager && manager.resolvedRuntime) || null,
+  vscode: facade = vscode,
+}) {
+  if (server === null) {
+    facade.window.showInformationMessage(loc("Connect the DSH sidebar before opening extra instances."));
+    return;
+  }
+  const cfg = hostContext.config();
+  if (runtime === null || !cfg.autoStart) {
+    facade.window.showInformationMessage(loc("Extra instances need the managed auto-start mode (dsh.autoStart)."));
+    return;
+  }
+  const id = ++instanceSeq;
+  const title = "DSH #" + id;
+  const panel = facade.window.createWebviewPanel("dsh.instance", title, facade.ViewColumn.Active, {
+    enableScripts: true,
+  });
+  panel.webview.html = statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail: "", lang: vscode.env.language });
+  const instManager = createServerManager({
+    spawnEnv,
+    embedPatchPath,
+    onStatus: () => { /* instance panels keep their own status in-band */ },
+  });
+  instManager.setResolvedRuntime(runtime);
+  let instanceServer = null;
+  try {
+    instanceServer = await instManager.ensureServer({
+      host: cfg.host,
+      port: cfg.port,
+      autoStart: true,
+      cwd: hostContext.workspaceCwd(),
+      registryFile: hostContext.registryFilePath(),
+    });
+  } catch (error) {
+    panel.dispose();
+    await instManager.stop().catch(() => { /* the child never got ready */ });
+    throw error;
+  }
+  const externalUrl = await externalize(instanceServer.url);
+  const paint = () => {
+    panel.webview.html = framePage({
+      url: externalUrl,
+      lang: vscode.env.language,
+      failText: loc("Failed to load: DSH service unreachable"),
+      openBrowserLabel: loc("Open in browser"),
+      retryLabel: loc("Retry"),
+      sessionId: null,
+      theme: currentDshTheme,
+    });
+  };
+  paint();
+  panel.webview.onDidReceiveMessage(createWebviewMessageHandler({
+    openBrowser: () => {
+      const candidate = safeHttpUrl(instanceServer.url);
+      if (candidate && candidate !== "about:blank") {
+        vscode.env.openExternal(vscode.Uri.parse(candidate));
+      }
+    },
+    retry: () => paint(),
+    interaction: (message) => {
+      handleWebviewInteraction(message, panel.webview);
+    },
+    threadResult: (message) => threadAttachmentCoordinator?.handleResult(message),
+    handshakeError: (message) => {
+      const detail = message && message.error ? message.error : loc("Webview 桥版本不匹配");
+      setStatusBar("$(error) " + loc("Webview 桥版本不匹配"), detail);
+    },
+  }));
+  panel.onDidChangeViewState((event) => {
+    if (event.webviewPanel.active) lastFocusedInstanceId = id;
+  });
+  panel.onDidDispose(() => {
+    instancePanels.delete(id);
+    if (lastFocusedInstanceId === id) lastFocusedInstanceId = null;
+    const stopOnClose = facade.workspace.getConfiguration("dsh").get("multiInstance.stopOnClose", true);
+    if (stopOnClose) {
+      instManager.stop().catch(() => { /* already gone */ });
+      appendDiagnostic("[instance] " + title + " stopped with its panel");
+    }
+  });
+  instancePanels.set(id, { panel, manager: instManager });
+  lastFocusedInstanceId = id;
 }
 
 /** Best-effort URI string used in metadata-only v2 notifications. */
@@ -995,6 +1112,7 @@ async function setupCoreServer({ context, services }) {
   services.bridgeEnv = {};
   const createServerManager = injectedDependencies.createServerManager
     || ((options) => new ServerManager(options));
+  services.createServerManager = createServerManager; // R16: instance panels reuse the injected factory
   manager = createServerManager({
     spawnEnv: services.bridgeEnv, // live shared bag: L0 publishes it, L1/L2 bridge features merge into it
     embedPatchPath,
@@ -1518,14 +1636,20 @@ function registerFeatureCommands(context, featureOk) {
     vscode.commands.registerCommand("dsh.addSelectionToThread", async () => {
       try {
         const attachment = editorContext.attachActiveSelection();
-        await vscode.commands.executeCommand("workbench.view.extension." + CONTAINER_ID);
-        await vscode.commands.executeCommand(VIEW_ID + ".focus");
-        const view = await waitForResolvedView();
-        if (!view) throw new Error(loc("DSH sidebar is unavailable"));
+        // R16: thread attachments route to the most recently focused DSH
+        // surface; only a missing instance target reveals the sidebar.
+        let targetWebview = focusedComposerWebview();
+        if (targetWebview === null) {
+          await vscode.commands.executeCommand("workbench.view.extension." + CONTAINER_ID);
+          await vscode.commands.executeCommand(VIEW_ID + ".focus");
+          const view = await waitForResolvedView();
+          if (!view) throw new Error(loc("DSH sidebar is unavailable"));
+          targetWebview = view.webview;
+        }
         if (!currentServer) await scheduleConnect(context);
         if (!currentServer) throw new Error(loc("DSH: unavailable"));
         const text = formatSelectionAttachment(attachment, attachment.document.uri);
-        await threadAttachmentCoordinator.request(view.webview, text);
+        await threadAttachmentCoordinator.request(targetWebview, text);
         vscode.window.showInformationMessage(loc("Selection added to the DSH conversation"));
       } catch (err) {
         vscode.window.showErrorMessage(loc("Add to DSH conversation failed: {message}", {
@@ -1844,6 +1968,17 @@ async function activateWithDependencies(context, dependencies = {}) {
     runOnboardingWizard({ context, workspace: createOnboardingWorkspace(vscode, loc) })
   );
 
+  // R16 multi-instance: demand-driven editor-area panels, each with its own
+  // DSH child. Registered outside the feature batches like onboarding (no
+  // activation-time subscription; panels and their managers are per-instance).
+  vscode.commands.registerCommand("dsh.newInstance", () => {
+    openInstancePanel({ createServerManager: services.createServerManager, spawnEnv: services.bridgeEnv }).catch((error) => {
+      vscode.window.showErrorMessage(loc("New DSH instance failed: {message}", {
+        message: error && error.message ? error.message : String(error),
+      }));
+    });
+  });
+
   // C2 first-activation prompt: after L0 setup completed successfully, ask once
   // (globalState gate) whether to run the wizard. Deliberately not awaited —
   // the wizard must never block activation (contract: dangling promise).
@@ -1862,6 +1997,12 @@ async function activate(context) {
 }
 
 async function deactivate() {
+  // R16: extra instance managers are not owned by the feature registry —
+  // stop them alongside the main manager (own-child rule applies per manager).
+  for (const inst of instancePanels.values()) {
+    inst.manager?.stop?.().catch(() => { /* teardown best-effort */ });
+  }
+  instancePanels.clear();
   // On VS Code exit, stop only an owned process — and honor the close policy:
   // `never` intentionally leaves even an owned process running for explicit
   // user-managed operation. Other policies stop our child.
@@ -1908,4 +2049,4 @@ async function deactivate() {
   }
 }
 
-module.exports = { activate, deactivate, activateWithDependencies, isRetryableStartupError, themeFromColorThemeKind, FEATURE_CATALOG };
+module.exports = { activate, deactivate, activateWithDependencies, isRetryableStartupError, themeFromColorThemeKind, openInstancePanel, focusedComposerWebview, FEATURE_CATALOG };
