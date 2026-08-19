@@ -27,7 +27,7 @@ const {
 } = require("./serverManager");
 const { ensureManagedRuntime } = require("./runtimeProvisioner");
 const { resolveLocalDshRuntime } = require("./localRuntimeResolver");
-const { isRetryableStartupError, renderStartupError, startupErrorTable } = require("./startupErrors");
+const { STARTUP_ERRORS, isRetryableStartupError, renderStartupError } = require("./startupErrors");
 const { deriveVscodeCapabilities } = require("./vscodeCapabilities");
 const { framePage, statusPage, safeHttpUrl } = require("./webviewHtml");
 const {
@@ -69,7 +69,7 @@ const {
   detectProviderStates,
   diagnosticSnapshot,
 } = require("./providerDetector");
-const { writeEmbedOverlay } = require("./embedOverlay");
+const { writeCleanOverlay, writeEmbedOverlay } = require("./embedOverlay");
 const {
   HOME_MODES,
   bindRuntimeHome,
@@ -112,6 +112,10 @@ let injectedDependencies = {}; // activation seams shared with the feature setup
 let registry = null; // R25 feature registry (created in activateWithDependencies)
 let featureFailures = []; // R25 [{ id, error, at }] folded into dsh.diagnose
 let interactionHandlers = []; // webview interaction routers registered by L1/L2 features
+let cleanMode = false; // D1 clean-restart mode: spawns with vscode-clean.overlay.yml
+let cleanPatchPath = null; // absolute clean overlay currently in effect
+let pendingCleanRestart = false; // status-page Retry maps to Restart-Clean on HEALTH_TIMEOUT/SPAWN_EXITED_EARLY
+let selfHealEvents = []; // Diagnose records successful patch-drop self-heal retries here
 
 async function waitForResolvedView(timeoutMs = 3000) {
   const deadline = Date.now() + timeoutMs;
@@ -233,6 +237,43 @@ function prepareDshHome(config, context) {
  */
 function loc(template, params) {
   return vscode.l10n.t(template, params || {});
+}
+
+/** Apply the D1 clean-restart mode to the module state and the ServerManager. */
+function applyCleanMode(enabled, patchPath) {
+  cleanMode = Boolean(enabled);
+  cleanPatchPath = enabled ? patchPath : null;
+  try {
+    manager?.setCleanMode?.({ enabled: cleanMode, patchPath: cleanPatchPath });
+  } catch (_) { /* non-fatal: a clean-mode mismatch only affects spawn flags */ }
+  return cleanMode;
+}
+
+/** Leave clean-restart mode; the next restart uses the normal embed overlay. */
+function clearCleanMode() {
+  return applyCleanMode(false, null);
+}
+
+/** True when a failed startup should offer the Restart-Clean entry. */
+function isCleanRestartEligible(err) {
+  const code = err && err.code;
+  return code === "HEALTH_TIMEOUT" || code === "SPAWN_EXITED_EARLY";
+}
+
+/**
+ * Localized dsh.diagnose startup-error table. Every row flows through the
+ * startupErrors taxonomy and is rendered via the bilingual l10n template keys
+ * (the localized hints live in l10n/bundle.l10n.*.json).
+ * @returns {string}
+ */
+function localizedStartupErrorTable() {
+  return Object.keys(STARTUP_ERRORS)
+    .sort()
+    .map((code) => {
+      const def = STARTUP_ERRORS[code];
+      return `${code}: ${def.retryable ? loc("retryable") : loc("non-retryable")} — ${loc(def.diagnoseHint)}`;
+    })
+    .join('\n');
 }
 
 /**
@@ -363,6 +404,9 @@ async function bindServer(context, server, cwd) {
 
 async function connectNow(context) {
   try {
+    // The Restart-Clean entry only applies to the next failed startup.
+    pendingCleanRestart = false;
+
     const cfg = hostContext.config();
     prepareDshHome(cfg, context);
     const cwd = hostContext.workspaceCwd();
@@ -424,25 +468,27 @@ async function connectNow(context) {
     }
     await bindServer(context, server, cwd);
   } catch (err) {
-      currentServer = null;
-      boundCwd = null;
-      if (lifecycle.stopped) return;
-      setStatusBar("$(error) " + loc("DSH: unavailable"));
-      const cfg = hostContext.config();
-      const url = "http://" + cfg.host + ":" + cfg.port;
-      currentExternalUrl = safeHttpUrl(url) === "about:blank" ? null : await externalize(url);
-      try {
-        render(statusPage({
-          title: loc("DeepSeek Harness unavailable"),
-          detail: renderStartupError(err, loc),
-          url,
-          showOpenBrowser: Boolean(currentExternalUrl),
-          showRetry: isRetryableStartupError(err),
-          openBrowserLabel: loc("Open in browser"),
-          retryLabel: loc("Retry"),
-          lang: vscode.env.language,
-        }));
-      } catch (_) { /* never throw out of connect() */ }
+    currentServer = null;
+    boundCwd = null;
+    if (lifecycle.stopped) return;
+    setStatusBar("$(error) " + loc("DSH: unavailable"));
+    const cfg = hostContext.config();
+    const url = "http://" + cfg.host + ":" + cfg.port;
+    currentExternalUrl = safeHttpUrl(url) === "about:blank" ? null : await externalize(url);
+    const cleanEligible = isCleanRestartEligible(err);
+    pendingCleanRestart = cleanEligible;
+    try {
+      render(statusPage({
+        title: loc("DeepSeek Harness unavailable"),
+        detail: renderStartupError(err, loc),
+        url,
+        showOpenBrowser: Boolean(currentExternalUrl),
+        showRetry: isRetryableStartupError(err),
+        openBrowserLabel: loc("Open in browser"),
+        retryLabel: cleanEligible ? loc("Restart-Clean") : loc("Retry"),
+        lang: vscode.env.language,
+      }));
+    } catch (_) { /* never throw out of connect() */ }
   }
 }
 
@@ -479,6 +525,48 @@ async function reconnectNow(context) {
   currentExternalUrl = null;
   currentSessionId = null;
   await connectNow(context);
+}
+
+/** D1 clean restart: write the clean overlay, enter clean mode and restart. */
+async function restartCleanNow(context) {
+  if (currentServer && currentServer.owned !== true && !manager.hasOwnedChild()) {
+    vscode.window.showInformationMessage(loc("The running DSH server is reused and cannot be restarted by this extension"));
+    return false;
+  }
+  pendingCleanRestart = false;
+  const cfg = hostContext.config();
+  let overlayPath;
+  try {
+    overlayPath = writeCleanOverlay(activeDshHome, cfg.profile || "web");
+  } catch (err) {
+    vscode.window.showErrorMessage(loc("Clean restart failed: {message}", {
+      message: err && err.message ? err.message : String(err),
+    }));
+    return false;
+  }
+  applyCleanMode(true, overlayPath);
+  // Clean-mode status page banner with the Restart-normal entry (existing
+  // status-page message protocol: the Retry button is reused).
+  render(statusPage({
+    title: loc("DeepSeek Harness (clean mode)"),
+    detail: loc("Non-core DSH plugins are disabled until Restart-normal."),
+    showRetry: true,
+    retryLabel: loc("Restart-normal"),
+    lang: vscode.env.language,
+  }));
+  await reconnectNow(context);
+  return true;
+}
+
+/** Restart-normal: reuses the normal restart path and clears the clean flag. */
+async function restartNormalNow(context) {
+  if (currentServer && currentServer.owned !== true && !manager.hasOwnedChild()) {
+    vscode.window.showInformationMessage(loc("The running DSH server is reused and cannot be restarted by this extension"));
+    return false;
+  }
+  clearCleanMode();
+  await reconnectNow(context);
+  return true;
 }
 
 /**
@@ -608,8 +696,6 @@ function scheduleConfigReconcile(context) {
  * launch with a full PATH is never polluted.
  */
 
-
-
 /**
  * R25 feature catalog — the single registration source for every feature.
  * Layer L0 is the lifeline (never configurable, executed first, zero
@@ -689,6 +775,13 @@ async function setupCoreServer({ context, services }) {
     spawnEnv: services.bridgeEnv, // live shared bag: L0 publishes it, L1/L2 bridge features merge into it
     embedPatchPath,
     onStatus: (s) => {
+      if (s.state === "selfheal") {
+        // Successful patch-drop self-heal: transparent for the user, kept
+        // for Diagnose.
+        selfHealEvents.push(s);
+        return;
+      }
+
       // Surface each lifecycle stage inside the sidebar so the user can see
       // whether we reused an instance or started a new one (multi-instance
       // transparency).
@@ -709,6 +802,7 @@ async function setupCoreServer({ context, services }) {
         currentExternalUrl = null;
         currentSessionId = null;
         boundCwd = null;
+        pendingCleanRestart = false;
         try {
           render(statusPage({
             title: loc("DeepSeek Harness unavailable"),
@@ -848,7 +942,16 @@ async function setupCoreSidebar({ context, services }) {
               vscode.env.openExternal(vscode.Uri.parse(candidate));
             }
           },
-          retry: () => scheduleConnect(context, resolvedViewGeneration).catch(() => {}),
+          retry: () => {
+            if (pendingCleanRestart) {
+              pendingCleanRestart = false;
+              return lifecycle.enqueue("restart clean", () => restartCleanNow(context)).catch(() => {});
+            }
+            if (cleanMode && manager?.isCleanMode?.()) {
+              return lifecycle.enqueue("restart server", () => restartNormalNow(context)).catch(() => {});
+            }
+            return scheduleConnect(context, resolvedViewGeneration).catch(() => {});
+          },
           interaction: (message) => {
             // Route to the feature-registered interaction handlers
             // (clipboard-bridge, editor-links); a disabled feature simply
@@ -1098,6 +1201,7 @@ function registerFeatureCommands(context, featureOk) {
         vscode.window.showInformationMessage(loc("The running DSH server is reused and cannot be restarted by this extension"));
         return;
       }
+      clearCleanMode(); // Restart-normal clears any clean-restart flag
       await reconnectNow(context);
     })),
     vscode.commands.registerCommand("dsh.stopServer", () => lifecycle.enqueue("stop server", async () => {
@@ -1277,7 +1381,10 @@ function registerFeatureCommands(context, featureOk) {
           : " — " + loc("Degraded features: {items}", {
             items: featureFailures.map((f) => f.id + ": " + f.error).join(" | "),
           });
-        const startupTableSuffix = "\n\n" + startupErrorTable();
+        const startupTableSuffix = "\n\n" + localizedStartupErrorTable();
+        const selfHealSuffix = selfHealEvents.length === 0
+          ? ""
+          : " — " + loc("Self-healed without --patch: {count} time(s)", { count: String(selfHealEvents.length) });
         const hostCapabilities = deriveVscodeCapabilities(vscode.version);
         const hostVersion = typeof vscode.version === 'string' && vscode.version.length > 0
           ? vscode.version
@@ -1298,7 +1405,7 @@ function registerFeatureCommands(context, featureOk) {
             installed: String(installed),
             total: String(snapshot.providers.length),
           }
-        ) + failuresSuffix + startupTableSuffix);
+        ) + failuresSuffix + startupTableSuffix + selfHealSuffix);
       } catch (err) {
         vscode.window.showErrorMessage(loc("DSH diagnose failed: {message}", {
           message: err && err.message ? err.message : String(err),
@@ -1314,6 +1421,18 @@ function registerFeatureCommands(context, featureOk) {
       removeEntries: (file, pids) => ServerManager.removeRegistryEntries(file, pids),
       ownedPid: () => manager.currentChildPid(),
       loc,
+    }))
+    );
+  }
+
+  if (featureOk.has('core-server')) {
+    registered.push(
+    vscode.commands.registerCommand("dsh.restartClean", () => lifecycle.enqueue("restart clean", async () => {
+      if (currentServer && currentServer.owned !== true && !manager.hasOwnedChild()) {
+        vscode.window.showInformationMessage(loc("The running DSH server is reused and cannot be restarted by this extension"));
+        return;
+      }
+      await restartCleanNow(context);
     }))
     );
   }
@@ -1344,6 +1463,11 @@ async function activateWithDependencies(context, dependencies = {}) {
 
   const services = {};
   featureFailures = [];
+  selfHealEvents = [];
+  cleanMode = false;
+  cleanPatchPath = null;
+  pendingCleanRestart = false;
+
   registry = null;
   try {
     registry = createFeatureRegistry({

@@ -102,6 +102,7 @@ test('extension-host smoke expectations cover every contributed command id', () 
     'dsh.newSession',
     'dsh.openInBrowser',
     'dsh.restartServer',
+    'dsh.restartClean',
     'dsh.stopServer',
     'dsh.switchSession',
   ].sort();
