@@ -585,3 +585,74 @@ test('registry helpers list only live pids and remove selected records without k
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.deepStrictEqual(raw.map((entry) => entry.pid), [999999999]);
 });
+
+test('sweepDeadOwnerEntries tree-kills only entries whose owner pid is dead', async (t) => {
+  const file = path.join(os.tmpdir(), `dsh-sweep-${process.pid}-${Date.now()}.json`);
+  t.after(() => fs.rmSync(file, { force: true }));
+  const terminated = [];
+  // ownerPid is the extension-host pid recorded alongside each DSH child pid.
+  const entries = [
+    { pid: 5001, port: 4010, host: '127.0.0.1', vscodePid: 9001, at: 1 }, // dead owner → swept
+    { pid: 5002, port: 4011, host: '127.0.0.1', vscodePid: 9002, at: 2 }, // live owner → kept
+    { pid: 5003, port: 4012, host: '127.0.0.1', vscodePid: 9003, at: 3 }, // legacy-compatible ownerless → kept
+    { pid: 5004, port: 4013, host: '127.0.0.1', vscodePid: 9004, at: 4 }, // non-integer pid → kept
+  ];
+  entries[3].pid = '5004'; // not an integer pid: reader keeps it untouched
+  fs.writeFileSync(file, JSON.stringify(entries, null, 2));
+
+  const swept = await ServerManager.sweepDeadOwnerEntries(file, {
+    terminate: async (pid) => { terminated.push(pid); },
+    isProcessAlive: (pid) => pid === 9002 || pid === 9003 || pid === 9004,
+    currentVscodePid: null,
+  });
+
+  assert.deepStrictEqual(swept, [{ pid: 5001, port: 4010, vscodePid: 9001 }]);
+  assert.deepStrictEqual(terminated, [5001], 'only the dead-owner child is tree-killed');
+  const remaining = JSON.parse(fs.readFileSync(file, 'utf8')).map((entry) => entry.pid);
+  assert.deepStrictEqual(remaining, [5002, 5003, '5004'], 'live-owner and legacy entries survive');
+});
+
+test('sweepDeadOwnerEntries never sweeps entries owned by the current window', async (t) => {
+  const file = path.join(os.tmpdir(), `dsh-sweep-self-${process.pid}-${Date.now()}.json`);
+  t.after(() => fs.rmSync(file, { force: true }));
+  fs.writeFileSync(file, JSON.stringify([
+    { pid: 6001, port: 4020, host: '127.0.0.1', vscodePid: 7700, at: 1 }, // other (dead) owner → swept
+    { pid: 6002, port: 4021, host: '127.0.0.1', vscodePid: 8800, at: 2 }, // this window → never swept
+  ], null, 2));
+  const terminated = [];
+
+  const swept = await ServerManager.sweepDeadOwnerEntries(file, {
+    terminate: async (pid) => { terminated.push(pid); },
+    isProcessAlive: () => false, // even if every owner looks dead…
+    currentVscodePid: 8800,
+  });
+
+  assert.deepStrictEqual(swept.map((entry) => entry.pid), [6001]);
+  assert.deepStrictEqual(terminated, [6001]);
+  const remaining = JSON.parse(fs.readFileSync(file, 'utf8')).map((entry) => entry.pid);
+  assert.deepStrictEqual(remaining, [6002]);
+});
+
+test('ready registry entries carry the C1 owner identity (vscodePid + windowId)', (t) => {
+  const file = path.join(os.tmpdir(), `dsh-owner-reg-${process.pid}-${Date.now()}.json`);
+  t.after(() => fs.rmSync(file, { force: true }));
+  const manager = new ServerManager();
+  manager.setOwnerIdentity({ vscodePid: 123456, windowId: 'w-9' });
+  manager._finalizeReady('127.0.0.1', 4322, '/ws', 98765, file, null);
+  const entry = JSON.parse(fs.readFileSync(file, 'utf8'))[0];
+  assert.strictEqual(entry.pid, 98765);
+  assert.strictEqual(entry.port, 4322);
+  assert.strictEqual(entry.host, '127.0.0.1');
+  assert.strictEqual(entry.vscodePid, 123456, 'owner extension-host pid must be stamped');
+  assert.strictEqual(entry.windowId, 'w-9', 'owner window id must be stamped');
+});
+
+test('ready entries without an owner identity stay legacy-compatible (null keys)', (t) => {
+  const file = path.join(os.tmpdir(), `dsh-owner-null-${process.pid}-${Date.now()}.json`);
+  t.after(() => fs.rmSync(file, { force: true }));
+  const manager = new ServerManager(); // no setOwnerIdentity call
+  manager._finalizeReady('127.0.0.1', 4323, null, 98766, file, null);
+  const entry = JSON.parse(fs.readFileSync(file, 'utf8'))[0];
+  assert.strictEqual(entry.vscodePid, null);
+  assert.strictEqual(entry.windowId, null);
+});

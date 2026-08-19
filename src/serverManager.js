@@ -304,6 +304,12 @@ class ServerManager {
     this.cleanPatchPath = cleanPatchPath;
     this.clean = false; // clean-restart mode: spawn uses cleanPatchPath and registry marks clean:true
     this.spawnFn = typeof spawnFn === 'function' ? spawnFn : spawn;
+    // C1 owner-marked registry: this window's extension-host pid + stable
+    // window id, stamped onto every ready registry entry so the next
+    // activation can tree-kill entries whose owner window died (multi-window
+    // zero mis-kill) without ever touching a live owner.
+    this.ownerVscodePid = null; // extension-host process pid (process.pid)
+    this.ownerWindowId = null;  // stable window identity (see extension.js deriveWindowId)
     this._selfHealCount = 0; // successful patch-drop self-heal retries for Diagnose
     this._child = null;   // ChildProcess spawned by THIS instance (owned)
     this._registryFile = null; // registry merged on ready (own entry removed on stop)
@@ -349,6 +355,20 @@ class ServerManager {
   /** True while this manager spawns with the clean overlay. */
   isCleanMode() {
     return Boolean(this.clean);
+  }
+
+  /**
+   * C1: stamp this window's owner identity onto future ready registry entries.
+   * The owner is the extension host process (vscodePid = process.pid) plus a
+   * stable window id. Entries without a numeric owner stay legacy-compatible
+   * and are left untouched by the activation sweep.
+   * @param {{vscodePid?: number|null, windowId?: string|null}} identity
+   * @returns {{vscodePid: number|null, windowId: string|null}} the normalized identity.
+   */
+  setOwnerIdentity({ vscodePid = null, windowId = null } = {}) {
+    this.ownerVscodePid = Number.isInteger(vscodePid) ? vscodePid : null;
+    this.ownerWindowId = typeof windowId === 'string' && windowId.length > 0 ? windowId : null;
+    return { vscodePid: this.ownerVscodePid, windowId: this.ownerWindowId };
   }
 
   /** Number of successful patch-drop self-heal retries this window performed. */
@@ -959,6 +979,11 @@ class ServerManager {
         host,
         cwd: entryCwd,
         clean: Boolean(this.clean),
+        // C1 owner-marked registry: lets the next activation sweep tree-kill
+        // only entries whose owner extension-host is confirmed dead; never
+        // present on legacy entries (read compatibly as "no owner marker").
+        vscodePid: this.ownerVscodePid,
+        windowId: this.ownerWindowId,
         at: Date.now(),
         ...(logPath ? { log: logPath } : {}),
       });
@@ -1073,6 +1098,68 @@ class ServerManager {
     );
     ServerManager._writeRegistry(registryFile, entries);
   }
+
+  /**
+   * C1 owner-marked orphan sweep (activation-time, before L0). Reads the raw
+   * registry and, for every new-style entry that carries a numeric owner
+   * (`vscodePid`), tree-kills the entry's DSH child process when the recorded
+   * owner extension-host pid is no longer alive, then drops the entry.
+   *
+   * Safety rules (multi-window zero mis-kill):
+   *  - an entry whose owner is still alive is NEVER touched (another live
+   *    VS Code window owns it);
+   *  - legacy entries WITHOUT a numeric vscodePid are left alone — they may
+   *    belong to a still-running pre-C1 window, and dead-child pruning of such
+   *    entries stays the job of cleanupStaleRegistry();
+   *  - entries owned by `currentVscodePid` (this window) are never swept.
+   *
+   * Reuses the exact tree-kill implementation that backs the orphan-cleanup
+   * command (`killProcessTree`); nothing here re-implements process killing.
+   *
+   * @param {string} registryFile - Registry JSON path.
+   * @param {object} [options]
+   * @param {(pid: number) => Promise<void>} [options.terminate] - defaults to killProcessTree.
+   * @param {(pid: number) => boolean} [options.isProcessAlive] - defaults to ServerManager._isProcessAlive.
+   * @param {number|null} [options.currentVscodePid] - this window's extension-host pid.
+   * @returns {Promise<Array<{pid: number, port: number|undefined, vscodePid: number}>>} swept entries.
+   */
+  static async sweepDeadOwnerEntries(registryFile, { terminate = null, isProcessAlive = null, currentVscodePid = null } = {}) {
+    const kill = typeof terminate === 'function' ? terminate : (pid) => killProcessTree(pid);
+    const alive = typeof isProcessAlive === 'function' ? isProcessAlive : (pid) => ServerManager._isProcessAlive(pid);
+    const keep = [];
+    const swept = [];
+    for (const entry of ServerManager._readRegistryRaw(registryFile)) {
+      if (!entry || !Number.isInteger(entry.pid)) {
+        keep.push(entry);
+        continue;
+      }
+      const owner = entry.vscodePid;
+      if (!Number.isInteger(owner) || owner <= 0) {
+        // Legacy / ownerless: compatible read, leave to dead-pid pruning.
+        keep.push(entry);
+        continue;
+      }
+      if (currentVscodePid !== null && currentVscodePid !== undefined && owner === currentVscodePid) {
+        keep.push(entry);
+        continue;
+      }
+      if (alive(owner)) {
+        // Owner extension-host is alive: never touch another window's child.
+        keep.push(entry);
+        continue;
+      }
+      try {
+        await kill(entry.pid);
+      } catch {
+        // best-effort tree-kill; the record is still dropped below.
+      }
+      swept.push({ pid: entry.pid, port: entry.port, vscodePid: owner });
+    }
+    if (swept.length > 0) {
+      ServerManager._writeRegistry(registryFile, keep);
+    }
+    return swept;
+  }
 }
 
 module.exports = {
@@ -1088,4 +1175,5 @@ module.exports = {
   reconcileConfigChange,
   buildManagedLaunchSpec,
   normalizeResolvedRuntime,
+  sweepDeadOwnerEntries: (registryFile, options) => ServerManager.sweepDeadOwnerEntries(registryFile, options),
 };

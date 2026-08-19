@@ -17,6 +17,8 @@
  * Zero npm dependencies. CommonJS.
  */
 const path = require("node:path");
+const fs = require("node:fs");
+const { execFileSync } = require("node:child_process");
 const {
   ServerManager,
   CLOSE_POLICIES,
@@ -45,7 +47,7 @@ const { startTextDocumentBridge } = require("./textDocumentBridge");
 const { createNotifier } = require("./ch1/notifier");
 const { VersionedBridgeServer } = require("./versionedBridgeServer");
 const { createBridgeWorkspaceIdentity } = require("./bridgeWorkspace");
-const { DEFAULT_HOST, DEFAULT_PORT, VIEW_ID, CONTAINER_ID } = require("./types");
+const { DEFAULT_HOST, DEFAULT_PORT, VIEW_ID, CONTAINER_ID, HEARTBEAT_WRITE_MS, WATCHDOG_ENV } = require("./types");
 const { createVscodeFacade } = require("./vscodeFacade");
 const { createWebviewMessageHandler, DSH_THEME_CHANGED } = require("./webviewMessages");
 const {
@@ -117,6 +119,12 @@ let cleanMode = false; // D1 clean-restart mode: spawns with vscode-clean.overla
 let cleanPatchPath = null; // absolute clean overlay currently in effect
 let pendingCleanRestart = false; // status-page Retry maps to Restart-Clean on HEALTH_TIMEOUT/SPAWN_EXITED_EARLY
 let selfHealEvents = []; // Diagnose records successful patch-drop self-heal retries here
+// C1 watchdog / diagnostics:
+let outputChannel = null; // vscode.window.createOutputChannel("DSH"); last link of the §3 degradation chain
+let ownerWindowId = null; // stable window identity (vscode.env.windowId or derived)
+let heartbeatFilePath = null; // per-window heartbeat path injected via DSH_VSCODE_HEARTBEAT_PATH
+let heartbeatTimer = null; // 10s heartbeat writer
+let ownerStartTs = null; // extension-host process start timestamp (PID-reuse guard)
 
 async function waitForResolvedView(timeoutMs = 3000) {
   const deadline = Date.now() + timeoutMs;
@@ -275,6 +283,162 @@ function localizedStartupErrorTable() {
       return `${code}: ${def.retryable ? loc("retryable") : loc("non-retryable")} — ${loc(def.diagnoseHint)}`;
     })
     .join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// C1 watchdog + OutputChannel「DSH」(contract §3/§6 + D6 quad).
+// ---------------------------------------------------------------------------
+
+/**
+ * Stable identity for this VS Code window used by the C1 watchdog protocol.
+ * Prefers `vscode.env.windowId` (the real, window-lifetime-stable id VS Code
+ * provides); when the host does not expose it (older/typed API surface), falls
+ * back to a per-process id derived from process.pid + the extension-host start
+ * time — unique to this ext-host process, stable for its whole lifetime, and
+ * different after a Reload (which is exactly what a derived fallback wants:
+ * the old orphan's heartbeat path then goes stale and the watchdog reclaims it).
+ * @param {object} vscodeObj - VS Code facade.
+ * @returns {string}
+ */
+function deriveWindowId(vscodeObj) {
+  const native = vscodeObj && vscodeObj.env ? vscodeObj.env.windowId : undefined;
+  if (typeof native === 'number' && Number.isInteger(native)) return String(native);
+  const startMs = Math.floor(Date.now() - process.uptime() * 1000);
+  return `w-${process.pid}-${startMs}`;
+}
+
+/**
+ * Absolute heartbeat file path for one window. Lives under the extension's
+ * global storage so it is writable in every profile; the path is handed to the
+ * owned DSH child through DSH_VSCODE_HEARTBEAT_PATH.
+ * @param {object} context - Active ExtensionContext.
+ * @param {string} windowId - ownerWindowId.
+ * @returns {string}
+ */
+function heartbeatPathFor(context, windowId) {
+  return path.join(context.globalStorageUri.fsPath, 'heartbeat', `dsh-${windowId}.json`);
+}
+
+/**
+ * Best-effort process start timestamp (owner side). Cross-process comparable
+ * with the DSH host's `osProcessStartMs` (mirrored in
+ * runtime-integration/dsh-vscode-integration/lib/index.js):
+ *  - POSIX: /proc/<pid>/stat field 22 (`starttime` ticks, same boot base for
+ *    both sides → directly comparable);
+ *  - win32: PowerShell Get-Process StartTime → epoch milliseconds (same method
+ *    on both sides).
+ * Returns null when unavailable (the watchdog then degrades to conservative
+ * "wait" — it never exits on an unknown start time).
+ * @param {number} pid
+ * @returns {number|null}
+ */
+function osProcessStartMs(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  try {
+    if (process.platform === 'win32') {
+      const command = '[int64]((Get-Process -Id ' + pid
+        + ' -ErrorAction Stop).StartTime.ToUniversalTime() - [datetime]\'1970-01-01 00:00:00Z\').TotalMilliseconds';
+      const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
+        encoding: 'utf8',
+        timeout: 5000,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      const ms = Number(String(out).trim());
+      return Number.isFinite(ms) ? Math.round(ms) : null;
+    }
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    // comm (field 2) may contain spaces/parentheses — parse after the last ')'.
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(/\s+/);
+    const starttime = Number(fields[19]); // field 22 → index 22 - 3
+    return Number.isFinite(starttime) ? starttime : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Write one heartbeat payload (best-effort; a failed write never throws). */
+function writeHeartbeat() {
+  if (!heartbeatFilePath || !ownerWindowId) return;
+  if (ownerStartTs === null) {
+    const startFn = injectedDependencies.extensionHostStartMs || osProcessStartMs;
+    try {
+      ownerStartTs = startFn(process.pid);
+    } catch {
+      ownerStartTs = null;
+    }
+  }
+  try {
+    fs.mkdirSync(path.dirname(heartbeatFilePath), { recursive: true });
+    const payload = JSON.stringify({
+      ownerPid: process.pid,
+      windowId: ownerWindowId,
+      ownerStartTs,
+      at: Date.now(),
+    });
+    fs.writeFileSync(heartbeatFilePath, payload, 'utf8');
+  } catch {
+    // heartbeat is best-effort bookkeeping; a read-only global storage never
+    // breaks the extension — the DSH child then sees an absent/expired file
+    // and the dual-condition watchdog keeps it conservative (ppid still alive).
+  }
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
+/** Start the 10s heartbeat writer. Safe to call repeatedly (restarts it). */
+function startHeartbeat() {
+  stopHeartbeat();
+  heartbeatTimer = setInterval(writeHeartbeat, HEARTBEAT_WRITE_MS);
+  if (heartbeatTimer && typeof heartbeatTimer.unref === 'function') heartbeatTimer.unref();
+  writeHeartbeat(); // write immediately so the DSH child sees a fresh file from t0
+}
+
+/**
+ * Last link of the §3 degradation chain: append one diagnostic line to the
+ * `DSH` OutputChannel. Null-safe — the channel may be absent in tests or on a
+ * host without the API, and diagnostics must never throw.
+ * @param {string} line
+ */
+function appendDiagnostic(line) {
+  try {
+    if (outputChannel && typeof outputChannel.appendLine === 'function') {
+      outputChannel.appendLine(line);
+    }
+  } catch {
+    // never break the extension on a diagnostic sink
+  }
+}
+
+/**
+ * C1 activation scan (runs early, before L0). Reads the instance registry and
+ * tree-kills entries whose owner extension-host pid is dead (owner-marked
+ * orphan sweep); living owners and legacy entries are never touched. Reuses
+ * the cleanupOrphans tree-kill via ServerManager.sweepDeadOwnerEntries.
+ * @returns {Promise<void>}
+ */
+async function sweepOrphansBeforeL0() {
+  const sweep = injectedDependencies.sweepDeadOwnerEntries
+    || ((file, options) => ServerManager.sweepDeadOwnerEntries(file, options));
+  const swept = await sweep(hostContext.registryFilePath(), {
+    terminate: killProcessTree,
+    currentVscodePid: process.pid,
+  });
+  if (Array.isArray(swept) && swept.length > 0) {
+    appendDiagnostic(loc(
+      "Orphan sweep: terminated {count} DSH process(es) from dead VS Code windows ({pids})",
+      {
+        count: String(swept.length),
+        pids: swept.map((entry) => entry.pid).join(', '),
+      }
+    ));
+    console.warn(`dsh-vs-sidebar: orphan sweep terminated ${swept.length} DSH process(es) from dead VS Code windows.`);
+  }
 }
 
 /**
@@ -498,6 +662,7 @@ async function connectNow(context) {
     currentExternalUrl = safeHttpUrl(url) === "about:blank" ? null : await externalize(url);
     const cleanEligible = isCleanRestartEligible(err);
     pendingCleanRestart = cleanEligible;
+    appendDiagnostic(`[startup] ${renderStartupError(err, loc)}`);
     try {
       render(statusPage({
         title: loc("DeepSeek Harness unavailable"),
@@ -799,8 +964,9 @@ async function setupCoreServer({ context, services }) {
     onStatus: (s) => {
       if (s.state === "selfheal") {
         // Successful patch-drop self-heal: transparent for the user, kept
-        // for Diagnose.
+        // for Diagnose and appended to the OutputChannel.
         selfHealEvents.push(s);
+        appendDiagnostic(`[selfheal] ${s.message ? loc(s.message, s.params) : 'DSH self-healed'}`);
         return;
       }
 
@@ -825,6 +991,7 @@ async function setupCoreServer({ context, services }) {
         currentSessionId = null;
         boundCwd = null;
         pendingCleanRestart = false;
+        appendDiagnostic(`[server] ${s.message ? loc(s.message, s.params) : loc("DSH: unavailable")}`);
         try {
           render(statusPage({
             title: loc("DeepSeek Harness unavailable"),
@@ -853,6 +1020,23 @@ async function setupCoreServer({ context, services }) {
     },
   });
   services.manager = manager;
+  // C1 watchdog: hand the owned DSH child the keys it needs — the heartbeat
+  // path, this window's identity, and the D6 switch-off when closePolicy is
+  // `never` — so the DSH-host check loop keeps this window's server alive and
+  // knows how to reclaim an orphan without touching other windows.
+  if (ownerWindowId && heartbeatFilePath) {
+    const watchdogEnv = {
+      [WATCHDOG_ENV.WINDOW_ID]: ownerWindowId,
+      [WATCHDOG_ENV.HEARTBEAT_PATH]: heartbeatFilePath,
+    };
+    if (hostContext.config().closePolicy === CLOSE_POLICIES.NEVER) {
+      watchdogEnv[WATCHDOG_ENV.WATCHDOG] = 'off';
+    }
+    services.manager?.setSpawnEnv?.(watchdogEnv);
+  }
+  // Stamp this window's owner identity so every ready registry entry carries
+  // vscodePid + windowId (the activation scan tree-kills only dead owners).
+  services.manager?.setOwnerIdentity?.({ vscodePid: process.pid, windowId: ownerWindowId });
   // Prune dead registry entries (best effort). NEVER kills live instances —
   // they may belong to another VS Code window with its own workspace.
   try {
@@ -1500,6 +1684,31 @@ async function activateWithDependencies(context, dependencies = {}) {
   hostContext = createWorkspaceContext(vscode, context);
   injectedDependencies = dependencies || {};
 
+  // C1 watchdog + OutputChannel「DSH」state. Reset on every activation so a
+  // re-activation (tests / Reload in-process) never leaks a stale heartbeat
+  // timer, owner identity or channel.
+  stopHeartbeat();
+  ownerWindowId = null;
+  heartbeatFilePath = null;
+  ownerStartTs = null;
+  outputChannel = null;
+  outputChannel = typeof vscode.window.createOutputChannel === 'function'
+    ? vscode.window.createOutputChannel('DSH')
+    : null;
+  if (outputChannel) context.subscriptions.push(outputChannel); // §3 degradation chain last link
+  ownerWindowId = deriveWindowId(vscode);
+  heartbeatFilePath = heartbeatPathFor(context, ownerWindowId);
+  startHeartbeat();
+
+  // C1 activation scan (early, before L0): sweep registry entries left by
+  // dead owner Windows. Never kills a live owner's child; a sweep failure
+  // must never block activation.
+  try {
+    await sweepOrphansBeforeL0();
+  } catch (err) {
+    console.error('dsh-vs-sidebar: owner-marked orphan sweep failed:', err && err.message ? err.message : err);
+  }
+
   // Display-only host capability matrix. This warning is intentionally not a
   // behavior gate: the extension keeps its engines floor and does not use
   // these booleans to enable/disable any API path.
@@ -1539,6 +1748,10 @@ async function activateWithDependencies(context, dependencies = {}) {
           label,
           error: record.error,
         }));
+        appendDiagnostic(`[feature] ${loc("Feature {label} failed: {error}", {
+          label,
+          error: record.error,
+        })}`);
       },
     });
     for (const feature of FEATURE_CATALOG) {
@@ -1614,6 +1827,8 @@ async function deactivate() {
     currentSessionId = null;
     currentDshTheme = null;
     boundCwd = null;
+    stopHeartbeat();
+    outputChannel = null;
   }
 }
 

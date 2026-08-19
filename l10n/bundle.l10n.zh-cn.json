@@ -108,5 +108,6 @@
   "Check the DSH spawn log and retry.": "请查看 DSH 启动日志后重试。",
   "Inspect the DSH log; retry after fixing the startup blocker.": "请查看 DSH 日志，修复启动阻碍后重试。",
   "Inspect the DSH log, then restart DSH or retry.": "请查看 DSH 日志，然后重启 DSH 或重试。",
-  "Restart DSH or reload the VS Code window.": "请重启 DSH 或重新加载 VS Code 窗口。"
+  "Restart DSH or reload the VS Code window.": "请重启 DSH 或重新加载 VS Code 窗口。",
+  "Orphan sweep: terminated {count} DSH process(es) from dead VS Code windows ({pids})": "孤儿清扫：已终止 {count} 个来自已退出 VS Code 窗口的 DSH 进程（{pids}）"
 }

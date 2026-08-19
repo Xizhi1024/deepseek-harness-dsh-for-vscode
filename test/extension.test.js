@@ -19,6 +19,7 @@ function createFakeVscode(configOverrides = {}) {
   const informationMessages = [];
   const errorMessages = [];
   const warningMessages = [];
+  const outputChannels = new Map();
   const configuration = {
     host: '127.0.0.1',
     port: 3080,
@@ -79,6 +80,20 @@ function createFakeVscode(configOverrides = {}) {
           show() {},
         };
       },
+      createOutputChannel(name) {
+        const lines = [];
+        const channel = {
+          name,
+          lines,
+          appendLine(text) {
+            lines.push(text);
+          },
+          show() {},
+          dispose() {},
+        };
+        outputChannels.set(name, channel);
+        return channel;
+      },
       createStatusBarItem() {
         return { show() {}, text: '', tooltip: '' };
       },
@@ -112,7 +127,7 @@ function createFakeVscode(configOverrides = {}) {
       async openTextDocument(uri) { return { uri }; },
     },
   };
-  return { api, commands, registrations, shownDocuments, informationMessages, errorMessages, warningMessages };
+  return { api, commands, registrations, shownDocuments, informationMessages, errorMessages, warningMessages, outputChannels };
 }
 
 function waitFor(predicate, timeoutMs = 2000) {
@@ -211,8 +226,8 @@ test('activation registers the public host surface through injected dependencies
   assert.strictEqual(typeof versionedBridgeOptions.handlers['vscode/workspace/getDiagnostics'], 'function');
   assert.strictEqual(typeof versionedBridgeOptions.handlers['vscode/extensions/getProviderStates'], 'function');
   assert.strictEqual(typeof versionedBridgeOptions.handlers['vscode/extensions/openDetails'], 'function');
-  // B-batch merge resolution: theme-follow listener + dsh.restartClean each add one.
-  assert.strictEqual(context.subscriptions.length, 24);
+  // C1: theme-follow listener + dsh.restartClean + DSH OutputChannel each add one.
+  assert.strictEqual(context.subscriptions.length, 25);
   assert.strictEqual(ensureRuntimeCalls, 0, 'autoStart=false must not resolve the managed runtime');
 
   fake.api.workspace.workspaceFolders = [
@@ -1209,4 +1224,109 @@ test('connect failure with autoStart disabled renders no Retry button', async ()
   assert.ok(viewHtml.includes('autoStart is disabled'), 'the rendered detail names the failure class');
 
   await deactivate();
+});
+
+test('C1 activation creates the DSH OutputChannel and runs the owner-marked orphan sweep before L0', async () => {
+  const fake = createFakeVscode();
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-scan-test-${process.pid}`) },
+    subscriptions: [],
+  };
+  const manager = { hasOwnedChild() { return false; }, cancelPending() {} };
+  const sweepInvocations = [];
+  const swept = [{ pid: 7001, port: 4050, vscodePid: 7701 }];
+  const sweepFn = async (file, options) => {
+    sweepInvocations.push({ file, options });
+    return swept;
+  };
+
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    sweepDeadOwnerEntries: sweepFn,
+    extensionHostStartMs: () => 1111,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() { return manager; },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  // §3 degradation-chain last link: an OutputChannel named DSH is created,
+  // pushed into the subscription set and received the sweep diagnostic.
+  const channel = fake.outputChannels.get('DSH');
+  assert.ok(channel, 'activation must create the DSH OutputChannel');
+  assert.strictEqual(channel.name, 'DSH');
+  assert.ok(context.subscriptions.includes(channel), 'the channel must be disposed with the context');
+  assert.strictEqual(sweepInvocations.length, 1, 'scan runs once during activation');
+  assert.strictEqual(typeof sweepInvocations[0].options.terminate, 'function');
+  assert.strictEqual(sweepInvocations[0].options.currentVscodePid, process.pid);
+  assert.ok(
+    channel.lines.some((line) => line.includes('Orphan sweep') && line.includes('7001')),
+    'swept-child diagnostics must be appended to the OutputChannel'
+  );
+
+  await deactivate();
+});
+
+test('C1 spawn env injection: heartbeat path + window id always; watchdog off only under closePolicy=never', async () => {
+  const setSpawnEnvCalls = [];
+  const setOwnerIdentityCalls = [];
+
+  async function activateWith(closePolicy) {
+    const fake = createFakeVscode({ closePolicy });
+    const context = {
+      globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-env-test-${process.pid}-${closePolicy}`) },
+      subscriptions: [],
+    };
+    const manager = {
+      setSpawnEnv(env) { setSpawnEnvCalls.push(env); },
+      setOwnerIdentity(identity) { setOwnerIdentityCalls.push(identity); },
+      hasOwnedChild() { return false; },
+      cancelPending() {},
+      currentChildPid() { return null; },
+    };
+    await activateWithDependencies(context, {
+      vscode: fake.api,
+      extensionHostStartMs: () => 2222,
+      async startTextDocumentBridge() {
+        return { env: {}, async close() {} };
+      },
+      async startVersionedBridge() {
+        return { env: {}, async close() {} };
+      },
+      createServerManager() { return manager; },
+      async ensureManagedRuntime() {
+        throw new Error('autoStart=false must not resolve the managed runtime');
+      },
+    });
+    await deactivate();
+  }
+
+  await activateWith('onVscodeExit');
+  await activateWith('never');
+
+  const first = setSpawnEnvCalls.filter((env) => env.DSH_VSCODE_WINDOW_ID && env.DSH_VSCODE_HEARTBEAT_PATH)
+    .map((env) => JSON.parse(JSON.stringify(env)));
+  assert.ok(first.length >= 2, 'each activation injects the heartbeat + window identity');
+
+  const normal = first[0];
+  assert.strictEqual(typeof normal.DSH_VSCODE_WINDOW_ID, 'string');
+  assert.ok(normal.DSH_VSCODE_WINDOW_ID.length > 0);
+  assert.ok(path.isAbsolute(normal.DSH_VSCODE_HEARTBEAT_PATH), 'heartbeat path must be absolute');
+  assert.strictEqual(normal.DSH_VSCODE_WATCHDOG, undefined, 'onVscodeExit keeps the watchdog on (no override)');
+
+  const never = first[1];
+  assert.strictEqual(never.DSH_VSCODE_WATCHDOG, 'off', 'closePolicy=never disables the DSH-side watchdog');
+
+  // Every activation stamps the registry owner identity (that the scan relies on).
+  assert.strictEqual(setOwnerIdentityCalls.length, 2);
+  for (const identity of setOwnerIdentityCalls) {
+    assert.strictEqual(identity.vscodePid, process.pid, 'owner vscodePid is this extension host');
+    assert.ok(typeof identity.windowId === 'string' && identity.windowId.length > 0);
+  }
 });

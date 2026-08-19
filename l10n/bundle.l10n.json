@@ -108,5 +108,6 @@
   "Check the DSH spawn log and retry.": "Check the DSH spawn log and retry.",
   "Inspect the DSH log; retry after fixing the startup blocker.": "Inspect the DSH log; retry after fixing the startup blocker.",
   "Inspect the DSH log, then restart DSH or retry.": "Inspect the DSH log, then restart DSH or retry.",
-  "Restart DSH or reload the VS Code window.": "Restart DSH or reload the VS Code window."
+  "Restart DSH or reload the VS Code window.": "Restart DSH or reload the VS Code window.",
+  "Orphan sweep: terminated {count} DSH process(es) from dead VS Code windows ({pids})": "Orphan sweep: terminated {count} DSH process(es) from dead VS Code windows ({pids})"
 }
