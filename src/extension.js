@@ -1319,6 +1319,7 @@ async function setupCoreSidebar({ context, services }) {
   mcpConsentGate = createConsentGate({
     globalState: context.globalState || { get: () => [], update: () => {} },
     vscode,
+    loc,
   });
   mcpManager = injectedDependencies.mcpManager || createMcpManager({
     vscode,
