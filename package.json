@@ -276,16 +276,19 @@
         "dsh.local.packageRoot": {
           "type": "string",
           "default": "",
+          "scope": "machine",
           "description": "%dsh.cfg.local.packageRoot%"
         },
         "dsh.local.nodePath": {
           "type": "string",
           "default": "",
+          "scope": "machine",
           "description": "%dsh.cfg.local.nodePath%"
         },
         "dsh.runtime.manifestUrl": {
           "type": "string",
           "default": "",
+          "scope": "machine",
           "description": "%dsh.cfg.runtime.manifestUrl%"
         },
         "dsh.runtime.version": {

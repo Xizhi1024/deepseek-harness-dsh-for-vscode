@@ -144,3 +144,118 @@ test('local resolver without a configured root explains the npm install command'
     /npm install -g @deepseek-ai\/dsh/
   );
 });
+
+function writeNodeExecutable(dir, executable) {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, executable), 'node fixture');
+}
+
+test('local resolver discovers a Volta-managed package on win32', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-volta-win-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const localAppData = path.join(root, 'LocalAppData');
+  const versionRoot = path.join(localAppData, '.volta', 'tools', 'image', 'node', 'v20.11.1');
+  writeOfficialPackage(path.join(versionRoot, 'lib', 'node_modules', '@deepseek-ai', 'dsh'));
+  writeNodeExecutable(path.join(versionRoot, 'bin'), 'node.exe');
+
+  const runtime = await resolveLocalDshRuntime({
+    dshHome: path.join(root, 'storage', '.dsh'),
+    env: { LOCALAPPDATA: localAppData, APPDATA: path.join(root, 'AppData') },
+    platform: 'win32',
+  });
+
+  assert.strictEqual(runtime.dshVersion, '0.1.0-rc.6');
+  assert.strictEqual(runtime.executablePath, fs.realpathSync(path.join(versionRoot, 'bin', 'node.exe')));
+});
+
+test('local resolver discovers an fnm-windows-managed package on win32', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-fnm-win-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const appData = path.join(root, 'AppData');
+  const versionRoot = path.join(appData, 'fnm', 'node-versions', 'v20.11.1');
+  const installationRoot = path.join(versionRoot, 'installation');
+  writeOfficialPackage(path.join(installationRoot, 'lib', 'node_modules', '@deepseek-ai', 'dsh'));
+  writeNodeExecutable(installationRoot, 'node.exe');
+
+  const runtime = await resolveLocalDshRuntime({
+    dshHome: path.join(root, 'storage', '.dsh'),
+    env: {
+      LOCALAPPDATA: path.join(root, 'LocalAppData'),
+      APPDATA: appData,
+    },
+    platform: 'win32',
+  });
+
+  assert.strictEqual(runtime.dshVersion, '0.1.0-rc.6');
+  assert.strictEqual(runtime.executablePath, fs.realpathSync(path.join(installationRoot, 'node.exe')));
+});
+
+test('local resolver discovers an nvm-windows-managed package on win32', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-nvm-win-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const appData = path.join(root, 'AppData');
+  const nvmRoot = path.join(appData, 'nvm');
+  const versionRoot = path.join(nvmRoot, 'v20.11.1');
+  writeOfficialPackage(path.join(versionRoot, 'lib', 'node_modules', '@deepseek-ai', 'dsh'));
+  writeNodeExecutable(versionRoot, 'node.exe');
+
+  const runtime = await resolveLocalDshRuntime({
+    dshHome: path.join(root, 'storage', '.dsh'),
+    env: {
+      LOCALAPPDATA: path.join(root, 'LocalAppData'),
+      APPDATA: appData,
+      NVM_HOME: nvmRoot,
+      NVM_SYMLINK: versionRoot,
+    },
+    platform: 'win32',
+  });
+
+  assert.strictEqual(runtime.dshVersion, '0.1.0-rc.6');
+  assert.strictEqual(runtime.executablePath, fs.realpathSync(path.join(versionRoot, 'node.exe')));
+});
+
+test('local resolver uses NVM_SYMLINK direct node_modules layout on win32', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-nvm-symlink-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const appData = path.join(root, 'AppData');
+  const nvmRoot = path.join(appData, 'nvm');
+  const versionRoot = path.join(nvmRoot, 'v20.11.1');
+  writeOfficialPackage(path.join(versionRoot, 'node_modules', '@deepseek-ai', 'dsh'));
+  writeNodeExecutable(versionRoot, 'node.exe');
+
+  const runtime = await resolveLocalDshRuntime({
+    dshHome: path.join(root, 'storage', '.dsh'),
+    env: {
+      LOCALAPPDATA: path.join(root, 'LocalAppData'),
+      APPDATA: appData,
+      NVM_HOME: nvmRoot,
+      NVM_SYMLINK: versionRoot,
+    },
+    platform: 'win32',
+  });
+
+  assert.strictEqual(runtime.dshVersion, '0.1.0-rc.6');
+  assert.strictEqual(runtime.executablePath, fs.realpathSync(path.join(versionRoot, 'node.exe')));
+});
+
+test('local resolver rejects POSIX-style configured packageRoot on win32', async () => {
+  await assert.rejects(
+    resolveLocalDshRuntime({
+      dshHome: path.resolve('.dsh'),
+      packageRoot: '/Users/example/.nvm/versions/node/v20.11.1/lib/node_modules/@deepseek-ai/dsh',
+      platform: 'win32',
+    }),
+    (err) => err.code === 'CONFIG_PACKAGE_ROOT_INVALID' && /packageRoot must be absolute/.test(err.message)
+  );
+});
+
+test('local resolver rejects drive-relative configured nodePath on win32', async () => {
+  await assert.rejects(
+    resolveLocalDshRuntime({
+      dshHome: path.resolve('.dsh'),
+      nodePath: 'C:node.exe',
+      platform: 'win32',
+    }),
+    (err) => err.code === 'CONFIG_NODE_PATH_INVALID' && /nodePath must be absolute/.test(err.message)
+  );
+});

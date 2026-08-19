@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { ServerError } = require('./serverManager');
+const { ServerError, ServerManager } = require('./serverManager');
 const { MANAGED_PROFILE } = require('./managedRuntimeLaunch');
 
 function unique(values, platform) {
@@ -16,6 +16,11 @@ function unique(values, platform) {
     seen.add(key);
     return true;
   });
+}
+
+function isConfiguredPathAbsolute(value, platform) {
+  if (platform === 'win32') return /^[A-Za-z]:[\\/]/.test(value);
+  return path.posix.isAbsolute(value);
 }
 
 function packageCandidates(env, platform) {
@@ -41,22 +46,45 @@ function packageCandidates(env, platform) {
       const bin = segment.trim();
       if (bin) candidates.push(path.resolve(bin, '..', 'lib', 'node_modules', '@deepseek-ai', 'dsh'));
     }
-    candidates.push(...versionManagerPackageCandidates(env));
   }
+  candidates.push(...versionManagerPackageCandidates(env, platform));
   return unique(candidates, platform);
 }
 
-function versionManagerPackageCandidates(env) {
-  const home = env.HOME;
-  if (!home) return [];
-  const roots = [
-    path.join(env.NVM_DIR || path.join(home, '.nvm'), 'versions', 'node'),
-    path.join(home, '.asdf', 'installs', 'nodejs'),
-    '/usr/local/n/versions/node',
-    path.join(home, 'Library', 'Application Support', 'fnm', 'node-versions'),
-    path.join(home, '.local', 'share', 'fnm', 'node-versions')
-  ];
-  const candidates = [];
+function addVersionManagerRoot(roots, candidate) {
+  if (!candidate) return;
+  if (roots.some((existing) => ServerManager.samePath(existing, candidate))) return;
+  roots.push(candidate);
+}
+
+function versionManagerRoots(env, platform) {
+  const roots = [];
+  const home = env.HOME || (platform === 'win32' ? env.USERPROFILE : '') || '';
+  if (platform === 'win32') {
+    if (env.LOCALAPPDATA) {
+      addVersionManagerRoot(roots, path.join(env.LOCALAPPDATA, '.volta', 'tools', 'image', 'node'));
+      addVersionManagerRoot(roots, path.join(env.LOCALAPPDATA, 'fnm', 'node-versions'));
+    }
+    if (env.APPDATA) {
+      addVersionManagerRoot(roots, path.join(env.APPDATA, 'fnm', 'node-versions'));
+      addVersionManagerRoot(roots, path.join(env.APPDATA, 'nvm'));
+    }
+    if (env.NVM_HOME) addVersionManagerRoot(roots, env.NVM_HOME);
+  } else if (home) {
+    addVersionManagerRoot(roots, path.join(env.NVM_DIR || path.join(home, '.nvm'), 'versions', 'node'));
+    addVersionManagerRoot(roots, path.join(home, '.asdf', 'installs', 'nodejs'));
+    addVersionManagerRoot(roots, path.join(home, '.volta', 'tools', 'image', 'node'));
+    addVersionManagerRoot(roots, '/usr/local/n/versions/node');
+    addVersionManagerRoot(roots, path.join(home, 'Library', 'Application Support', 'fnm', 'node-versions'));
+    addVersionManagerRoot(roots, path.join(home, '.local', 'share', 'fnm', 'node-versions'));
+  }
+  return roots;
+}
+
+// Enumerate every installed version directory under each version-manager root,
+// youngest first, and call cb with the per-version root path. Shared by the
+// package and node candidate layers so both stay in lock-step.
+function forEachVersionRoot(roots, cb) {
   for (const root of roots) {
     let entries;
     try {
@@ -68,15 +96,56 @@ function versionManagerPackageCandidates(env) {
       .map((entry) => entry.name)
       .sort(compareVersionNamesDesc);
     for (const version of versions) {
-      const versionRoot = path.join(root, version);
-      // nvm/asdf/n keep globals in <version>/lib; fnm adds an `installation` layer
-      candidates.push(
-        path.join(versionRoot, 'lib', 'node_modules', '@deepseek-ai', 'dsh'),
-        path.join(versionRoot, 'installation', 'lib', 'node_modules', '@deepseek-ai', 'dsh')
-      );
+      cb(path.join(root, version));
     }
   }
-  return candidates;
+}
+
+function versionManagerPackageCandidates(env, platform) {
+  const candidates = [];
+  forEachVersionRoot(versionManagerRoots(env, platform), (versionRoot) => {
+    // nvm/asdf/n/Volta keep globals in <version>/lib; fnm adds an
+    // `installation` layer. Windows nvm can also use a direct
+    // `<version>/node_modules` layout, covered by the NVM_SYMLINK fallback.
+    candidates.push(
+      path.join(versionRoot, 'lib', 'node_modules', '@deepseek-ai', 'dsh'),
+      path.join(versionRoot, 'installation', 'lib', 'node_modules', '@deepseek-ai', 'dsh')
+    );
+  });
+  if (platform === 'win32' && env.NVM_SYMLINK) {
+    const current = env.NVM_SYMLINK;
+    candidates.push(
+      path.join(current, 'node_modules', '@deepseek-ai', 'dsh'),
+      path.join(current, 'lib', 'node_modules', '@deepseek-ai', 'dsh'),
+      path.join(current, 'installation', 'lib', 'node_modules', '@deepseek-ai', 'dsh')
+    );
+  }
+  return unique(candidates, platform);
+}
+
+function versionManagerNodeCandidates(env, platform) {
+  // Version-manager node binaries are a win32 convenience; on POSIX the
+  // paired binary is found by the colocated <version>/bin walk, so confine
+  // this layer to win32 and keep POSIX candidates equal to the classic set.
+  if (platform !== 'win32') return [];
+  const candidates = [];
+  if (env.NVM_SYMLINK) {
+    candidates.push(
+      path.join(env.NVM_SYMLINK, 'node.exe'),
+      path.join(env.NVM_SYMLINK, 'bin', 'node.exe')
+    );
+  }
+  if (env.LOCALAPPDATA) {
+    candidates.push(path.join(env.LOCALAPPDATA, '.volta', 'bin', 'node.exe'));
+  }
+  forEachVersionRoot(versionManagerRoots(env, platform), (versionRoot) => {
+    candidates.push(
+      path.join(versionRoot, 'node.exe'),
+      path.join(versionRoot, 'bin', 'node.exe'),
+      path.join(versionRoot, 'installation', 'node.exe')
+    );
+  });
+  return unique(candidates, platform);
 }
 
 function compareVersionNamesDesc(a, b) {
@@ -95,6 +164,7 @@ function nodeCandidates(env, platform) {
   if (platform === 'win32' && env.ProgramFiles) {
     candidates.push(path.join(env.ProgramFiles, 'nodejs', executable));
   }
+  candidates.push(...versionManagerNodeCandidates(env, platform));
   for (const segment of String(env.Path || env.PATH || '').split(path.delimiter)) {
     if (segment.trim()) candidates.push(path.join(segment.trim(), executable));
   }
@@ -159,13 +229,13 @@ async function resolveLocalDshRuntime({
   if (typeof dshHome !== 'string' || !path.isAbsolute(dshHome)) {
     throw new Error('Local DSH dshHome must be absolute');
   }
-  if (packageRoot && !path.isAbsolute(packageRoot)) {
-    const error = new Error('dsh.local.packageRoot must be absolute');
+  if (packageRoot && !isConfiguredPathAbsolute(packageRoot, platform)) {
+    const error = new Error('dsh.local.packageRoot must be absolute (Windows drive-letter path on win32)');
     error.code = 'CONFIG_PACKAGE_ROOT_INVALID';
     throw error;
   }
-  if (nodePath && !path.isAbsolute(nodePath)) {
-    const error = new Error('dsh.local.nodePath must be absolute');
+  if (nodePath && !isConfiguredPathAbsolute(nodePath, platform)) {
+    const error = new Error('dsh.local.nodePath must be absolute (Windows drive-letter path on win32)');
     error.code = 'CONFIG_NODE_PATH_INVALID';
     throw error;
   }

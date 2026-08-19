@@ -27,6 +27,7 @@ const {
 } = require("./serverManager");
 const { ensureManagedRuntime } = require("./runtimeProvisioner");
 const { resolveLocalDshRuntime } = require("./localRuntimeResolver");
+const { deriveVscodeCapabilities } = require("./vscodeCapabilities");
 const { framePage, statusPage, safeHttpUrl } = require("./webviewHtml");
 const {
   listSessions,
@@ -1292,9 +1293,18 @@ function registerFeatureCommands(context, featureOk) {
           : " — " + loc("Degraded features: {items}", {
             items: featureFailures.map((f) => f.id + ": " + f.error).join(" | "),
           });
+        const hostCapabilities = deriveVscodeCapabilities(vscode.version);
+        const hostVersion = typeof vscode.version === 'string' && vscode.version.length > 0
+          ? vscode.version
+          : 'unknown';
+        const capabilityText = "chat=" + (hostCapabilities.chatParticipant ? "yes" : "no")
+          + ", lm=" + (hostCapabilities.lmProvider ? "yes" : "no")
+          + ", mcp=" + (hostCapabilities.mcpServerDefinitions ? "yes" : "no");
         vscode.window.showInformationMessage(loc(
-          "DSH diagnose: home {homeMode} ({homePath}), server {server}, bridge {bridge}, catalog {catalog}, providers {installed}/{total} installed",
+          "DSH diagnose: host {hostVersion} ({capabilities}), home {homeMode} ({homePath}), server {server}, bridge {bridge}, catalog {catalog}, providers {installed}/{total} installed",
           {
+            hostVersion,
+            capabilities: capabilityText,
             homeMode: snapshot.home.mode,
             homePath: snapshot.home.path,
             server: snapshot.server.available ? loc("running") : loc("stopped"),
@@ -1330,6 +1340,22 @@ async function activateWithDependencies(context, dependencies = {}) {
   vscode = createVscodeFacade(dependencies.vscode || require("vscode"));
   hostContext = createWorkspaceContext(vscode, context);
   injectedDependencies = dependencies || {};
+
+  // Display-only host capability matrix. This warning is intentionally not a
+  // behavior gate: the extension keeps its engines floor and does not use
+  // these booleans to enable/disable any API path.
+  const hostCapabilities = deriveVscodeCapabilities(vscode.version);
+  if (typeof vscode.version === 'string' && vscode.version.length > 0) {
+    const missing = [];
+    if (!hostCapabilities.chatParticipant) missing.push('chatParticipant');
+    if (!hostCapabilities.lmProvider) missing.push('lmProvider');
+    if (!hostCapabilities.mcpServerDefinitions) missing.push('mcpServerDefinitions');
+    if (missing.length > 0) {
+      console.warn(
+        `dsh-vs-sidebar: VS Code ${vscode.version} does not expose optional DSH integration APIs (${missing.join(', ')}); upgrade to VS Code 1.105+ for the full capability set.`
+      );
+    }
+  }
 
   const services = {};
   featureFailures = [];

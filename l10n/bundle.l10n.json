@@ -61,7 +61,7 @@
   "Switch Session": "Switch Session",
   "Session command failed: {message}": "Session command failed: {message}",
   "Open the Capabilities center in the DSH sidebar": "Open the Capabilities center in the DSH sidebar",
-  "DSH diagnose: home {homeMode} ({homePath}), server {server}, bridge {bridge}, catalog {catalog}, providers {installed}/{total} installed": "DSH diagnose: home {homeMode} ({homePath}), server {server}, bridge {bridge}, catalog {catalog}, providers {installed}/{total} installed",
+  "DSH diagnose: host {hostVersion} ({capabilities}), home {homeMode} ({homePath}), server {server}, bridge {bridge}, catalog {catalog}, providers {installed}/{total} installed": "DSH diagnose: host {hostVersion} ({capabilities}), home {homeMode} ({homePath}), server {server}, bridge {bridge}, catalog {catalog}, providers {installed}/{total} installed",
   "DSH kept your existing isolated DSH home to protect its modules and sessions. Set dsh.home.mode to shared when you are ready to use the official shared DSH home.": "DSH kept your existing isolated DSH home to protect its modules and sessions. Set dsh.home.mode to shared when you are ready to use the official shared DSH home.",
   "DSH diagnose failed: {message}": "DSH diagnose failed: {message}",
   "No orphan DSH servers were found": "No orphan DSH servers were found",

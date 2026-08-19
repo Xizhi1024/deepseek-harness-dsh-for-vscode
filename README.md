@@ -163,9 +163,9 @@ Achieving a Cursor/Claude Code-like experience requires both sides of the bridge
 | `dsh.home.path` | (empty) | Machine-scoped absolute override for shared mode; empty follows `DSH_HOME`, then `~/.dsh` |
 | `dsh.profile` | `web` | Window-scoped DSH profile directory under the selected home; must match `^[A-Za-z0-9._-]{1,64}$` |
 | `dsh.closePolicy` | `onVscodeExit` | When to stop the extension-owned server (see below) |
-| `dsh.local.packageRoot` | (empty) | Optional absolute official `@deepseek-ai/dsh` package root; empty auto-detects the global npm installation |
-| `dsh.local.nodePath` | (empty) | Optional absolute Node.js executable path; empty auto-detects it |
-| `dsh.runtime.manifestUrl` | (empty) | Optional HTTPS runtime release manifest; empty uses the local official npm DSH, non-empty opts into manifest/SHA-256-verified managed-runtime provisioning |
+| `dsh.local.packageRoot` | (empty) | Machine-scoped optional absolute official `@deepseek-ai/dsh` package root; empty auto-detects the global npm installation |
+| `dsh.local.nodePath` | (empty) | Machine-scoped optional absolute Node.js executable path; empty auto-detects it |
+| `dsh.runtime.manifestUrl` | (empty) | Machine-scoped optional HTTPS runtime release manifest; empty uses the local official npm DSH, non-empty opts into manifest/SHA-256-verified managed-runtime provisioning |
 | `dsh.runtime.version` | (empty) | Optional managed-runtime version pin; only applies with a manifest URL |
 | `dsh.features.clipboard-bridge` | true | Embedded copy/paste bridge between the DSH iframe and the VS Code clipboard (L1 feature, off = DSH copy buttons write to the webview clipboard) |
 | `dsh.features.thread-attachment` | true | Add the active file/selection/problems to the DSH conversation (L1 feature, off = Add to Thread commands are not registered) |
@@ -212,9 +212,7 @@ If you use shared-home DSH sessions with a model you do not fully trust, keep wo
 - **Extension Host smoke version**: the smoke test currently runs against VS Code 1.106 by default.
 - **Spawn output goes to a per-spawn log, not the OutputChannel**: the DSH child's stdout/stderr is captured in `<globalStorage>/dsh-server-<port>-<pid>.log` (truncated on each spawn) when the instance registry is writable; unexpected crashes still surface primarily as exit codes on the status page. A VS Code OutputChannel view is a later hardening item.
 - **Crash leftovers require one manual cleanup step**: after a VS Code crash or `closePolicy: never`, a surviving owned DSH is deliberately not auto-killed (it may still be in use). Run **Clean Up Orphan DSH Servers** to list registry entries with live pids; it probes each endpoint and only terminates processes that still answer as DSH, otherwise it offers record-only removal.
-- **Configured local paths are trusted verbatim (cross-platform validation gap)**: `dsh.local.packageRoot` / `dsh.local.nodePath` accept any value that passes `path.isAbsolute`. On win32 a POSIX absolute path (`/Users/…/nvm/…`) also passes, and a configured root replaces automatic discovery entirely — a value synced from another machine then reports "Official DSH is not installed" even when the package IS installed. The configured-root error now names the offending path (0.5.3 hardening); the durable fix — win32 drive-letter validation (`/^[A-Za-z]:[\\/]/`) for configured absolute paths and `scope: "machine"` — is tracked in Troubleshooting.
 - **Startup failures are only partially classified**: 0.6.0 gives configuration-only failures (host/port invalid, `autoStart=false` with no server, invalid configured root/node/home) stable codes and hides the Retry button because retrying cannot help. Runtime/spawn/download failures remain free-text with Retry. The full per-class switch-case startup detection (stable codes + per-class messages + Retry behavior for every failure class) is tracked in Troubleshooting.
-- **Version-manager discovery is not exhaustive**: nvm (POSIX), fnm (macOS), asdf, and n are discovered; Volta, fnm on Windows, and nvm-windows custom roots are not yet in the candidate list. Use `dsh.local.packageRoot` / `dsh.local.nodePath` on those layouts.
 - **Some DSH copy buttons may still fail**: the bridge only replaces `navigator.clipboard.writeText`; a DSH UI fallback that uses `document.execCommand('copy')` writes to the webview clipboard instead of the VS Code clipboard and belongs to the DSH UI side. Model-output Copy through the standard clipboard API works.
 
 ## Implementation
@@ -297,16 +295,13 @@ Cause: Settings Sync carried the Mac's machine-specific values into the Windows 
 "dsh.local.nodePath": "/Users/zhengduojie/.nvm/versions/node/v24.18.1/bin/node",
 ```
 
-On win32 these POSIX paths pass `path.isAbsolute` (drive-relative), so the resolver treated the configured root as authoritative, searched only it, found nothing, and fell through to the generic install message. Automatic discovery (`%APPDATA%\npm\node_modules\@deepseek-ai\dsh`) was never consulted.
+On win32 these POSIX paths pass `path.isAbsolute` (drive-relative), so the resolver treated the configured root as authoritative, searched only it, found nothing, and fell through to the generic install message. Automatic discovery (`%APPDATA%\npm\node_modules\@deepseek-ai\dsh`) was never consulted. Current builds reject such win32 values up front via drive-letter validation and keep the three path settings machine-scoped, so Settings Sync no longer ships them across devices.
 
 Fix: remove `dsh.local.packageRoot` and `dsh.local.nodePath` from the affected machine's user settings (or set machine-correct values) and reload the window. Automatic discovery then finds the installed package and Node from PATH.
 
 Planned hardening (recorded here, not yet implemented):
 
 - **Complete switch-case startup classification**: 0.6.0 already codes configuration-only failures and hides Retry for them. Runtime resolution / connect / spawn / health failures still need stable per-class codes, messages, diagnose entries, and Retry behavior — no free-text matching.
-- **`scope: "machine"`** for `dsh.local.packageRoot` / `dsh.local.nodePath`, so Settings Sync stops shipping machine paths across devices (matching `dsh.home.path`).
-- **win32 drive-letter validation** for configured absolute paths (`/^[A-Za-z]:[\\/]/`), rejecting POSIX-style paths before candidate search instead of after search falls through.
-- **Version-manager discovery parity**: add Volta (`~/.volta/tools/image/node/*`), fnm on Windows (`%APPDATA%\fnm\node-versions`), and nvm-windows custom roots.
 
 ## License
 
