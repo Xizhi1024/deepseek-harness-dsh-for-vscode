@@ -284,3 +284,26 @@ test('changes/push rejects edits outside the workspace', async () => {
     (error) => error.bridgeCode === 'VSCODE_URI_OUTSIDE_WORKSPACE',
   );
 });
+
+test('mcp/* handlers are gated by features.mcp-consume and require a manager', async () => {
+  const fake = fakeVscode();
+  const manager = {
+    async listServers() { return { servers: [] }; },
+    async listTools(server) { return { server, tools: [] }; },
+    async callTool(server, tool) { return { server, tool }; },
+  };
+  const off = createV3Handlers({ vscode: fake.api, getFlag: flags() });
+  assert.strictEqual(off['vscode/mcp/listServers'], undefined, 'mcp methods must be off by default');
+  assert.strictEqual(off['vscode/mcp/listTools'], undefined);
+  assert.strictEqual(off['vscode/mcp/callTool'], undefined);
+
+  const noManager = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.mcp-consume': true }) });
+  assert.strictEqual(noManager['vscode/mcp/listServers'], undefined, 'a missing manager keeps mcp methods unadvertised');
+
+  const on = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.mcp-consume': true }), mcpManager: manager });
+  assert.ok(typeof on['vscode/mcp/listServers'] === 'function');
+  assert.ok(typeof on['vscode/mcp/listTools'] === 'function');
+  assert.ok(typeof on['vscode/mcp/callTool'] === 'function');
+  const tools = await on['vscode/mcp/listTools']({ server: 's1' });
+  assert.deepStrictEqual(tools, { server: 's1', tools: [] });
+});

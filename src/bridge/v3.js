@@ -56,7 +56,7 @@ function requireString(value, field) {
  * @param {Function} [deps.appendOutputLine] - DSH OutputChannel sink (best-effort).
  * @returns {object} method name -> handler.
  */
-function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, changeTracker = null }) {
+function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, changeTracker = null, mcpManager = null }) {
   if (!vscode || !vscode.window || !vscode.workspace) {
     throw new TypeError('createV3Handlers requires a vscode facade');
   }
@@ -455,6 +455,23 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
       await tracker.applyEdits(edits);
       const entry = await tracker.record({ sessionId, label, edits: stringifyEdits(edits), before });
       return { applied: true, approved: true, changeIds: [entry.id] };
+    };
+  }
+
+  // ---- mcp/* (L2 gate: dsh.features.mcp-consume) -----------------------------
+  // The manager is created in L0 (no side effects) and wired by the L2 setup;
+  // when the manager is absent these methods stay unadvertised.
+  if (getFlag('features.mcp-consume') && mcpManager) {
+    handlers['vscode/mcp/listServers'] = async () => mcpManager.listServers();
+    handlers['vscode/mcp/listTools'] = async (params) => {
+      if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'mcp/listTools params must be an object');
+      return mcpManager.listTools(requireString(params.server, 'server'));
+    };
+    handlers['vscode/mcp/callTool'] = async (params) => {
+      if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'mcp/callTool params must be an object');
+      const server = requireString(params.server, 'server');
+      const tool = requireString(params.tool, 'tool');
+      return mcpManager.callTool(server, tool, params.arguments);
     };
   }
 
