@@ -19,7 +19,7 @@
 const path = require("node:path");
 const fs = require("node:fs");
 const crypto = require("node:crypto");
-const { execFileSync } = require("node:child_process");
+const { execFileSync, spawn } = require("node:child_process");
 const {
   ServerManager,
   CLOSE_POLICIES,
@@ -77,6 +77,8 @@ const { createV3Handlers } = require("./bridge/v3");
 const { createChangeTracker } = require("./changeTracker");
 const { createChangeTree } = require("./changeTree");
 const { createLmRoute } = require("./lmRoute");
+const { createMcpManager } = require("./mcp/manager");
+const { createConsentGate } = require("./mcp/consent");
 const {
   createExtensionBridgeHandlers,
   detectProviderStates,
@@ -117,6 +119,8 @@ let editorContext = null; // per-window approved editor attachments backing vsco
 let changeTracker = null; // R14S1 journal for applied changes (created in L0, no UI)
 let changeTree = null; // R14S1 TreeView/command surface (created in L2 changes-review)
 let lmRoute = null; // R23 model-route provider (created in L2 lm-route)
+let mcpManager = null; // S2b MCP consume aggregator (created in L0, no side effects)
+let mcpConsentGate = null; // S2b per-server consent gate (created in L0)
 let embedPatchPath = null; // generated --patch overlay applied to extension-owned DSH children
 let runtimeStorageRoot = null; // managed runtime storage under VS Code global storage
 let activeDshHome = null; // effective shared/isolated DSH user-data home
@@ -1014,6 +1018,7 @@ const FEATURE_CATALOG = [
   { id: 'changes-review', label: 'Changes review (DSH workspace edits)', layer: 'L2', defaultEnabled: false, core: false, setup: setupChangesReview },
   { id: 'ctrl-k', label: 'Edit with DSH (Ctrl+K)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCtrlK },
   { id: 'lm-route', label: 'DSH model routing', layer: 'L2', defaultEnabled: false, core: false, setup: setupLmRoute },
+  { id: 'mcp-consume', label: 'MCP servers', layer: 'L2', defaultEnabled: false, core: false, setup: setupMcpConsume },
 ];
 
 /**
@@ -1045,6 +1050,59 @@ function createOnboardingWorkspace(vscode, loc) {
       return vscode.workspace.getConfiguration('dsh').update(key, value, true);
     },
   };
+}
+
+function normalizeServersValue(value) {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object') {
+    return Object.entries(value).map(([name, record]) => ({ name, ...(record || {}) }));
+  }
+  return [];
+}
+
+/**
+ * Read MCP server sources in merge order: user settings -> workspace settings
+ * -> workspace-folder settings -> `.vscode/mcp.json`. VS Code's inspect()
+ * exposes the user/workspace/folder scopes; remote is folded into the
+ * user/workspace scopes by the host (recorded as a scope-resolution
+ * deviation in the final report).
+ */
+function readMcpSources(vscode, fsApi = fs) {
+  const sources = [];
+  const config = vscode.workspace.getConfiguration('mcp');
+  const inspected = typeof config.inspect === 'function' ? config.inspect('servers') : null;
+  if (inspected) {
+    if (inspected.globalValue !== undefined && inspected.globalValue !== null) {
+      sources.push({ source: 'user', servers: normalizeServersValue(inspected.globalValue) });
+    }
+    if (inspected.workspaceValue !== undefined && inspected.workspaceValue !== null) {
+      sources.push({ source: 'workspace', servers: normalizeServersValue(inspected.workspaceValue) });
+    }
+    if (inspected.workspaceFolderValue !== undefined && inspected.workspaceFolderValue !== null) {
+      sources.push({ source: 'workspace-folder', servers: normalizeServersValue(inspected.workspaceFolderValue) });
+    }
+  } else {
+    const value = config.get('servers');
+    if (value !== undefined && value !== null) {
+      sources.push({ source: 'settings', servers: normalizeServersValue(value) });
+    }
+  }
+  const folders = vscode.workspace.workspaceFolders;
+  if (Array.isArray(folders)) {
+    for (const folder of folders) {
+      try {
+        const filePath = path.join(folder.uri.fsPath, '.vscode', 'mcp.json');
+        if (!fsApi.existsSync(filePath)) continue;
+        const parsed = JSON.parse(fsApi.readFileSync(filePath, 'utf8'));
+        if (parsed && parsed.servers !== undefined) {
+          sources.push({ source: '.vscode/mcp.json', servers: normalizeServersValue(parsed.servers) });
+        }
+      } catch {
+        // an unreadable/malformed mcp.json is diagnosed by the manager later
+      }
+    }
+  }
+  return sources;
 }
 
 /**
@@ -1258,6 +1316,20 @@ async function setupCoreSidebar({ context, services }) {
     },
   };
   services.changeTracker = changeTracker;
+  mcpConsentGate = createConsentGate({
+    globalState: context.globalState || { get: () => [], update: () => {} },
+    vscode,
+  });
+  mcpManager = injectedDependencies.mcpManager || createMcpManager({
+    vscode,
+    env: process.env,
+    getSources: () => readMcpSources(vscode),
+    consentGate: mcpConsentGate,
+    spawn,
+    logger: (line) => appendDiagnostic(line),
+  });
+  services.mcpManager = mcpManager;
+  services.mcpConsentGate = mcpConsentGate;
   const extensionBridgeHandlers = injectedDependencies.extensionBridgeHandlers === undefined
     ? createExtensionBridgeHandlers({ vscode })
     : injectedDependencies.extensionBridgeHandlers;
@@ -1269,6 +1341,7 @@ async function setupCoreSidebar({ context, services }) {
       getFlag: (key) => vscode.workspace.getConfiguration("dsh").get(key, false),
       appendOutputLine: appendDiagnostic,
       changeTracker,
+      mcpManager,
     })
     : injectedDependencies.v3Handlers;
   versionedBridge = await versionedBridgeStarter({
@@ -1536,6 +1609,15 @@ async function setupCtrlK() {
  * `dsh` language-model chat provider and injects a per-window bridge token so
  * the DSH-side `/api/lm/*` routes only answer this extension host.
  */
+/**
+ * S2b-3: L2 mcp-consume (dsh.features.mcp-consume). The aggregator is created
+ * in L0 without side effects; this setup only marks the feature healthy and
+ * lets registerFeatureCommands add dsh.mcp.refresh / dsh.mcp.forgetConsent.
+ */
+async function setupMcpConsume() {
+  return () => {};
+}
+
 async function setupLmRoute({ context, services }) {
   const featureEnabled = vscode.workspace.getConfiguration('dsh').get('features.lm-route', false);
   const mode = vscode.workspace.getConfiguration('dsh').get('lm.route', 'off');
@@ -1975,6 +2057,22 @@ function registerFeatureCommands(context, featureOk) {
         loc,
         focusedComposerWebview,
       }))
+    );
+  }
+
+  if (featureOk.has('mcp-consume') && mcpManager) {
+    registered.push(
+      vscode.commands.registerCommand("dsh.mcp.refresh", () => {
+        mcpManager.refresh();
+        vscode.window.showInformationMessage(loc("MCP servers refreshed"));
+      }),
+      vscode.commands.registerCommand("dsh.mcp.forgetConsent", async () => {
+        const name = await vscode.window.showInputBox({ prompt: loc("MCP server name to forget") });
+        if (typeof name === 'string' && name.length > 0) {
+          mcpConsentGate?.forget(name);
+          mcpManager.refresh();
+        }
+      })
     );
   }
 

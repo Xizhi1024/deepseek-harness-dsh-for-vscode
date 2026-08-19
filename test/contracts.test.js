@@ -141,6 +141,8 @@ test('extension-host smoke expectations cover every contributed command id', () 
     'dsh.ctrlKEdit',
     'dsh.diagnose',
     'dsh.focusSidebar',
+    'dsh.mcp.forgetConsent',
+    'dsh.mcp.refresh',
     'dsh.newSession',
     'dsh.openInBrowser',
     'dsh.restartServer',

@@ -162,5 +162,8 @@
   "Change diff failed: {message}": "打开变更差异失败：{message}",
   "Ctrl+K: select code first, then run the command.": "Ctrl+K：请先选中代码，再运行该命令。",
   "Ctrl+K instruction": "你希望 DSH 对选中的代码做什么？",
-  "Ctrl+K draft sent to the DSH conversation": "Ctrl+K 草稿已发送到 DSH 对话"
+  "Ctrl+K draft sent to the DSH conversation": "Ctrl+K 草稿已发送到 DSH 对话",
+  "DSH wants to use the MCP server {server}. Allow it to list and call its tools?": "DSH 想使用 MCP 服务器 {server}。允许它列出并调用该服务器的工具吗？",
+  "MCP servers refreshed": "MCP 服务器已刷新",
+  "MCP server name to forget": "要忘记授权的 MCP 服务器名称"
 }

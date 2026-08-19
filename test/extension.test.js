@@ -149,6 +149,9 @@ function createFakeVscode(configOverrides = {}) {
       async showInformationMessage(message) {
         informationMessages.push(message);
       },
+      async showInputBox() {
+        return undefined;
+      },
       async showTextDocument(document, options) {
         shownDocuments.push({ document, options });
       },
@@ -1441,6 +1444,46 @@ test('lm-route L2 feature registers the dsh chat provider and injects the bridge
     spawnEnvCalls.some((env) => env.DSH_LM_BRIDGE_TOKEN === ''),
     'deactivate must clear the injected bridge token',
   );
+});
+
+test('mcp-consume L2 feature registers refresh and forget-consent commands only when enabled', async () => {
+  const fake = createFakeVscode({ 'features.mcp-consume': true });
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-mcp-test-${process.pid}`) },
+    globalState: {
+      _store: new Map(),
+      get(key) { return this._store.get(key); },
+      update(key, value) { this._store.set(key, value); },
+    },
+    subscriptions: [],
+  };
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge(options) {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() {
+      return {
+        setSpawnEnv() {},
+        setOwnerIdentity() {},
+        cancelPending() {},
+        currentChildPid() { return null; },
+        hasOwnedChild() { return false; },
+        async stop() {},
+      };
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  assert.ok(fake.commands.has('dsh.mcp.refresh'), 'dsh.mcp.refresh must be registered when enabled');
+  assert.ok(fake.commands.has('dsh.mcp.forgetConsent'), 'dsh.mcp.forgetConsent must be registered when enabled');
+  await deactivate();
 });
 
 test('C1 spawn env injection: heartbeat path + window id always; watchdog off only under closePolicy=never', async () => {

@@ -73,7 +73,9 @@
     "onCommand:dsh.changes.refresh",
     "onCommand:dsh.changes.focus",
     "onCommand:dsh.ctrlKEdit",
-    "onLanguageModelChatProvider:dsh"
+    "onLanguageModelChatProvider:dsh",
+    "onCommand:dsh.mcp.refresh",
+    "onCommand:dsh.mcp.forgetConsent"
   ],
   "extensionKind": [
     "workspace"
@@ -254,6 +256,16 @@
       {
         "command": "dsh.ctrlKEdit",
         "title": "%dsh.cmd.ctrlKEdit%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.mcp.refresh",
+        "title": "%dsh.cmd.mcp.refresh%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.mcp.forgetConsent",
+        "title": "%dsh.cmd.mcp.forgetConsent%",
         "category": "%dsh.cmd.category%"
       }
     ],
@@ -466,6 +478,11 @@
           ],
           "default": "off",
           "description": "%dsh.cfg.lm.route%"
+        },
+        "dsh.features.mcp-consume": {
+          "type": "boolean",
+          "default": false,
+          "description": "%dsh.cfg.features.mcp-consume%"
         },
         "dsh.keybindings.ctrlL": {
           "type": "boolean",

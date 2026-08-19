@@ -162,5 +162,8 @@
   "Change diff failed: {message}": "Change diff failed: {message}",
   "Ctrl+K: select code first, then run the command.": "Ctrl+K: select code first, then run the command.",
   "Ctrl+K instruction": "What should DSH do with the selected code?",
-  "Ctrl+K draft sent to the DSH conversation": "Ctrl+K draft sent to the DSH conversation"
+  "Ctrl+K draft sent to the DSH conversation": "Ctrl+K draft sent to the DSH conversation",
+  "DSH wants to use the MCP server {server}. Allow it to list and call its tools?": "DSH wants to use the MCP server {server}. Allow it to list and call its tools?",
+  "MCP servers refreshed": "MCP servers refreshed",
+  "MCP server name to forget": "MCP server name to forget"
 }
