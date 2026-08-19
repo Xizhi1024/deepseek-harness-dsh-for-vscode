@@ -201,7 +201,7 @@ at-file（附件同时生成 @file 提及，C）；session-checkpoint-policy（R
 | 批 | 版本 | 内容 | 扩展仓门禁 | DSH 仓门禁 |
 |---|---|---|---|---|
 | P0 | 0.6.1 | WIP 落地（check:w0→提交→merge）+ safe.directory ✅ **已完成**（`c27856f` 经 `be91d20` 合入并推送；2026-08-17 复跑 check:w0 绿） | check:w0 + test:extension-host | — |
-| A | 0.7.0 | **R25 featureRegistry + 分层 + 故障隔离（存量迁移）** ✅ 已合入 `d9808e81`（审计 2 轮：首 FAIL l10n 键误删→修复→PASS）+ R1 + R2 + R5 错误分类 + R23 spike ✅ PASS（见 §5 结论） | +contracts+l10n | —（动 harness 端点则其门禁） |
+| A | 0.7.0 | **R25** ✅ `d9808e81`（审计 2 轮）+ **R1** ✅ `121b0075`（审计 PASS+微修：拒绝点号 profile 名）+ **R2** ✅ `a99c6851`（审计 2 轮：l10n 键同步/POSIX 收敛/去重）+ **R5** ✅ `fc717782`（审计 PASS：startupErrors 13+1 码集中，裸拼接清零）+ **R23 spike** ✅ PASS（§5 结论已回写） | +contracts+l10n | —（未动 harness） |
 | B | 0.7.0 | R5 干净重启 + R12 主题 | 同上 | boot-theme：test:gui + replay test:web |
 | C | 0.7.1 | R10 + R15 + Ctrl+L + OutputChannel + watchdog（防误杀四件套）+ 孤儿清扫 + dshCompat + **onboarding（编辑器内提示→向导→告知怎么改）** | 同上 | client.js（VSIX 内）：node:test |
 | C2 | 0.7.2 | R16 多开（双击/图标入口） | +多实例生命周期测试 | — |
