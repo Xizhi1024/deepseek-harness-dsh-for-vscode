@@ -78,31 +78,40 @@ async function readRequestBody(request, maxBytes = MAX_BODY_BYTES) {
   });
 }
 
-function collectModels(ctx) {
-  const raw = ctx && ctx.llm && typeof ctx.llm.listModels === 'function'
-    ? ctx.llm.listModels()
-    : [];
+/**
+ * Enumerate DSH provider models. Real service contract (dsh-llm):
+ * listConfigurableProviders() enumerates the provider directory
+ * (registered or dormant, detached, sync) and listModels(provider) is an
+ * ASYNC PER-PROVIDER catalog call. A bare listModels() rejects with
+ * "no adapter registered for provider \"undefined\"" — and dropping that
+ * promise is an unhandled rejection the dsh bin treats as a fatal load
+ * failure (F5 smoke round 4: process died ~1s after a 200 response).
+ * Every promise from ctx.llm is awaited inside this function; a dormant
+ * provider (declared, no adapter) is skipped by design.
+ */
+async function collectModels(ctx) {
+  const llm = ctx && ctx.llm;
+  if (!llm || typeof llm.listModels !== 'function') return [];
+  if (typeof llm.listConfigurableProviders !== 'function') return [];
+  const providers = await Promise.resolve(llm.listConfigurableProviders());
   const models = [];
-  const visit = (entry, inheritedProvider) => {
-    if (!entry) return;
-    if (Array.isArray(entry)) {
-      for (const item of entry) visit(item, inheritedProvider);
-      return;
-    }
-    if (typeof entry === 'object') {
-      const provider = typeof entry.provider === 'string' && entry.provider.length > 0
-        ? entry.provider
-        : inheritedProvider;
-      if (Array.isArray(entry.models)) {
-        visit(entry.models, provider);
-        return;
+  for (const entry of Array.isArray(providers) ? providers : []) {
+    const provider = entry && typeof entry.provider === 'string' ? entry.provider : '';
+    if (provider.length === 0) continue;
+    try {
+      const list = await llm.listModels(provider);
+      for (const model of Array.isArray(list) ? list : []) {
+        if (model && typeof model.id === 'string' && model.id.length > 0
+          && typeof model.provider === 'string' && model.provider.length > 0) {
+          models.push(model);
+        }
       }
-      if (typeof entry.id === 'string' && entry.id.length > 0) {
-        models.push(provider ? { ...entry, provider } : entry);
-      }
+    } catch {
+      // Dormant provider: declared in the directory but no adapter is
+      // registered — the directory explicitly includes those, skipping is
+      // the designed degradation, never a process-level failure.
     }
-  };
-  visit(raw, '');
+  }
   return models;
 }
 
@@ -167,17 +176,16 @@ function createLmRoutes({ env = process.env, ctx = null } = {}) {
     return true;
   }
 
-  registerRoute('/api/lm/models', (request, response) => {
+  registerRoute('/api/lm/models', async (request, response) => {
     try {
       if (!authorized(request, response)) return;
       if (request.method !== 'GET') {
         writeJson(response, 405, { error: 'method-not-allowed' });
         return;
       }
-      // Real hosts throw LlmError from listModels() when a configured
-      // provider has no registered adapter; provider-less entries cannot
-      // be routed anyway, so they are skipped instead of advertised.
-      const models = collectModels(ctx)
+      // Provider-less entries cannot be routed; collectModels already
+      // skips dormant providers — this filter is defense in depth.
+      const models = (await collectModels(ctx))
         .map(mapModel)
         .filter((model) => model.provider.length > 0);
       writeJson(response, 200, { models });

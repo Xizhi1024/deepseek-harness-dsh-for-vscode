@@ -24,8 +24,12 @@ function fakeCtx(models, stream) {
       },
     },
     llm: {
-      listModels() {
-        return models;
+      // Real dsh-llm contract: directory enumeration + per-provider call.
+      listConfigurableProviders() {
+        return [{ provider: 'p1' }];
+      },
+      listModels(provider) {
+        return provider === 'p1' ? models : [];
       },
       stream,
     },
@@ -75,18 +79,20 @@ test('safeTokenEqual and readBearerToken enforce constant-time bearer auth', () 
   assert.strictEqual(readBearerToken({ headers: {} }), '');
 });
 
-test('collectModels and mapModel flatten provider model lists', () => {
-  const models = collectModels({
+test('collectModels awaits the per-provider service contract and skips dormant providers', async () => {
+  const models = await collectModels({
     llm: {
-      listModels() {
-        return [
-          { provider: 'p1', models: [{ id: 'm1', name: 'M1' }] },
-          { id: 'm2', provider: 'p2', maxInputTokens: 64000 },
-        ];
+      listConfigurableProviders() {
+        return [{ provider: 'p1' }, { provider: 'p2' }];
+      },
+      listModels(provider) {
+        if (provider === 'p1') return [{ id: 'm1', name: 'M1', provider: 'p1' }];
+        // Dormant provider: async rejection, the round-4 crash shape.
+        return Promise.reject(new Error('no adapter registered for provider "p2"'));
       },
     },
   });
-  assert.strictEqual(models.length, 2);
+  assert.strictEqual(models.length, 1);
   assert.deepStrictEqual(mapModel(models[0]), {
     id: 'm1',
     name: 'M1',
@@ -100,12 +106,12 @@ test('collectModels and mapModel flatten provider model lists', () => {
   });
 });
 
-test('GET /api/lm/models returns mapped DSH models behind the bridge token', () => {
+test('GET /api/lm/models returns mapped DSH models behind the bridge token', async () => {
   const ctx = fakeCtx([{ id: 'm1', provider: 'p1' }], async function* () {});
   const routes = createLmRoutes({ env: { DSH_LM_BRIDGE_TOKEN: 'tok' }, ctx });
   const modelsRoute = ctx.routes.find((route) => route.path === '/api/lm/models');
   const response = fakeResponse();
-  modelsRoute.handler({ method: 'GET', headers: { authorization: 'Bearer tok' } }, response);
+  await modelsRoute.handler({ method: 'GET', headers: { authorization: 'Bearer tok' } }, response);
   const payload = JSON.parse(response.writes[0]);
   assert.strictEqual(response.statusCode, 200);
   assert.strictEqual(payload.models[0].id, 'm1');
@@ -113,12 +119,12 @@ test('GET /api/lm/models returns mapped DSH models behind the bridge token', () 
   assert.deepStrictEqual(ctx.disposers.sort(), ['/api/lm/chat', '/api/lm/models']);
 });
 
-test('unauthorized /api/lm/models request is rejected with 401', () => {
+test('unauthorized /api/lm/models request is rejected with 401', async () => {
   const ctx = fakeCtx([], async function* () {});
   const routes = createLmRoutes({ env: { DSH_LM_BRIDGE_TOKEN: 'tok' }, ctx });
   const modelsRoute = ctx.routes.find((route) => route.path === '/api/lm/models');
   const response = fakeResponse();
-  modelsRoute.handler({ method: 'GET', headers: { authorization: 'Bearer wrong' } }, response);
+  await modelsRoute.handler({ method: 'GET', headers: { authorization: 'Bearer wrong' } }, response);
   assert.strictEqual(response.statusCode, 401);
   assert.strictEqual(response.ended, true);
   routes.dispose();
@@ -157,26 +163,29 @@ test('POST /api/lm/chat rejects malformed JSON with 400', async () => {
   assert.strictEqual(response.ended, true);
   routes.dispose();
 });
-test('/api/lm/models contains a throwing listModels: 500 llm-unavailable, nothing escapes', async () => {
-  // F5 smoke round 4 regression: the real dsh-llm listModels() throws
-  // LlmError for providers without a registered adapter; the pre-fix
-  // handler let it escape and the whole DSH process died.
+test('/api/lm/models contains a REJECTED listModels promise: dormant provider skipped, nothing escapes', async () => {
+  // F5 smoke round 4 crash shape: the pre-fix code dropped the rejected
+  // listModels promise (unhandled rejection -> dsh fatal -> process died).
   const ctx = fakeCtx([], null);
-  ctx.llm.listModels = () => { throw new Error('no adapter registered for provider "undefined"'); };
+  ctx.llm.listConfigurableProviders = () => [{ provider: 'p1' }, { provider: 'p2' }];
+  ctx.llm.listModels = (provider) => {
+    if (provider === 'p2') return Promise.reject(new Error('no adapter registered for provider "p2"'));
+    return [{ id: 'ok1', name: 'OK1', provider: 'p1' }];
+  };
   createLmRoutes({ env: { DSH_LM_BRIDGE_TOKEN: 'tok' }, ctx });
   const registered = ctx.routes.find((entry) => entry.path === '/api/lm/models');
-  assert.ok(registered, 'models route is registered');
   const request = bodyRequest('', { method: 'GET' });
   const response = fakeResponse();
   await registered.handler(request, response); // must resolve, never throw
-  assert.strictEqual(response.statusCode, 500);
+  assert.strictEqual(response.statusCode, 200);
   const payload = JSON.parse(response.writes[response.writes.length - 1]);
-  assert.strictEqual(payload.error, 'llm-unavailable');
-  assert.ok(payload.message.includes('no adapter registered'), payload.message);
+  assert.deepStrictEqual(payload.models.map((model) => model.id), ['ok1'],
+    'the dormant provider is skipped; the healthy one is advertised');
 });
 
 test('/api/lm/models skips provider-less catalog entries', async () => {
-  const ctx = fakeCtx([{ id: 'm1', provider: 'p1' }, { id: 'm2' }], null);
+  const ctx = fakeCtx([{ id: 'm1', provider: 'p1' }, { id: 'm2', provider: 'p1', name: 'm2' }], null);
+  ctx.llm.listModels = () => [{ id: 'm1', provider: 'p1' }, { id: 'm2' }];
   createLmRoutes({ env: { DSH_LM_BRIDGE_TOKEN: 'tok' }, ctx });
   const registered = ctx.routes.find((entry) => entry.path === '/api/lm/models');
   const request = bodyRequest('', { method: 'GET' });
