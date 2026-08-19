@@ -56,10 +56,14 @@ const { installDshIntegration } = require('./dshIntegration');
 const {
   ThreadAttachmentCoordinator,
   formatFileAttachment,
+  formatFolderAttachment,
   formatSelectionAttachment,
 } = require('./threadAttachment');
 const { createCommandShell, NullAdapter } = require('./commands/shell');
-const { createAddFileToThreadCommand } = require('./commands/addFileToThread');
+const {
+  createAddFileToThreadCommand,
+  createAddFolderToThreadCommand,
+} = require('./commands/addFileToThread');
 const { createCleanupOrphansCommand } = require('./commands/cleanupOrphans');
 const { createWorkspaceContext } = require("./workspaceContext");
 const { createWorkspaceBinding, BINDING_STATES } = require("./context/workspaceBinding");
@@ -1329,6 +1333,18 @@ function registerFeatureCommands(context, featureOk) {
         loc,
       })
     ),
+    vscode.commands.registerCommand("dsh.addFolderToThread", createAddFolderToThreadCommand({
+      vscode,
+      editorContext,
+      coordinator: threadAttachmentCoordinator,
+      formatFolderAttachment,
+      waitForResolvedView,
+      ensureConnected: async () => {
+        if (!currentServer) await scheduleConnect(context);
+        return Boolean(currentServer);
+      },
+      loc,
+    })),
     vscode.commands.registerCommand("dsh.addProblems", () => {
       runEditorAttachment(() => editorContext.attachProblems(), "Editor context attached ({kind})");
     }),

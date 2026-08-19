@@ -183,6 +183,7 @@ test('activation registers the public host surface through injected dependencies
     'dsh.addActiveSelection',
     'dsh.addSelectionToThread',
     'dsh.addFileToThread',
+    'dsh.addFolderToThread',
     'dsh.addProblems',
     'dsh.newSession',
     'dsh.switchSession',
@@ -212,7 +213,8 @@ test('activation registers the public host surface through injected dependencies
   assert.strictEqual(typeof versionedBridgeOptions.handlers['vscode/extensions/getProviderStates'], 'function');
   assert.strictEqual(typeof versionedBridgeOptions.handlers['vscode/extensions/openDetails'], 'function');
   // B-batch merge resolution: theme-follow listener + dsh.restartClean each add one.
-  assert.strictEqual(context.subscriptions.length, 24);
+  // C-batch R10: dsh.addFolderToThread registration adds one more.
+  assert.strictEqual(context.subscriptions.length, 25);
   assert.strictEqual(ensureRuntimeCalls, 0, 'autoStart=false must not resolve the managed runtime');
 
   fake.api.workspace.workspaceFolders = [
