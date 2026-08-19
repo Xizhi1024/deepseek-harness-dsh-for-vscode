@@ -18,6 +18,7 @@
   "dsh.cfg.features.editor-links": "Open DSH Read… and draft attachment links in this VS Code window (text document bridge).",
   "dsh.cfg.features.statusbar-basic": "Basic DSH status indicator in the status bar.",
   "dsh.cfg.features.theme-follow": "Follow the VS Code active color theme in the embedded DSH iframe (dark/light).",
+  "dsh.cfg.keybindings.ctrlL": "Enable the Ctrl+L (Cmd+L on macOS) keybinding that adds the active selection to the DSH conversation. Off by default.",
   "dsh.view.title": "DeepSeek Harness (DSH)",
   "dsh.view.name": "DeepSeek Harness (DSH)",
   "dsh.cap.untrusted": "Launches a local process and touches workspace files.",

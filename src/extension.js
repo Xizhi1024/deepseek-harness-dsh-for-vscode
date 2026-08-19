@@ -31,6 +31,7 @@ const { ensureManagedRuntime } = require("./runtimeProvisioner");
 const { resolveLocalDshRuntime } = require("./localRuntimeResolver");
 const { STARTUP_ERRORS, isRetryableStartupError, renderStartupError } = require("./startupErrors");
 const { deriveVscodeCapabilities } = require("./vscodeCapabilities");
+const { deriveFeatureFlags } = require("./dshCompat");
 const { framePage, statusPage, safeHttpUrl } = require("./webviewHtml");
 const {
   listSessions,
@@ -1277,7 +1278,7 @@ async function setupCoreSidebar({ context, services }) {
 async function setupClipboardBridge() {
   const handler = async (message, webview) => {
     const request = parseInteractionRequest(message);
-    if (!request || request.method !== 'clipboard/writeText') return false;
+    if (!request || (request.method !== 'clipboard/writeText' && request.method !== 'clipboard/readText')) return false;
     return handleInteractionRequest({ vscode, webview, message });
   };
   interactionHandlers.push(handler);
@@ -1668,6 +1669,13 @@ function registerFeatureCommands(context, featureOk) {
           : " — " + loc("Degraded features: {items}", {
             items: featureFailures.map((f) => f.id + ": " + f.error).join(" | "),
           });
+        const resolvedRuntime = currentServer && typeof currentServer.resolvedRuntime === 'object' ? currentServer.resolvedRuntime : null;
+        const compatFlags = deriveFeatureFlags(resolvedRuntime ? resolvedRuntime.dshVersion : null);
+        const compatText = (compatFlags.known && resolvedRuntime && resolvedRuntime.dshVersion ? resolvedRuntime.dshVersion : 'unknown')
+          + " (patch=" + (compatFlags.patchOverlay ? "yes" : "no")
+          + ", theme=" + (compatFlags.themeParam ? "yes" : "no")
+          + ", toolsV3=" + (compatFlags.toolsV3 ? "yes" : "no") + ")";
+        const compatSuffix = " — " + loc("DSH compat: {compat}", { compat: compatText });
         const startupTableSuffix = "\n\n" + localizedStartupErrorTable();
         const selfHealSuffix = selfHealEvents.length === 0
           ? ""
@@ -1692,7 +1700,7 @@ function registerFeatureCommands(context, featureOk) {
             installed: String(installed),
             total: String(snapshot.providers.length),
           }
-        ) + failuresSuffix + startupTableSuffix + selfHealSuffix);
+        ) + failuresSuffix + compatSuffix + startupTableSuffix + selfHealSuffix);
       } catch (err) {
         vscode.window.showErrorMessage(loc("DSH diagnose failed: {message}", {
           message: err && err.message ? err.message : String(err),

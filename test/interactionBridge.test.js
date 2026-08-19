@@ -46,3 +46,19 @@ test('interaction handler uses VS Code clipboard, Simple Browser, and the attach
     ['request_1', true], ['request_2', true], ['request_3', true],
   ]);
 });
+
+test('interaction handler reads the clipboard and returns the payload', async () => {
+  const replies = [];
+  const vscode = {
+    env: { clipboard: { async readText() { return 'pasted'; } } },
+    commands: { async executeCommand() {} },
+  };
+  const webview = { async postMessage(message) { replies.push(message); } };
+  assert.deepStrictEqual(parseInteractionRequest(request('clipboard/readText', {})), {
+    requestId: 'request_1', method: 'clipboard/readText',
+  });
+  await handleInteractionRequest({ vscode, webview, message: request('clipboard/readText', {}) });
+  assert.strictEqual(replies.length, 1);
+  assert.strictEqual(replies[0].ok, true);
+  assert.deepStrictEqual(replies[0].data, { text: 'pasted' });
+});
