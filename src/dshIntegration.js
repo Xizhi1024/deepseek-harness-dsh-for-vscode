@@ -9,6 +9,8 @@ const INTEGRATION_FILES = Object.freeze([
   'package.json',
   'lib/index.js',
   'lib/client.js',
+  'lib/tools.js',
+  'lib/lmRoute.js',
 ]);
 
 function requireAbsolute(value, label) {

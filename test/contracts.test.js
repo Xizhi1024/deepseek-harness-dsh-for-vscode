@@ -16,9 +16,10 @@ test('published sidebar and Webview IDs remain stable across manifest and runtim
   assert.ok(Object.hasOwn(manifest.contributes.views, CONTAINER_ID));
   assert.deepStrictEqual(
     manifest.contributes.views[CONTAINER_ID].map((entry) => entry.id),
-    [VIEW_ID]
+    [VIEW_ID, 'dsh.changes']
   );
   assert.ok(manifest.activationEvents.includes(`onView:${VIEW_ID}`));
+  assert.ok(manifest.activationEvents.includes('onView:dsh.changes'));
   assert.ok(manifest.activationEvents.includes('onCommand:dsh.addFileToThread'));
 });
 
@@ -34,6 +35,23 @@ test('editor title exposes one persistent icon and DSH view title exposes only t
     command: 'dsh.newInstance',
     when: 'config.dsh.multiInstance.entry && view == dsh.webview',
     group: 'navigation@10'
+  }, {
+    command: 'dsh.changes.refresh',
+    when: 'view == dsh.changes',
+    group: 'navigation@1'
+  }]);
+  assert.deepStrictEqual(menus['view/item/context'], [{
+    command: 'dsh.changes.openDiff',
+    when: 'view == dsh.changes && viewItem == dsh.changes.entry',
+    group: 'inline@1'
+  }, {
+    command: 'dsh.changes.accept',
+    when: 'view == dsh.changes && viewItem == dsh.changes.entry',
+    group: 'inline@2'
+  }, {
+    command: 'dsh.changes.undo',
+    when: 'view == dsh.changes && viewItem == dsh.changes.entry',
+    group: 'inline@3'
   }]);
   assert.deepStrictEqual(menus['editor/context'], [{
     command: 'dsh.addFileToThread',
@@ -55,6 +73,10 @@ test('editor title exposes one persistent icon and DSH view title exposes only t
     mac: 'cmd+l',
     when: 'config.dsh.keybindings.ctrlL && editorTextFocus'
   }]);
+  assert.ok(
+    !manifest.contributes.keybindings.some((entry) => entry.command === 'dsh.ctrlKEdit'),
+    'D8 final verdict: Ctrl+K must not contribute a default keybinding'
+  );
   assert.deepStrictEqual(menus['editor/title/context'], [{
     command: 'dsh.addFileToThread',
     group: 'dsh@1',
@@ -110,9 +132,17 @@ test('extension-host smoke expectations cover every contributed command id', () 
     'dsh.addProblems',
     'dsh.addSelectionToThread',
     'dsh.capabilities',
+    'dsh.changes.accept',
+    'dsh.changes.focus',
+    'dsh.changes.openDiff',
+    'dsh.changes.refresh',
+    'dsh.changes.undo',
     'dsh.cleanupOrphans',
+    'dsh.ctrlKEdit',
     'dsh.diagnose',
     'dsh.focusSidebar',
+    'dsh.mcp.forgetConsent',
+    'dsh.mcp.refresh',
     'dsh.newSession',
     'dsh.openInBrowser',
     'dsh.restartServer',
@@ -154,4 +184,15 @@ test('dsh.features.* configuration keys mirror the featureRegistry catalog (L1/L
     assert.strictEqual(entry.type, 'boolean', feature.id + ' must be a boolean switch');
     assert.strictEqual(entry.default, feature.defaultEnabled, feature.id + ' default must match defaultEnabled');
   }
+});
+
+test('R23 language-model chat provider contribution and routing config are frozen', () => {
+  const providers = manifest.contributes.languageModelChatProviders;
+  assert.deepStrictEqual(providers, [{ vendor: 'dsh', displayName: '%dsh.lm.vendor%' }]);
+  assert.ok(manifest.activationEvents.includes('onLanguageModelChatProvider:dsh'));
+  const properties = manifest.contributes.configuration.properties;
+  assert.strictEqual(properties['dsh.lm.route'].default, 'off');
+  assert.deepStrictEqual(properties['dsh.lm.route'].enum, ['off', 'fixed', 'dynamic']);
+  assert.strictEqual(properties['dsh.features.lm-route'].default, false);
+  assert.strictEqual(properties['dsh.features.lm-route'].type, 'boolean');
 });

@@ -18,7 +18,8 @@
  */
 const path = require("node:path");
 const fs = require("node:fs");
-const { execFileSync } = require("node:child_process");
+const crypto = require("node:crypto");
+const { execFileSync, spawn } = require("node:child_process");
 const {
   ServerManager,
   CLOSE_POLICIES,
@@ -68,10 +69,16 @@ const {
   createAddFolderToThreadCommand,
 } = require('./commands/addFileToThread');
 const { createCleanupOrphansCommand } = require('./commands/cleanupOrphans');
+const { createCtrlKEditCommand } = require('./commands/ctrlKEdit');
 const { createWorkspaceContext } = require("./workspaceContext");
 const { createWorkspaceBinding, BINDING_STATES } = require("./context/workspaceBinding");
 const { createEditorContext } = require("./editorContext");
 const { createV3Handlers } = require("./bridge/v3");
+const { createChangeTracker } = require("./changeTracker");
+const { createChangeTree } = require("./changeTree");
+const { createLmRoute } = require("./lmRoute");
+const { createMcpManager } = require("./mcp/manager");
+const { createConsentGate } = require("./mcp/consent");
 const {
   createExtensionBridgeHandlers,
   detectProviderStates,
@@ -109,6 +116,11 @@ let versionedBridge = null; // per-window versioned JSON-RPC bridge
 let notificationNotifier = null; // CH1 v2 metadata notification coalescer
 let notificationSubscriptions = []; // selection/diagnostics event disposables
 let editorContext = null; // per-window approved editor attachments backing vscode/editor methods
+let changeTracker = null; // R14S1 journal for applied changes (created in L0, no UI)
+let changeTree = null; // R14S1 TreeView/command surface (created in L2 changes-review)
+let lmRoute = null; // R23 model-route provider (created in L2 lm-route)
+let mcpManager = null; // S2b MCP consume aggregator (created in L0, no side effects)
+let mcpConsentGate = null; // S2b per-server consent gate (created in L0)
 let embedPatchPath = null; // generated --patch overlay applied to extension-owned DSH children
 let runtimeStorageRoot = null; // managed runtime storage under VS Code global storage
 let activeDshHome = null; // effective shared/isolated DSH user-data home
@@ -1003,6 +1015,10 @@ const FEATURE_CATALOG = [
   { id: 'editor-links', label: 'Editor links (Read…)', layer: 'L1', defaultEnabled: true, core: false, setup: setupEditorLinks },
   { id: 'statusbar-basic', label: 'Status bar indicator', layer: 'L1', defaultEnabled: true, core: false, setup: setupStatusbarBasic },
   { id: 'theme-follow', label: 'Theme follow (dark/light)', layer: 'L1', defaultEnabled: true, core: false, setup: setupThemeFollow },
+  { id: 'changes-review', label: 'Changes review (DSH workspace edits)', layer: 'L2', defaultEnabled: false, core: false, setup: setupChangesReview },
+  { id: 'ctrl-k', label: 'Edit with DSH (Ctrl+K)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCtrlK },
+  { id: 'lm-route', label: 'DSH model routing', layer: 'L2', defaultEnabled: false, core: false, setup: setupLmRoute },
+  { id: 'mcp-consume', label: 'MCP servers', layer: 'L2', defaultEnabled: false, core: false, setup: setupMcpConsume },
 ];
 
 /**
@@ -1034,6 +1050,59 @@ function createOnboardingWorkspace(vscode, loc) {
       return vscode.workspace.getConfiguration('dsh').update(key, value, true);
     },
   };
+}
+
+function normalizeServersValue(value) {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object') {
+    return Object.entries(value).map(([name, record]) => ({ name, ...(record || {}) }));
+  }
+  return [];
+}
+
+/**
+ * Read MCP server sources in merge order: user settings -> workspace settings
+ * -> workspace-folder settings -> `.vscode/mcp.json`. VS Code's inspect()
+ * exposes the user/workspace/folder scopes; remote is folded into the
+ * user/workspace scopes by the host (recorded as a scope-resolution
+ * deviation in the final report).
+ */
+function readMcpSources(vscode, fsApi = fs) {
+  const sources = [];
+  const config = vscode.workspace.getConfiguration('mcp');
+  const inspected = typeof config.inspect === 'function' ? config.inspect('servers') : null;
+  if (inspected) {
+    if (inspected.globalValue !== undefined && inspected.globalValue !== null) {
+      sources.push({ source: 'user', servers: normalizeServersValue(inspected.globalValue) });
+    }
+    if (inspected.workspaceValue !== undefined && inspected.workspaceValue !== null) {
+      sources.push({ source: 'workspace', servers: normalizeServersValue(inspected.workspaceValue) });
+    }
+    if (inspected.workspaceFolderValue !== undefined && inspected.workspaceFolderValue !== null) {
+      sources.push({ source: 'workspace-folder', servers: normalizeServersValue(inspected.workspaceFolderValue) });
+    }
+  } else {
+    const value = config.get('servers');
+    if (value !== undefined && value !== null) {
+      sources.push({ source: 'settings', servers: normalizeServersValue(value) });
+    }
+  }
+  const folders = vscode.workspace.workspaceFolders;
+  if (Array.isArray(folders)) {
+    for (const folder of folders) {
+      try {
+        const filePath = path.join(folder.uri.fsPath, '.vscode', 'mcp.json');
+        if (!fsApi.existsSync(filePath)) continue;
+        const parsed = JSON.parse(fsApi.readFileSync(filePath, 'utf8'));
+        if (parsed && parsed.servers !== undefined) {
+          sources.push({ source: '.vscode/mcp.json', servers: normalizeServersValue(parsed.servers) });
+        }
+      } catch {
+        // an unreadable/malformed mcp.json is diagnosed by the manager later
+      }
+    }
+  }
+  return sources;
 }
 
 /**
@@ -1229,6 +1298,52 @@ async function setupCoreSidebar({ context, services }) {
     },
   });
   services.editorContext = editorContext;
+  const rawChangeTracker = injectedDependencies.changeTracker
+    || createChangeTracker({ storageUri: context.globalStorageUri, vscode });
+  // Wrap record so a later L2 change tree can reveal newly arrived entries
+  // without the L0 handler depending on L2 UI. The wrapper reuses the frozen
+  // tracker's methods, which close over the journal state, so no bind is needed.
+  changeTracker = {
+    ...rawChangeTracker,
+    async record(options) {
+      const entry = await rawChangeTracker.record(options);
+      try {
+        services.changesReview?.onEntry?.(entry);
+      } catch (_) {
+        // reveal is best-effort; the journal record already succeeded
+      }
+      return entry;
+    },
+  };
+  services.changeTracker = changeTracker;
+  mcpConsentGate = createConsentGate({
+    globalState: context.globalState || { get: () => [], update: () => {} },
+    vscode,
+    loc,
+  });
+  // L0 lifeline hardening (plan §1 component isolation): the MCP aggregator
+  // is an L2 support; a facade that cannot host it (e.g. no showInputBox)
+  // must degrade to null instead of killing the sidebar. v3 mcp/* handlers
+  // resolve the manager lazily and report VSCODE_MCP_UNAVAILABLE when null.
+  mcpManager = null;
+  if (injectedDependencies.mcpManager) {
+    mcpManager = injectedDependencies.mcpManager;
+  } else {
+    try {
+      mcpManager = createMcpManager({
+        vscode,
+        env: process.env,
+        getSources: () => readMcpSources(vscode),
+        consentGate: mcpConsentGate,
+        spawn,
+        logger: (line) => appendDiagnostic(line),
+      });
+    } catch (error) {
+      appendDiagnostic(`mcp-consume support degraded: ${error && error.message ? error.message : String(error)}`);
+    }
+  }
+  services.mcpManager = mcpManager;
+  services.mcpConsentGate = mcpConsentGate;
   const extensionBridgeHandlers = injectedDependencies.extensionBridgeHandlers === undefined
     ? createExtensionBridgeHandlers({ vscode })
     : injectedDependencies.extensionBridgeHandlers;
@@ -1239,6 +1354,8 @@ async function setupCoreSidebar({ context, services }) {
       vscode,
       getFlag: (key) => vscode.workspace.getConfiguration("dsh").get(key, false),
       appendOutputLine: appendDiagnostic,
+      changeTracker,
+      getMcpManager: () => mcpManager,
     })
     : injectedDependencies.v3Handlers;
   versionedBridge = await versionedBridgeStarter({
@@ -1494,6 +1611,51 @@ async function setupThemeFollow({ context }) {
 }
 
 /**
+ * D8: L2 ctrl-k (dsh.features.ctrl-k). The command itself is registered in
+ * registerFeatureCommands; this setup only marks the feature as healthy.
+ */
+async function setupCtrlK() {
+  return () => {};
+}
+
+/**
+ * R23: L2 lm-route (dsh.features.lm-route + dsh.lm.route). Registers the
+ * `dsh` language-model chat provider and injects a per-window bridge token so
+ * the DSH-side `/api/lm/*` routes only answer this extension host.
+ */
+/**
+ * S2b-3: L2 mcp-consume (dsh.features.mcp-consume). The aggregator is created
+ * in L0 without side effects; this setup only marks the feature healthy and
+ * lets registerFeatureCommands add dsh.mcp.refresh / dsh.mcp.forgetConsent.
+ */
+async function setupMcpConsume() {
+  return () => {};
+}
+
+async function setupLmRoute({ context, services }) {
+  const featureEnabled = vscode.workspace.getConfiguration('dsh').get('features.lm-route', false);
+  const mode = vscode.workspace.getConfiguration('dsh').get('lm.route', 'off');
+  if (!featureEnabled || mode === 'off') return () => {};
+  if (!vscode.lm || typeof vscode.lm.registerLanguageModelChatProvider !== 'function') {
+    throw new Error('vscode.lm.registerLanguageModelChatProvider is unavailable');
+  }
+  const token = crypto.randomBytes(32).toString('hex');
+  lmRoute = createLmRoute({
+    vscode,
+    baseUrlProvider: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : ''),
+    token,
+    mode,
+  });
+  services.manager?.setSpawnEnv?.({ DSH_LM_BRIDGE_TOKEN: token });
+  context.subscriptions.push(lmRoute.disposable);
+  return () => {
+    lmRoute?.disposable?.dispose?.();
+    lmRoute = null;
+    services.manager?.setSpawnEnv?.({ DSH_LM_BRIDGE_TOKEN: '' });
+  };
+}
+
+/**
  * R25: L1 statusbar-basic (dsh.features.statusbar-basic). The status bar
  * indicator item is created here and eagerly, so setStatusBar() merely
  * updates it; when the feature is off/failed, setStatusBar falls back to a
@@ -1510,6 +1672,40 @@ async function setupStatusbarBasic() {
       // status bar disposal is best-effort during extension shutdown
     }
     statusBar = null;
+  };
+}
+
+/**
+ * R14S1: L2 changes-review (dsh.features.changes-review). Registers the
+ * dsh.changes TreeView and publishes the command actions into services for
+ * registerFeatureCommands. When disabled, neither the view nor the
+ * vscode/changes/push handler is mounted.
+ */
+async function setupChangesReview({ context, services }) {
+  changeTree = createChangeTree({
+    vscode,
+    tracker: changeTracker,
+    storageUri: context.globalStorageUri,
+    loc,
+  });
+  services.changesTree = changeTree;
+  // Wire the L0 tracker wrapper to the L2 tree so every newly recorded
+  // change reveals itself in the view.
+  services.changesReview = {
+    onEntry: (entry) => {
+      try {
+        void changeTree?.reveal(entry);
+      } catch (_) {
+        // reveal is advisory; the view still refreshes on next expansion
+      }
+    },
+  };
+  context.subscriptions.push({ dispose() { changeTree?.dispose(); } });
+  return () => {
+    services.changesReview = undefined;
+    services.changesTree = undefined;
+    changeTree?.dispose();
+    changeTree = null;
   };
 }
 
@@ -1840,6 +2036,57 @@ function registerFeatureCommands(context, featureOk) {
       }
       await restartCleanNow(context);
     }))
+    );
+  }
+
+  if (featureOk.has('changes-review') && changeTree) {
+    registered.push(
+      vscode.commands.registerCommand("dsh.changes.openDiff", async (entry) => {
+        try {
+          await changeTree.openDiff(entry || {});
+        } catch (error) {
+          vscode.window.showErrorMessage(loc("Change diff failed: {message}", {
+            message: error && error.message ? error.message : String(error),
+          }));
+        }
+      }),
+      vscode.commands.registerCommand("dsh.changes.accept", (entry) => changeTree.accept(entry || {})),
+      vscode.commands.registerCommand("dsh.changes.undo", (entry) => changeTree.undo(entry || {})),
+      vscode.commands.registerCommand("dsh.changes.refresh", () => changeTree.refresh())
+    );
+  }
+
+  if (featureOk.has('ctrl-k')) {
+    registered.push(
+      vscode.commands.registerCommand("dsh.ctrlKEdit", createCtrlKEditCommand({
+        vscode,
+        editorContext,
+        coordinator: threadAttachmentCoordinator,
+        formatSelectionAttachment,
+        waitForResolvedView,
+        ensureConnected: async () => {
+          if (!currentServer) await scheduleConnect(context);
+          return Boolean(currentServer);
+        },
+        loc,
+        focusedComposerWebview,
+      }))
+    );
+  }
+
+  if (featureOk.has('mcp-consume') && mcpManager) {
+    registered.push(
+      vscode.commands.registerCommand("dsh.mcp.refresh", () => {
+        mcpManager.refresh();
+        vscode.window.showInformationMessage(loc("MCP servers refreshed"));
+      }),
+      vscode.commands.registerCommand("dsh.mcp.forgetConsent", async () => {
+        const name = await vscode.window.showInputBox({ prompt: loc("MCP server name to forget") });
+        if (typeof name === 'string' && name.length > 0) {
+          mcpConsentGate?.forget(name);
+          mcpManager.refresh();
+        }
+      })
     );
   }
 
