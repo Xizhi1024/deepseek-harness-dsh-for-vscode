@@ -10,11 +10,68 @@ import {
   toolNameFor,
 } from '../lib/tools.js';
 
+// Mini replica of the real ToolRuntime.register() contract (see the
+// installed @deepseek-ai/dsh-tools): every fake registration goes through
+// it, so the whole suite fails if a descriptor drifts from the runtime
+// subset again (F5 round 3 shipped exactly that: render as a string and
+// schema.type 'json').
+const SCHEMA_TYPES = new Set(['object', 'array', 'string', 'number', 'integer', 'boolean', 'null']);
+const CONSTRAINT_KEYWORDS = new Set(['type', 'oneOf', 'properties', 'required', 'additionalProperties', 'items', 'enum', 'const']);
+const ANNOTATION_KEYWORDS = new Set(['description', 'title', 'default', 'examples']);
+
+function assertSchemaSubset(node, path) {
+  if (node === null || typeof node !== 'object' || Array.isArray(node)) {
+    throw new TypeError(`${path} must be a schema object`);
+  }
+  for (const key of Object.keys(node)) {
+    if (CONSTRAINT_KEYWORDS.has(key) || ANNOTATION_KEYWORDS.has(key)) continue;
+    throw new Error(`${path}.${key} is not a supported keyword`);
+  }
+  const hasType = Object.hasOwn(node, 'type');
+  const hasOneOf = Object.hasOwn(node, 'oneOf');
+  if (hasType && hasOneOf) throw new Error(`${path} cannot declare both type and oneOf`);
+  if (!hasType && !hasOneOf) return; // empty schema = any JSON
+  if (hasOneOf) {
+    if (!Array.isArray(node.oneOf) || node.oneOf.length < 2) throw new Error(`${path}.oneOf must have 2+ schemas`);
+    node.oneOf.forEach((child, index) => assertSchemaSubset(child, `${path}.oneOf[${index}]`));
+    return;
+  }
+  if (typeof node.type !== 'string' || !SCHEMA_TYPES.has(node.type)) {
+    throw new Error(`${path}.type must be one of ${[...SCHEMA_TYPES].join('/')}`);
+  }
+  if (node.properties !== undefined) {
+    for (const [key, child] of Object.entries(node.properties)) {
+      assertSchemaSubset(child, `${path}.properties.${key}`);
+    }
+  }
+  if (node.items !== undefined) assertSchemaSubset(node.items, `${path}.items`);
+  if (node.enum !== undefined && node.type !== 'string' && node.type !== 'number') {
+    throw new Error(`${path}.enum requires type string|number`);
+  }
+}
+
+function assertToolRuntimeContract(tool) {
+  if (!tool || typeof tool.name !== 'string' || tool.name.length === 0) {
+    throw new TypeError('tool must declare a name');
+  }
+  const output = tool.output;
+  if (output === undefined || typeof output !== 'object'
+    || typeof output.render !== 'function'
+    || (output.presentationMeta !== undefined && typeof output.presentationMeta !== 'function')) {
+    throw new TypeError(`tool "${tool.name}" must declare output { schema, render, presentationMeta? }`);
+  }
+  assertSchemaSubset(output.schema, `${tool.name} output.schema`);
+  if (tool.parameters !== undefined) {
+    assertSchemaSubset(tool.parameters, `${tool.name} parameters`);
+  }
+}
+
 function fakeCtx() {
   const registered = [];
   const ctx = {
     tools: {
       register(tool) {
+        assertToolRuntimeContract(tool);
         const record = {
           name: tool && tool.name,
           tool,
@@ -25,9 +82,6 @@ function fakeCtx() {
         };
         registered.push(record);
         return () => record.dispose();
-      },
-      defineTool(tool) {
-        return { ...tool, defined: true };
       },
     },
     _registered: registered,

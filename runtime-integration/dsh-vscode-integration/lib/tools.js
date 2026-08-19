@@ -105,7 +105,9 @@ function objectSchema(properties = {}, required = []) {
 const stringProp = (description) => ({ type: 'string', description });
 const boolProp = (description) => ({ type: 'boolean', description });
 const intProp = (description) => ({ type: 'integer', description });
-const uriProp = (description) => ({ type: 'string', description, format: 'uri' });
+// No `format: "uri"`: the ToolRuntime JSON-Schema subset has no format
+// keyword and register()/dispatch would reject the descriptor.
+const uriProp = (description) => ({ type: 'string', description });
 
 function positionSchema() {
   return objectSchema({
@@ -313,7 +315,13 @@ function descriptorFor(method) {
     name: toolNameFor(method),
     description: entry.description,
     parameters: entry.parameters,
-    output: { schema: { type: 'json' }, render: 'json' },
+    // ToolRuntime.register() contract: render must be a function
+    // (args, value) => lossless JSON, and the schema subset has no
+    // 'json' type — an empty schema means "any JSON value".
+    output: {
+      schema: {},
+      render: (args, value) => JSON.stringify(value, null, 2),
+    },
   };
 }
 
@@ -486,9 +494,11 @@ function createBridgeTools({
   if (!net) throw new TypeError('createBridgeTools requires the node:net module');
   const register = ctx.tools && typeof ctx.tools.register === 'function' ? ctx.tools.register.bind(ctx.tools) : null;
   if (!register) throw new TypeError('createBridgeTools requires ctx.tools.register');
-  const define = typeof defineTool === 'function'
-    ? defineTool
-    : (ctx.tools && typeof ctx.tools.defineTool === 'function' ? ctx.tools.defineTool.bind(ctx.tools) : (descriptor) => descriptor);
+  // Only an explicitly injected defineTool may wrap the descriptors. The
+  // runtime ctx.tools.defineTool (where present) is a SPEC-shaped SDK
+  // helper whose parameter grammar differs from the JSON-Schema roots
+  // built here; silently preferring it would mis-compile every tool.
+  const define = typeof defineTool === 'function' ? defineTool : (descriptor) => descriptor;
 
   function start() {
     const envState = bridgeEnv(env);

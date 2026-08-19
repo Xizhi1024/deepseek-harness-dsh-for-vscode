@@ -357,13 +357,11 @@ function apply(ctx) {
   }, 'dsh-vscode-integration: host.openPath bridge + C1 watchdog');
 
   ctx.effect(() => {
-    const defineTool = ctx.tools && typeof ctx.tools.defineTool === 'function'
-      ? ctx.tools.defineTool.bind(ctx.tools)
-      : null;
+    // Descriptors are built register()-shaped (JSON-Schema roots); the
+    // spec-shaped SDK defineTool helper must never wrap them implicitly.
     const bridge = createBridgeTools({
       env: process.env,
       ctx,
-      defineTool,
       net,
       version: packageJson.version,
     });
