@@ -71,6 +71,7 @@ const { createCleanupOrphansCommand } = require('./commands/cleanupOrphans');
 const { createWorkspaceContext } = require("./workspaceContext");
 const { createWorkspaceBinding, BINDING_STATES } = require("./context/workspaceBinding");
 const { createEditorContext } = require("./editorContext");
+const { createV3Handlers } = require("./bridge/v3");
 const {
   createExtensionBridgeHandlers,
   detectProviderStates,
@@ -1233,9 +1234,16 @@ async function setupCoreSidebar({ context, services }) {
     : injectedDependencies.extensionBridgeHandlers;
   const versionedBridgeStarter = injectedDependencies.startVersionedBridge
     || (async (options) => new VersionedBridgeServer(options).start());
+  const v3Handlers = injectedDependencies.v3Handlers === undefined
+    ? createV3Handlers({
+      vscode,
+      getFlag: (key) => vscode.workspace.getConfiguration("dsh").get(key, false),
+      appendOutputLine: appendDiagnostic,
+    })
+    : injectedDependencies.v3Handlers;
   versionedBridge = await versionedBridgeStarter({
     handlers: injectedDependencies.vscodeBridgeHandlers === undefined
-      ? { ...editorContext.handlers, ...extensionBridgeHandlers }
+      ? { ...editorContext.handlers, ...extensionBridgeHandlers, ...v3Handlers }
       : injectedDependencies.vscodeBridgeHandlers,
     workspace: createBridgeWorkspaceIdentity(vscode, context),
     serverVersion: require('../package.json').version,

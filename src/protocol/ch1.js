@@ -9,7 +9,7 @@
  * runtime dependencies and no VS Code API usage.
  */
 
-const PROTOCOL_VERSIONS = Object.freeze([1, 2]);
+const PROTOCOL_VERSIONS = Object.freeze([1, 2, 3]);
 
 const METHODS_V1 = Object.freeze([
   'vscode/editor/getContext',
@@ -22,6 +22,39 @@ const METHODS_V1 = Object.freeze([
 
 // Batch B3 adds no new request methods; v2 keeps the same six methods.
 const METHODS_V2 = Object.freeze([...METHODS_V1]);
+
+// v3a (plan R6, D3 verdict: full table) adds the runtime bridge surface.
+// The table is the frozen contract; handlers register incrementally and the
+// initialize handshake only advertises methods with a live handler, so an
+// unimplemented entry simply never reaches a DSH tool registration.
+const METHODS_V3 = Object.freeze([
+  ...METHODS_V2,
+  'vscode/terminal/create',
+  'vscode/terminal/sendText',
+  'vscode/terminal/read',
+  'vscode/tasks/list',
+  'vscode/tasks/run',
+  'vscode/debug/start',
+  'vscode/debug/stop',
+  'vscode/debug/getStack',
+  'vscode/workspace/findFiles',
+  'vscode/window/showMessage',
+  'vscode/extensions/list',
+  'vscode/git/getStatus',
+  'vscode/git/getDiff',
+  'vscode/editor/getState',
+  'vscode/editor/read',
+  'vscode/progress/start',
+  'vscode/progress/report',
+  'vscode/progress/end',
+  'vscode/statusbar/update',
+  'vscode/output/append',
+  'vscode/confirm/ask',
+  'vscode/changes/push',
+  'vscode/mcp/listServers',
+  'vscode/mcp/listTools',
+  'vscode/mcp/callTool',
+]);
 
 const NOTIFICATIONS_V1 = Object.freeze([
   'vscode/contextChanged',
@@ -39,6 +72,7 @@ const NOTIFICATIONS_V2 = Object.freeze([
 const METHODS_BY_VERSION = Object.freeze({
   1: METHODS_V1,
   2: METHODS_V2,
+  3: METHODS_V3,
 });
 
 const NOTIFICATIONS_BY_VERSION = Object.freeze({
@@ -115,6 +149,9 @@ function validateV2NotificationParams(method, params) {
 
 module.exports = {
   METHODS_BY_VERSION,
+  METHODS_V1,
+  METHODS_V2,
+  METHODS_V3,
   NOTIFICATIONS_BY_VERSION,
   PROTOCOL_VERSIONS,
   V2_NOTIFICATION_SCHEMA,

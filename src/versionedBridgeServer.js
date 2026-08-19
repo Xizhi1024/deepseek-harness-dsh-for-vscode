@@ -14,8 +14,8 @@ const {
 const VSCODE_PROTOCOL_VERSION = 1;
 const VSCODE_MAX_FRAME_BYTES = 1024 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
-const REQUEST_METHODS = Object.freeze([...METHODS_BY_VERSION[1]]);
-const NOTIFICATION_METHODS = Object.freeze([...NOTIFICATIONS_BY_VERSION[1]]);
+const REQUEST_METHODS = Object.freeze([...new Set(Object.values(METHODS_BY_VERSION).flat())]);
+const NOTIFICATION_METHODS = Object.freeze([...new Set(Object.values(NOTIFICATIONS_BY_VERSION).flat())]);
 
 function isRecord(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -248,7 +248,8 @@ class VersionedBridgeServer {
       return;
     }
     const handler = this.handlers[frame.method];
-    if (!REQUEST_METHODS.includes(frame.method) || typeof handler !== 'function') {
+    const versionMethods = METHODS_BY_VERSION[connection.protocolVersion] || [];
+    if (!REQUEST_METHODS.includes(frame.method) || !versionMethods.includes(frame.method) || typeof handler !== 'function') {
       this._writeError(connection.socket, id, -32601, 'VSCODE_METHOD_NOT_ALLOWED', `Method not allowed: ${frame.method}`);
       return;
     }

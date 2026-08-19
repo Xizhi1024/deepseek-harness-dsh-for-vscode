@@ -185,6 +185,8 @@ Achieving a Cursor/Claude Code-like experience requires both sides of the bridge
 | `dsh.keybindings.ctrlL` | false | Enable the Ctrl+L (Cmd+L on macOS) keybinding that adds the active editor selection to the DSH conversation (off by default) |
 
 | `dsh.multiInstance.entry` | false | Show the new-instance entry in the DSH sidebar title bar (off by default) |
+| `dsh.bridge.terminal` | false | Let DSH use VS Code terminals through the runtime bridge (create/send/read, max 8) |
+| `dsh.bridge.editorRead` | false | Let DSH read the active editor's unsaved buffer through the bridge |
 
 `dsh.closePolicy` values:
 

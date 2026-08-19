@@ -21,6 +21,8 @@
   "dsh.cfg.keybindings.ctrlL": "Enable the Ctrl+L (Cmd+L on macOS) keybinding that adds the active selection to the DSH conversation. Off by default.",
   "dsh.cmd.newInstance": "New DSH Instance",
   "dsh.cfg.multiInstance.entry": "Show the new-instance entry in the DSH sidebar title bar. Off by default.",
+  "dsh.cfg.bridge.terminal": "Let DSH use VS Code terminals through the bridge (create/send/read, max 8). Off by default.",
+  "dsh.cfg.bridge.editorRead": "Let DSH read the active editor's unsaved buffer through the bridge (editor/read). Off by default.",
   "dsh.view.title": "DeepSeek Harness (DSH)",
   "dsh.view.name": "DeepSeek Harness (DSH)",
   "dsh.cap.untrusted": "Launches a local process and touches workspace files.",
