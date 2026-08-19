@@ -71,7 +71,8 @@
     "onCommand:dsh.changes.accept",
     "onCommand:dsh.changes.undo",
     "onCommand:dsh.changes.refresh",
-    "onCommand:dsh.changes.focus"
+    "onCommand:dsh.changes.focus",
+    "onCommand:dsh.ctrlKEdit"
   ],
   "extensionKind": [
     "workspace"
@@ -241,6 +242,11 @@
       {
         "command": "dsh.changes.focus",
         "title": "%dsh.cmd.changes.focus%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.ctrlKEdit",
+        "title": "%dsh.cmd.ctrlKEdit%",
         "category": "%dsh.cmd.category%"
       }
     ],
@@ -433,6 +439,11 @@
           "type": "boolean",
           "default": false,
           "description": "%dsh.cfg.features.changes-review%"
+        },
+        "dsh.features.ctrl-k": {
+          "type": "boolean",
+          "default": false,
+          "description": "%dsh.cfg.features.ctrl-k%"
         },
         "dsh.keybindings.ctrlL": {
           "type": "boolean",

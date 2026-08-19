@@ -1350,6 +1350,40 @@ test('changes-review L2 feature mounts the bridge handler, tree view and command
   await deactivate();
 });
 
+test('ctrl-k L2 feature registers the Edit with DSH command only when enabled', async () => {
+  const fake = createFakeVscode({ 'features.ctrl-k': true });
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-ctrlk-test-${process.pid}`) },
+    subscriptions: [],
+  };
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() {
+      return {
+        setSpawnEnv() {},
+        setOwnerIdentity() {},
+        cancelPending() {},
+        currentChildPid() { return null; },
+        hasOwnedChild() { return false; },
+        async stop() {},
+      };
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  assert.ok(fake.commands.has('dsh.ctrlKEdit'), 'dsh.ctrlKEdit must be registered when the L2 feature is enabled');
+  await deactivate();
+});
+
 test('C1 spawn env injection: heartbeat path + window id always; watchdog off only under closePolicy=never', async () => {
   const setSpawnEnvCalls = [];
   const setOwnerIdentityCalls = [];

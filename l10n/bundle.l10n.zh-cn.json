@@ -159,5 +159,8 @@
   "New DSH instance failed: {message}": "新建 DSH 实例失败：{message}",
   "Untitled session": "未命名会话",
   "Open Diff": "打开差异",
-  "Change diff failed: {message}": "打开变更差异失败：{message}"
+  "Change diff failed: {message}": "打开变更差异失败：{message}",
+  "Ctrl+K: select code first, then run the command.": "Ctrl+K：请先选中代码，再运行该命令。",
+  "Ctrl+K instruction": "你希望 DSH 对选中的代码做什么？",
+  "Ctrl+K draft sent to the DSH conversation": "Ctrl+K 草稿已发送到 DSH 对话"
 }

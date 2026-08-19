@@ -73,6 +73,10 @@ test('editor title exposes one persistent icon and DSH view title exposes only t
     mac: 'cmd+l',
     when: 'config.dsh.keybindings.ctrlL && editorTextFocus'
   }]);
+  assert.ok(
+    !manifest.contributes.keybindings.some((entry) => entry.command === 'dsh.ctrlKEdit'),
+    'D8 final verdict: Ctrl+K must not contribute a default keybinding'
+  );
   assert.deepStrictEqual(menus['editor/title/context'], [{
     command: 'dsh.addFileToThread',
     group: 'dsh@1',
@@ -134,6 +138,7 @@ test('extension-host smoke expectations cover every contributed command id', () 
     'dsh.changes.refresh',
     'dsh.changes.undo',
     'dsh.cleanupOrphans',
+    'dsh.ctrlKEdit',
     'dsh.diagnose',
     'dsh.focusSidebar',
     'dsh.newSession',

@@ -159,5 +159,8 @@
   "New DSH instance failed: {message}": "New DSH instance failed: {message}",
   "Untitled session": "Untitled session",
   "Open Diff": "Open Diff",
-  "Change diff failed: {message}": "Change diff failed: {message}"
+  "Change diff failed: {message}": "Change diff failed: {message}",
+  "Ctrl+K: select code first, then run the command.": "Ctrl+K: select code first, then run the command.",
+  "Ctrl+K instruction": "What should DSH do with the selected code?",
+  "Ctrl+K draft sent to the DSH conversation": "Ctrl+K draft sent to the DSH conversation"
 }

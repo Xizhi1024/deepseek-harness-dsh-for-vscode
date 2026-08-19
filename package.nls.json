@@ -52,5 +52,7 @@
   "dsh.cmd.changes.undo": "Undo Change",
   "dsh.cmd.changes.refresh": "Refresh Changes",
   "dsh.cmd.changes.focus": "Focus DSH Changes",
-  "dsh.cfg.features.changes-review": "Review workspace edits proposed by DSH: approval prompts, the dsh.changes tree view, and the vscode/changes/push bridge handler. Off by default."
+  "dsh.cmd.ctrlKEdit": "Edit with DSH (Ctrl+K)",
+  "dsh.cfg.features.changes-review": "Review workspace edits proposed by DSH: approval prompts, the dsh.changes tree view, and the vscode/changes/push bridge handler. Off by default.",
+  "dsh.cfg.features.ctrl-k": "Enable the Edit with DSH (Ctrl+K) command that sends the active selection and an instruction to the DSH conversation. Off by default; no keybinding is contributed."
 }

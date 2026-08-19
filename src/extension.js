@@ -68,6 +68,7 @@ const {
   createAddFolderToThreadCommand,
 } = require('./commands/addFileToThread');
 const { createCleanupOrphansCommand } = require('./commands/cleanupOrphans');
+const { createCtrlKEditCommand } = require('./commands/ctrlKEdit');
 const { createWorkspaceContext } = require("./workspaceContext");
 const { createWorkspaceBinding, BINDING_STATES } = require("./context/workspaceBinding");
 const { createEditorContext } = require("./editorContext");
@@ -1008,6 +1009,7 @@ const FEATURE_CATALOG = [
   { id: 'statusbar-basic', label: 'Status bar indicator', layer: 'L1', defaultEnabled: true, core: false, setup: setupStatusbarBasic },
   { id: 'theme-follow', label: 'Theme follow (dark/light)', layer: 'L1', defaultEnabled: true, core: false, setup: setupThemeFollow },
   { id: 'changes-review', label: 'Changes review (DSH workspace edits)', layer: 'L2', defaultEnabled: false, core: false, setup: setupChangesReview },
+  { id: 'ctrl-k', label: 'Edit with DSH (Ctrl+K)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCtrlK },
 ];
 
 /**
@@ -1518,6 +1520,14 @@ async function setupThemeFollow({ context }) {
 }
 
 /**
+ * D8: L2 ctrl-k (dsh.features.ctrl-k). The command itself is registered in
+ * registerFeatureCommands; this setup only marks the feature as healthy.
+ */
+async function setupCtrlK() {
+  return () => {};
+}
+
+/**
  * R25: L1 statusbar-basic (dsh.features.statusbar-basic). The status bar
  * indicator item is created here and eagerly, so setStatusBar() merely
  * updates it; when the feature is off/failed, setStatusBar falls back to a
@@ -1915,6 +1925,24 @@ function registerFeatureCommands(context, featureOk) {
       vscode.commands.registerCommand("dsh.changes.accept", (entry) => changeTree.accept(entry || {})),
       vscode.commands.registerCommand("dsh.changes.undo", (entry) => changeTree.undo(entry || {})),
       vscode.commands.registerCommand("dsh.changes.refresh", () => changeTree.refresh())
+    );
+  }
+
+  if (featureOk.has('ctrl-k')) {
+    registered.push(
+      vscode.commands.registerCommand("dsh.ctrlKEdit", createCtrlKEditCommand({
+        vscode,
+        editorContext,
+        coordinator: threadAttachmentCoordinator,
+        formatSelectionAttachment,
+        waitForResolvedView,
+        ensureConnected: async () => {
+          if (!currentServer) await scheduleConnect(context);
+          return Boolean(currentServer);
+        },
+        loc,
+        focusedComposerWebview,
+      }))
     );
   }
 

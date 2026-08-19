@@ -52,5 +52,7 @@
   "dsh.cmd.changes.undo": "撤销变更",
   "dsh.cmd.changes.refresh": "刷新变更",
   "dsh.cmd.changes.focus": "聚焦 DSH 变更",
-  "dsh.cfg.features.changes-review": "审查 DSH 提议的工作区编辑：审批弹窗、dsh.changes 树视图与 vscode/changes/push 桥接处理器。默认关闭。"
+  "dsh.cmd.ctrlKEdit": "用 DSH 编辑（Ctrl+K）",
+  "dsh.cfg.features.changes-review": "审查 DSH 提议的工作区编辑：审批弹窗、dsh.changes 树视图与 vscode/changes/push 桥接处理器。默认关闭。",
+  "dsh.cfg.features.ctrl-k": "启用「用 DSH 编辑（Ctrl+K）」命令：把当前选区与指令发送到 DSH 对话。默认关闭；不贡献默认键位。"
 }
