@@ -72,7 +72,8 @@
     "onCommand:dsh.changes.undo",
     "onCommand:dsh.changes.refresh",
     "onCommand:dsh.changes.focus",
-    "onCommand:dsh.ctrlKEdit"
+    "onCommand:dsh.ctrlKEdit",
+    "onLanguageModelChatProvider:dsh"
   ],
   "extensionKind": [
     "workspace"
@@ -93,6 +94,12 @@
     "@vscode/vsce": "3.9.2"
   },
   "contributes": {
+    "languageModelChatProviders": [
+      {
+        "vendor": "dsh",
+        "displayName": "%dsh.lm.vendor%"
+      }
+    ],
     "viewsContainers": {
       "secondarySidebar": [
         {
@@ -444,6 +451,21 @@
           "type": "boolean",
           "default": false,
           "description": "%dsh.cfg.features.ctrl-k%"
+        },
+        "dsh.features.lm-route": {
+          "type": "boolean",
+          "default": false,
+          "description": "%dsh.cfg.features.lm-route%"
+        },
+        "dsh.lm.route": {
+          "type": "string",
+          "enum": [
+            "off",
+            "fixed",
+            "dynamic"
+          ],
+          "default": "off",
+          "description": "%dsh.cfg.lm.route%"
         },
         "dsh.keybindings.ctrlL": {
           "type": "boolean",

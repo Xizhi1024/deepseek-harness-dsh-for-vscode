@@ -187,6 +187,8 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 | `dsh.features.theme-follow` | true | 内嵌 DSH iframe 跟随 VS Code 当前颜色主题（深色/浅色）（L1 功能；关闭后不附加 `dsh_theme` URL 参数、不监听主题变化） |
 | `dsh.features.changes-review` | false | 审查 DSH 提议的工作区编辑：审批弹窗、`dsh.changes` 树视图与 `vscode/changes/push` 桥接处理器（L2 功能） |
 | `dsh.features.ctrl-k` | false | 启用「用 DSH 编辑（Ctrl+K）」命令；不贡献默认键位（L2 功能） |
+| `dsh.features.lm-route` | false | 在 VS Code 语言模型聊天选择器中以 vendor `dsh` 暴露 DSH 模型（L2 功能） |
+| `dsh.lm.route` | `off` | DSH 模型路由模式：`off` = 从不注册 dsh 聊天 provider；`fixed` = 拉取一次 `/api/lm/models` 并缓存；`dynamic` = 每次打开选择器时刷新模型列表 |
 | `dsh.keybindings.ctrlL` | false | 启用 Ctrl+L（macOS 为 Cmd+L）键位：将当前编辑器选区加入 DSH 对话（默认关闭） |
 | `dsh.multiInstance.entry` | false | 在 DSH 侧栏标题栏显示「新建实例」入口（默认关闭） |
 | `dsh.bridge.terminal` | false | 允许 DSH 经运行时桥使用 VS Code 终端（create/send/read，上限 8 个） |

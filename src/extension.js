@@ -18,6 +18,7 @@
  */
 const path = require("node:path");
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const {
   ServerManager,
@@ -75,6 +76,7 @@ const { createEditorContext } = require("./editorContext");
 const { createV3Handlers } = require("./bridge/v3");
 const { createChangeTracker } = require("./changeTracker");
 const { createChangeTree } = require("./changeTree");
+const { createLmRoute } = require("./lmRoute");
 const {
   createExtensionBridgeHandlers,
   detectProviderStates,
@@ -114,6 +116,7 @@ let notificationSubscriptions = []; // selection/diagnostics event disposables
 let editorContext = null; // per-window approved editor attachments backing vscode/editor methods
 let changeTracker = null; // R14S1 journal for applied changes (created in L0, no UI)
 let changeTree = null; // R14S1 TreeView/command surface (created in L2 changes-review)
+let lmRoute = null; // R23 model-route provider (created in L2 lm-route)
 let embedPatchPath = null; // generated --patch overlay applied to extension-owned DSH children
 let runtimeStorageRoot = null; // managed runtime storage under VS Code global storage
 let activeDshHome = null; // effective shared/isolated DSH user-data home
@@ -1010,6 +1013,7 @@ const FEATURE_CATALOG = [
   { id: 'theme-follow', label: 'Theme follow (dark/light)', layer: 'L1', defaultEnabled: true, core: false, setup: setupThemeFollow },
   { id: 'changes-review', label: 'Changes review (DSH workspace edits)', layer: 'L2', defaultEnabled: false, core: false, setup: setupChangesReview },
   { id: 'ctrl-k', label: 'Edit with DSH (Ctrl+K)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCtrlK },
+  { id: 'lm-route', label: 'DSH model routing', layer: 'L2', defaultEnabled: false, core: false, setup: setupLmRoute },
 ];
 
 /**
@@ -1525,6 +1529,34 @@ async function setupThemeFollow({ context }) {
  */
 async function setupCtrlK() {
   return () => {};
+}
+
+/**
+ * R23: L2 lm-route (dsh.features.lm-route + dsh.lm.route). Registers the
+ * `dsh` language-model chat provider and injects a per-window bridge token so
+ * the DSH-side `/api/lm/*` routes only answer this extension host.
+ */
+async function setupLmRoute({ context, services }) {
+  const featureEnabled = vscode.workspace.getConfiguration('dsh').get('features.lm-route', false);
+  const mode = vscode.workspace.getConfiguration('dsh').get('lm.route', 'off');
+  if (!featureEnabled || mode === 'off') return () => {};
+  if (!vscode.lm || typeof vscode.lm.registerLanguageModelChatProvider !== 'function') {
+    throw new Error('vscode.lm.registerLanguageModelChatProvider is unavailable');
+  }
+  const token = crypto.randomBytes(32).toString('hex');
+  lmRoute = createLmRoute({
+    vscode,
+    baseUrlProvider: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : ''),
+    token,
+    mode,
+  });
+  services.manager?.setSpawnEnv?.({ DSH_LM_BRIDGE_TOKEN: token });
+  context.subscriptions.push(lmRoute.disposable);
+  return () => {
+    lmRoute?.disposable?.dispose?.();
+    lmRoute = null;
+    services.manager?.setSpawnEnv?.({ DSH_LM_BRIDGE_TOKEN: '' });
+  };
 }
 
 /**

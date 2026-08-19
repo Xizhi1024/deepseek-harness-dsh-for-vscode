@@ -189,6 +189,8 @@ Achieving a Cursor/Claude Code-like experience requires both sides of the bridge
 | `dsh.features.theme-follow` | true | Follow the VS Code active color theme (dark/light) in the embedded DSH iframe (L1 feature, off = no `dsh_theme` URL param and no theme listener) |
 | `dsh.features.changes-review` | false | Review workspace edits proposed by DSH: approval prompts, the `dsh.changes` tree view, and the `vscode/changes/push` bridge handler (L2 feature) |
 | `dsh.features.ctrl-k` | false | Enable the **Edit with DSH (Ctrl+K)** command; no default keybinding is contributed (L2 feature) |
+| `dsh.features.lm-route` | false | Expose DSH models to the VS Code language-model chat picker as vendor `dsh` (L2 feature) |
+| `dsh.lm.route` | `off` | DSH model routing mode: `off` = never register the dsh chat provider; `fixed` = fetch `/api/lm/models` once and cache; `dynamic` = refresh the model list on every picker open |
 | `dsh.keybindings.ctrlL` | false | Enable the Ctrl+L (Cmd+L on macOS) keybinding that adds the active editor selection to the DSH conversation (off by default) |
 
 | `dsh.multiInstance.entry` | false | Show the new-instance entry in the DSH sidebar title bar (off by default) |

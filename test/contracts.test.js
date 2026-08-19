@@ -183,3 +183,14 @@ test('dsh.features.* configuration keys mirror the featureRegistry catalog (L1/L
     assert.strictEqual(entry.default, feature.defaultEnabled, feature.id + ' default must match defaultEnabled');
   }
 });
+
+test('R23 language-model chat provider contribution and routing config are frozen', () => {
+  const providers = manifest.contributes.languageModelChatProviders;
+  assert.deepStrictEqual(providers, [{ vendor: 'dsh', displayName: '%dsh.lm.vendor%' }]);
+  assert.ok(manifest.activationEvents.includes('onLanguageModelChatProvider:dsh'));
+  const properties = manifest.contributes.configuration.properties;
+  assert.strictEqual(properties['dsh.lm.route'].default, 'off');
+  assert.deepStrictEqual(properties['dsh.lm.route'].enum, ['off', 'fixed', 'dynamic']);
+  assert.strictEqual(properties['dsh.features.lm-route'].default, false);
+  assert.strictEqual(properties['dsh.features.lm-route'].type, 'boolean');
+});

@@ -7,7 +7,8 @@ const { createVscodeFacade } = require('../../src/vscodeFacade');
 
 test('the facade forwards every top-level VS Code surface extension.js consumes', () => {
   const api = {
-    commands: {}, env: {}, extensions: {}, languages: {}, l10n: {},
+    commands: {}, env: {}, extensions: {}, languages: {}, l10n: {}, lm: {},
+    LanguageModelError: class {}, LanguageModelTextPart: class {},
     Position: class {}, Range: class {}, TreeItem: class {}, WorkspaceEdit: class {},
     StatusBarAlignment: {}, ConfigurationTarget: {},
     ColorThemeKind: { Dark: 2 }, ViewColumn: { Active: 1 }, version: '1.106.0',
@@ -25,5 +26,8 @@ test('the facade forwards every top-level VS Code surface extension.js consumes'
   assert.strictEqual(facade.WorkspaceEdit, api.WorkspaceEdit);
   assert.strictEqual(facade.Position, api.Position);
   assert.strictEqual(facade.TreeItem, api.TreeItem);
+  assert.strictEqual(facade.lm, api.lm);
+  assert.strictEqual(facade.LanguageModelError, api.LanguageModelError);
+  assert.strictEqual(facade.LanguageModelTextPart, api.LanguageModelTextPart);
   assert.throws(() => { facade.window = {}; }, /Cannot assign/, 'facade stays frozen');
 });

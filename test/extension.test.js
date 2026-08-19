@@ -49,6 +49,20 @@ function createFakeVscode(configOverrides = {}) {
     languages: {
       getDiagnostics() { return []; },
     },
+    lm: {
+      registerLanguageModelChatProvider(vendor, provider) {
+        registrations.lmProvider = { vendor, provider };
+        return disposable();
+      },
+    },
+    LanguageModelError: class LanguageModelError extends Error {
+      static NoPermissions(message) { const error = new LanguageModelError(message); error.code = 'NoPermissions'; return error; }
+      static Blocked(message) { const error = new LanguageModelError(message); error.code = 'Blocked'; return error; }
+      static NotFound(message) { const error = new LanguageModelError(message); error.code = 'NotFound'; return error; }
+    },
+    LanguageModelTextPart: class LanguageModelTextPart {
+      constructor(text) { this.text = text; }
+    },
     l10n: {
       t(template, params = {}) {
         return String(template).replace(/\{(\w+)\}/g, (_, key) => String(params[key] ?? `{${key}}`));
@@ -1382,6 +1396,51 @@ test('ctrl-k L2 feature registers the Edit with DSH command only when enabled', 
 
   assert.ok(fake.commands.has('dsh.ctrlKEdit'), 'dsh.ctrlKEdit must be registered when the L2 feature is enabled');
   await deactivate();
+});
+
+test('lm-route L2 feature registers the dsh chat provider and injects the bridge token', async () => {
+  const fake = createFakeVscode({ 'features.lm-route': true, 'lm.route': 'fixed' });
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-lm-route-test-${process.pid}`) },
+    subscriptions: [],
+  };
+  const spawnEnvCalls = [];
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() {
+      return {
+        setSpawnEnv(env) { spawnEnvCalls.push(env); },
+        setOwnerIdentity() {},
+        cancelPending() {},
+        currentChildPid() { return null; },
+        hasOwnedChild() { return false; },
+        async stop() {},
+      };
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  assert.ok(fake.registrations.lmProvider, 'lm provider must be registered');
+  assert.strictEqual(fake.registrations.lmProvider.vendor, 'dsh');
+  assert.ok(
+    spawnEnvCalls.some((env) => typeof env.DSH_LM_BRIDGE_TOKEN === 'string' && env.DSH_LM_BRIDGE_TOKEN.length > 0),
+    'DSH_LM_BRIDGE_TOKEN must be injected for DSH-side /api/lm routes',
+  );
+
+  await deactivate();
+  assert.ok(
+    spawnEnvCalls.some((env) => env.DSH_LM_BRIDGE_TOKEN === ''),
+    'deactivate must clear the injected bridge token',
+  );
 });
 
 test('C1 spawn env injection: heartbeat path + window id always; watchdog off only under closePolicy=never', async () => {
