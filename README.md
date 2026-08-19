@@ -44,8 +44,10 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 ## Usage
 
 - `Ctrl+Alt+B` opens the auxiliary sidebar → **DeepSeek Harness (DSH)** tab
-- Commands (all 14): **Open DSH in Browser** · **New Session** · **Switch Session** · **Restart DSH Server** · **Stop DSH Server** · **Focus DSH Sidebar** · **Add File to DSH Thread** · **Add to DSH Thread** · **Add Active File to DSH Context** · **Add Active Selection to DSH Context** · **Add Problems to DSH Context** · **Capabilities and Integrations** · **Diagnose** · **Clean Up Orphan DSH Servers**
+- Commands (all 15): **Open DSH in Browser** · **New Session** · **Switch Session** · **Restart DSH Server** · **Restart DSH Server Cleanly** · **Stop DSH Server** · **Focus DSH Sidebar** · **Add File to DSH Thread** · **Add to DSH Thread** · **Add Active File to DSH Context** · **Add Active Selection to DSH Context** · **Add Problems to DSH Context** · **Capabilities and Integrations** · **Diagnose** · **Clean Up Orphan DSH Servers**
 - With `dsh.autoStart` on, the server is started at VS Code startup even if the sidebar is never opened
+
+> **Restart DSH Server Cleanly** disables every non-core (non-`@deepseek-ai/*`, non-embed) plugin in the active profile via `vscode-clean.overlay.yml` before restarting. When startup fails with `HEALTH_TIMEOUT` or `SPAWN_EXITED_EARLY`, the status page offers a **Restart-Clean** entry; in clean mode it shows a banner with **Restart-normal**, which restarts with the normal embed overlay. A startup that exits early while a `--patch` overlay is in effect automatically retries exactly once without the patch (recorded in Diagnose).
 
 ## Session navigation
 

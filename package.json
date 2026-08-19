@@ -61,7 +61,8 @@
     "onCommand:dsh.switchSession",
     "onCommand:dsh.capabilities",
     "onCommand:dsh.diagnose",
-    "onCommand:dsh.cleanupOrphans"
+    "onCommand:dsh.cleanupOrphans",
+    "onCommand:dsh.restartClean"
   ],
   "extensionKind": [
     "workspace"
@@ -173,6 +174,11 @@
       {
         "command": "dsh.cleanupOrphans",
         "title": "%dsh.cmd.cleanupOrphans%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.restartClean",
+        "title": "%dsh.cmd.restartClean%",
         "category": "%dsh.cmd.category%"
       }
     ],

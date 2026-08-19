@@ -36,5 +36,6 @@
   "dsh.cmd.switchSession": "Switch Session",
   "dsh.cmd.capabilities": "Capabilities and Integrations",
   "dsh.cmd.diagnose": "Diagnose",
-  "dsh.cmd.cleanupOrphans": "Clean Up Orphan DSH Servers"
+  "dsh.cmd.cleanupOrphans": "Clean Up Orphan DSH Servers",
+  "dsh.cmd.restartClean": "Restart DSH Server Cleanly"
 }

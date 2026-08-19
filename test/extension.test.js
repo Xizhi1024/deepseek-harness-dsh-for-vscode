@@ -190,6 +190,7 @@ test('activation registers the public host surface through injected dependencies
     'dsh.capabilities',
     'dsh.diagnose',
     'dsh.cleanupOrphans',
+    'dsh.restartClean',
   ]);
   assert.strictEqual(fake.registrations.webview.id, VIEW_ID);
   assert.deepStrictEqual(
