@@ -44,8 +44,14 @@
 ## 使用
 
 - `Ctrl+Alt+B` 打开辅助侧边栏 → **DeepSeek Harness (DSH)** 标签
-- 命令（全部 14 条）：**在浏览器中打开 DSH** · **新建会话** · **切换会话** · **重启 DSH 服务** · **停止 DSH 服务** · **聚焦 DSH 侧边栏** · **将文件添加到 DSH 对话** · **添加到 DSH 对话** · **将活动文件添加到 DSH 上下文** · **将活动选区添加到 DSH 上下文** · **将 Problems 添加到 DSH 上下文** · **能力与集成** · **诊断** · **清理孤儿 DSH 服务**
+- 命令（全部 16 条）：**在浏览器中打开 DSH** · **新建会话** · **切换会话** · **重启 DSH 服务** · **干净重启 DSH 服务** · **停止 DSH 服务** · **聚焦 DSH 侧边栏** · **将文件添加到 DSH 对话** · **添加到 DSH 对话** · **将活动文件添加到 DSH 上下文** · **将活动选区添加到 DSH 上下文** · **将 Problems 添加到 DSH 上下文** · **能力与集成** · **诊断** · **清理孤儿 DSH 服务** · **设置 DSH**
 - `dsh.autoStart` 开启时，VS Code 启动即拉取服务，即使侧边栏从未打开
+
+> **干净重启 DSH 服务** 会在重启前通过 `vscode-clean.overlay.yml` 禁用活动 profile 中所有非核心（非 `@deepseek-ai/*`、非 embed）插件。当启动以 `HEALTH_TIMEOUT` 或 `SPAWN_EXITED_EARLY` 失败时，状态页提供 **Restart-Clean** 入口；干净模式下会显示带 **Restart-normal** 的横幅，后者以正常 embed overlay 重启。当 `--patch` overlay 生效期间发生提前退出时，会自动不带该 patch 重试恰好一次（记录在 Diagnose 中）。
+
+## 首次运行设置（onboarding）
+
+首次激活时，扩展会询问 **“DSH 已就绪——现在设置吗？”**，提供三个选择：**设置**（Set up）打开多步向导，**暂时不要**（Not now）在下次激活时再次询问，**不再询问**（Never）则不再询问（直到执行该命令为止）。向导依次引导 **profile**（默认 `web`，按 `^[A-Za-z0-9._-]{1,64}$` 校验；修改后需要重载窗口生效）、**自动启动**、**关闭策略**、信息性的 **watchdog / 路线图** 步骤（多实例、Tab 补全、MCP、模型路由等仅在规划中的功能标记为*后续版本提供*）、已实现的 **DSH 功能开关**，以及确认用的 **汇总**。每个通过的步骤都会立即（全局作用域）写入其 `dsh.*` 设置，因此跳过某一步会保留其当前值。所有文案都经 `vscode.l10n` 语言包提供双语。随时用 **设置 DSH** 命令重跑向导，之后再在设置页（`dsh.*`）逐项调整。
 
 ## 会话切换
 
@@ -161,11 +167,17 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 | `dsh.autoStart` | true | VS Code 启动时以选定目录和 `web` profile 拉起官方 DSH；runtime 解析失败时可复用配置端点（false = 仅复用） |
 | `dsh.home.mode` | `shared` | `shared` 使用官方 DSH_HOME；`isolated` 使用扩展私有 `globalStorage/.dsh`，单独维护模块配置 |
 | `dsh.home.path` | （空） | shared 模式下的机器级绝对路径覆盖；留空依次使用 `DSH_HOME`、`~/.dsh` |
+| `dsh.profile` | `web` | 窗口级 DSH profile 目录，位于所选 home 之下；必须匹配 `^[A-Za-z0-9._-]{1,64}$` |
 | `dsh.closePolicy` | `onVscodeExit` | 何时停止扩展自己拉起的服务（见下表） |
-| `dsh.local.packageRoot` | （空） | 官方 `@deepseek-ai/dsh` 包根目录的可选绝对路径；留空时自动探测 npm 全局安装 |
-| `dsh.local.nodePath` | （空） | Node.js 可执行文件的可选绝对路径；留空时自动探测 |
-| `dsh.runtime.manifestUrl` | （空） | 可选的 HTTPS 运行时发布清单；留空使用本机官方 npm DSH，非空时改用带 manifest/SHA-256 校验的托管 runtime 安装 |
+| `dsh.local.packageRoot` | （空） | 机器级可选的官方 `@deepseek-ai/dsh` 包根目录绝对路径；留空时自动探测 npm 全局安装 |
+| `dsh.local.nodePath` | （空） | 机器级可选的 Node.js 可执行文件绝对路径；留空时自动探测 |
+| `dsh.runtime.manifestUrl` | （空） | 机器级可选的 HTTPS 运行时发布清单；留空使用本机官方 npm DSH，非空时改用带 manifest/SHA-256 校验的托管 runtime 安装 |
 | `dsh.runtime.version` | （空） | 托管 runtime 的可选版本锁定；仅在配置 manifest URL 时生效 |
+| `dsh.features.clipboard-bridge` | true | DSH iframe 与 VS Code 剪贴板之间的内嵌复制/粘贴桥（L1 功能；关闭后 DSH 复制按钮写入 webview 剪贴板） |
+| `dsh.features.thread-attachment` | true | 把活动文件/选区/Problems 添加到 DSH 对话（L1 功能；关闭后不再注册「添加到 DSH 对话」命令） |
+| `dsh.features.editor-links` | true | 在本 VS Code 窗口中打开 DSH 的 `Read …` 与草稿附件链接（L1 功能；关闭后不启动文本文档桥） |
+| `dsh.features.statusbar-basic` | true | 状态栏中的基础 DSH 状态指示（L1 功能；关闭后失败时仍会以 L0 `$(error)` 兜底呈现） |
+| `dsh.features.theme-follow` | true | 内嵌 DSH iframe 跟随 VS Code 当前颜色主题（深色/浅色）（L1 功能；关闭后不附加 `dsh_theme` URL 参数、不监听主题变化） |
 
 `dsh.closePolicy` 取值：
 
@@ -201,15 +213,36 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 
 如果你使用共享 home 的 DSH 会话、且模型不完全可信，请保持工作区信任开启，并把内嵌 DSH 视为具备“在编辑器中打开文件”能力的 agent，而不是沙箱 webview。
 
+## 启动错误码
+
+启动失败在 `src/startupErrors.js` 中集中分类。每个错误码带有 `retryable`、本地化的 `template` 与 `diagnoseHint`；`dsh.diagnose` 会打印完整的错误码表。未知错误码回退显示原始错误文本。
+
+| 错误码 | 可重试 | 模板 |
+|---|---|---|
+| `AUTOSTART_DISABLED` | 否 | `DSH is not running and dsh.autoStart is disabled` |
+| `CONFIG_HOST_UNSUPPORTED` | 否 | `Unsupported dsh.host "{host}"; this extension requires {expected}` |
+| `CONFIG_PORT_INVALID` | 否 | `Invalid dsh.port "{port}"; expected an integer from 1 to 65535` |
+| `CONFIG_PACKAGE_ROOT_INVALID` | 否 | `Invalid dsh.local.packageRoot: {path}` |
+| `CONFIG_NODE_PATH_INVALID` | 否 | `Invalid dsh.local.nodePath: {path}` |
+| `CONFIG_HOME_PATH_INVALID` | 否 | `Invalid DSH home path: {path}` |
+| `CONFIG_PROFILE_INVALID` | 否 | `Invalid dsh.profile: {profile}` |
+| `RUNTIME_NOT_INSTALLED` | 是 | `Official DSH is not installed. …` |
+| `RUNTIME_NODE_MISSING` | 是 | `Node.js was not found …` |
+| `NO_FREE_PORT` | 是 | `No free port found within {limit} ports starting from {start}` |
+| `SPAWN_ERROR` | 是 | `Failed to start dsh: {error}` |
+| `SPAWN_EXITED_EARLY` | 是 | `DSH process exited early (code={code}, signal={signal})` |
+| `HEALTH_TIMEOUT` | 是 | `DSH service did not become ready within {seconds}s; process terminated (pid={pid})` |
+| `BRIDGE_INIT_TIMEOUT` | 是 | `VS Code bridge initialization timed out` |
+
+针对 `HEALTH_TIMEOUT` / `SPAWN_EXITED_EARLY` 的干净重启处理属于 B 批次，未在 A 批次中实现。
+
 ## 已知限制
 
 - **真实 browser provider 尚未接入**：能力目录当前仅列出 `browser-provider-placeholder`，provider 选定与验证留待 W5。
 - **Extension Host smoke 版本**：smoke 测试默认运行在 VS Code 1.106 上。
 - **Spawn 输出写入每次启动截断的日志文件，而非 OutputChannel**：实例注册表可写时，DSH 子进程 stdout/stderr 被捕获到 `<globalStorage>/dsh-server-<port>-<pid>.log`（每次 spawn 截断）；意外崩溃在状态页仍主要显示 exit code。VS Code OutputChannel 视图是后续硬化项。
 - **崩溃残留需要一步手动清理**：VS Code 崩溃或 `closePolicy: never` 后，存活的 owned DSH 有意不被自动 kill（可能仍在被使用）。执行 **清理孤儿 DSH 服务** 可列出 pid 仍存活的注册表条目；命令会逐项探测端点，只终止仍以 DSH 身份应答的进程，否则仅提供“移除记录”。
-- **配置的本地路径被原样信任（跨平台校验缺口）**：`dsh.local.packageRoot` / `dsh.local.nodePath` 接受任何通过 `path.isAbsolute` 的值。在 win32 上 POSIX 绝对路径（`/Users/…/nvm/…`）也会通过，且配置根会完全取代自动探测——从另一台机器同步过来的值会误报 “Official DSH is not installed”，即使包确实已安装。配置根错误现在会指明出错路径（0.5.3 加固）；持久修复（win32 盘符校验 `/^[A-Za-z]:[\\/]/` 与 `scope: "machine"`）见 Troubleshooting。
-- **启动失败只做了部分分类**：0.6.0 给纯配置类失败（host/port 非法、`autoStart=false` 且无服务、配置根/node/home 无效）分配了稳定 code 并隐藏 Retry（重试无意义）。runtime/启动/下载失败仍是自由文本 + Retry。完整的逐类 switch-case 启动检测（稳定 code、逐类消息与 Retry 行为）见 Troubleshooting。
-- **版本管理器探测不完整**：已支持 nvm（POSIX）、fnm（macOS）、asdf、n；Volta、Windows 上的 fnm 与 nvm-windows 自定义根尚未纳入候选列表，这些布局请使用 `dsh.local.packageRoot` / `dsh.local.nodePath`。
+- **启动失败已集中分类**：启动错误码集中在 `src/startupErrors.js`，带有 `retryable` / `template` / `diagnoseHint`；Retry 按钮在纯配置类失败时隐藏，runtime / 启动 / 健康类失败仍可用。干净重启（`Restart-Clean`）是单独的 B 批次项。
 - **部分 DSH 复制按钮仍可能失败**：桥只替换 `navigator.clipboard.writeText`；DSH UI 若走 `document.execCommand('copy')` 兜底，会写入 webview 剪贴板而不是 VS Code 剪贴板，该项属于 DSH UI 侧。模型输出经标准 clipboard API 的复制正常工作。
 
 ## 实现原理
@@ -292,16 +325,13 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 "dsh.local.nodePath": "/Users/zhengduojie/.nvm/versions/node/v24.18.1/bin/node",
 ```
 
-在 win32 上这些 POSIX 路径能通过 `path.isAbsolute`（drive-relative），解析器因此把配置根视为权威，只搜索它、找不到，最终落到通用安装提示；自动探测（`%APPDATA%\npm\node_modules\@deepseek-ai\dsh`）从未被咨询。
+在 win32 上这些 POSIX 路径能通过 `path.isAbsolute`（drive-relative），解析器因此把配置根视为权威，只搜索它、找不到，最终落到通用安装提示；自动探测（`%APPDATA%\npm\node_modules\@deepseek-ai\dsh`）从未被咨询。当前构建会在盘符校验阶段直接拒绝这类 win32 值，并把这三个路径设置保持为机器级作用域，Settings Sync 不再跨设备搬运它们。
 
 修复：在受影响机器上删除用户设置中的 `dsh.local.packageRoot` 与 `dsh.local.nodePath`（或改成该机器正确的值），然后重载窗口。自动探测会重新从 PATH 找到已安装的包与 Node。
 
 计划中的加固（记录于此，尚未实现）：
 
-- **完整 switch-case 启动分类**：0.6.0 已为纯配置类失败分配稳定 code 并隐藏 Retry；runtime 解析 / 连接 / 启动 / 健康失败仍需逐类稳定 code、消息、诊断条目与 Retry 行为，不再做自由文本匹配。
-- **`scope: "machine"`**：`dsh.local.packageRoot` / `dsh.local.nodePath` 改为机器级，避免 Settings Sync 跨设备搬运机器路径（与 `dsh.home.path` 一致）。
-- **win32 盘符校验**：配置绝对路径需匹配 `/^[A-Za-z]:[\\/]/`，在候选搜索之前拒绝 POSIX 风格路径，而不是搜索落空后才发现。
-- **版本管理器探测补齐**：新增 Volta（`~/.volta/tools/image/node/*`）、Windows fnm（`%APPDATA%\fnm\node-versions`）与 nvm-windows 自定义根。
+- **干净重启（Restart-Clean）**：A 批次启动分类已完成；针对 `HEALTH_TIMEOUT` / `SPAWN_EXITED_EARLY` 的干净 overlay 重启流程仍在规划中。
 
 ## License
 
