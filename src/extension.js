@@ -72,6 +72,8 @@ const { createWorkspaceContext } = require("./workspaceContext");
 const { createWorkspaceBinding, BINDING_STATES } = require("./context/workspaceBinding");
 const { createEditorContext } = require("./editorContext");
 const { createV3Handlers } = require("./bridge/v3");
+const { createChangeTracker } = require("./changeTracker");
+const { createChangeTree } = require("./changeTree");
 const {
   createExtensionBridgeHandlers,
   detectProviderStates,
@@ -109,6 +111,8 @@ let versionedBridge = null; // per-window versioned JSON-RPC bridge
 let notificationNotifier = null; // CH1 v2 metadata notification coalescer
 let notificationSubscriptions = []; // selection/diagnostics event disposables
 let editorContext = null; // per-window approved editor attachments backing vscode/editor methods
+let changeTracker = null; // R14S1 journal for applied changes (created in L0, no UI)
+let changeTree = null; // R14S1 TreeView/command surface (created in L2 changes-review)
 let embedPatchPath = null; // generated --patch overlay applied to extension-owned DSH children
 let runtimeStorageRoot = null; // managed runtime storage under VS Code global storage
 let activeDshHome = null; // effective shared/isolated DSH user-data home
@@ -1003,6 +1007,7 @@ const FEATURE_CATALOG = [
   { id: 'editor-links', label: 'Editor links (Read…)', layer: 'L1', defaultEnabled: true, core: false, setup: setupEditorLinks },
   { id: 'statusbar-basic', label: 'Status bar indicator', layer: 'L1', defaultEnabled: true, core: false, setup: setupStatusbarBasic },
   { id: 'theme-follow', label: 'Theme follow (dark/light)', layer: 'L1', defaultEnabled: true, core: false, setup: setupThemeFollow },
+  { id: 'changes-review', label: 'Changes review (DSH workspace edits)', layer: 'L2', defaultEnabled: false, core: false, setup: setupChangesReview },
 ];
 
 /**
@@ -1229,6 +1234,24 @@ async function setupCoreSidebar({ context, services }) {
     },
   });
   services.editorContext = editorContext;
+  const rawChangeTracker = injectedDependencies.changeTracker
+    || createChangeTracker({ storageUri: context.globalStorageUri, vscode });
+  // Wrap record so a later L2 change tree can reveal newly arrived entries
+  // without the L0 handler depending on L2 UI. The wrapper reuses the frozen
+  // tracker's methods, which close over the journal state, so no bind is needed.
+  changeTracker = {
+    ...rawChangeTracker,
+    async record(options) {
+      const entry = await rawChangeTracker.record(options);
+      try {
+        services.changesReview?.onEntry?.(entry);
+      } catch (_) {
+        // reveal is best-effort; the journal record already succeeded
+      }
+      return entry;
+    },
+  };
+  services.changeTracker = changeTracker;
   const extensionBridgeHandlers = injectedDependencies.extensionBridgeHandlers === undefined
     ? createExtensionBridgeHandlers({ vscode })
     : injectedDependencies.extensionBridgeHandlers;
@@ -1239,6 +1262,7 @@ async function setupCoreSidebar({ context, services }) {
       vscode,
       getFlag: (key) => vscode.workspace.getConfiguration("dsh").get(key, false),
       appendOutputLine: appendDiagnostic,
+      changeTracker,
     })
     : injectedDependencies.v3Handlers;
   versionedBridge = await versionedBridgeStarter({
@@ -1510,6 +1534,40 @@ async function setupStatusbarBasic() {
       // status bar disposal is best-effort during extension shutdown
     }
     statusBar = null;
+  };
+}
+
+/**
+ * R14S1: L2 changes-review (dsh.features.changes-review). Registers the
+ * dsh.changes TreeView and publishes the command actions into services for
+ * registerFeatureCommands. When disabled, neither the view nor the
+ * vscode/changes/push handler is mounted.
+ */
+async function setupChangesReview({ context, services }) {
+  changeTree = createChangeTree({
+    vscode,
+    tracker: changeTracker,
+    storageUri: context.globalStorageUri,
+    loc,
+  });
+  services.changesTree = changeTree;
+  // Wire the L0 tracker wrapper to the L2 tree so every newly recorded
+  // change reveals itself in the view.
+  services.changesReview = {
+    onEntry: (entry) => {
+      try {
+        void changeTree?.reveal(entry);
+      } catch (_) {
+        // reveal is advisory; the view still refreshes on next expansion
+      }
+    },
+  };
+  context.subscriptions.push({ dispose() { changeTree?.dispose(); } });
+  return () => {
+    services.changesReview = undefined;
+    services.changesTree = undefined;
+    changeTree?.dispose();
+    changeTree = null;
   };
 }
 
@@ -1840,6 +1898,23 @@ function registerFeatureCommands(context, featureOk) {
       }
       await restartCleanNow(context);
     }))
+    );
+  }
+
+  if (featureOk.has('changes-review') && changeTree) {
+    registered.push(
+      vscode.commands.registerCommand("dsh.changes.openDiff", async (entry) => {
+        try {
+          await changeTree.openDiff(entry || {});
+        } catch (error) {
+          vscode.window.showErrorMessage(loc("Change diff failed: {message}", {
+            message: error && error.message ? error.message : String(error),
+          }));
+        }
+      }),
+      vscode.commands.registerCommand("dsh.changes.accept", (entry) => changeTree.accept(entry || {})),
+      vscode.commands.registerCommand("dsh.changes.undo", (entry) => changeTree.undo(entry || {})),
+      vscode.commands.registerCommand("dsh.changes.refresh", () => changeTree.refresh())
     );
   }
 

@@ -65,7 +65,13 @@
     "onCommand:dsh.cleanupOrphans",
     "onCommand:dsh.restartClean",
     "onCommand:dsh.onboarding",
-    "onCommand:dsh.newInstance"
+    "onCommand:dsh.newInstance",
+    "onView:dsh.changes",
+    "onCommand:dsh.changes.openDiff",
+    "onCommand:dsh.changes.accept",
+    "onCommand:dsh.changes.undo",
+    "onCommand:dsh.changes.refresh",
+    "onCommand:dsh.changes.focus"
   ],
   "extensionKind": [
     "workspace"
@@ -101,6 +107,11 @@
           "type": "webview",
           "id": "dsh.webview",
           "name": "%dsh.view.name%"
+        },
+        {
+          "type": "tree",
+          "id": "dsh.changes",
+          "name": "%dsh.view.changes%"
         }
       ]
     },
@@ -202,6 +213,35 @@
           "light": "media/deepseek-light.svg",
           "dark": "media/deepseek-dark.svg"
         }
+      },
+      {
+        "command": "dsh.changes.openDiff",
+        "title": "%dsh.cmd.changes.openDiff%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.changes.accept",
+        "title": "%dsh.cmd.changes.accept%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.changes.undo",
+        "title": "%dsh.cmd.changes.undo%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.changes.refresh",
+        "title": "%dsh.cmd.changes.refresh%",
+        "category": "%dsh.cmd.category%",
+        "icon": {
+          "light": "media/deepseek-light.svg",
+          "dark": "media/deepseek-dark.svg"
+        }
+      },
+      {
+        "command": "dsh.changes.focus",
+        "title": "%dsh.cmd.changes.focus%",
+        "category": "%dsh.cmd.category%"
       }
     ],
     "keybindings": [
@@ -223,6 +263,28 @@
           "command": "dsh.newInstance",
           "when": "config.dsh.multiInstance.entry && view == dsh.webview",
           "group": "navigation@10"
+        },
+        {
+          "command": "dsh.changes.refresh",
+          "when": "view == dsh.changes",
+          "group": "navigation@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "dsh.changes.openDiff",
+          "when": "view == dsh.changes && viewItem == dsh.changes.entry",
+          "group": "inline@1"
+        },
+        {
+          "command": "dsh.changes.accept",
+          "when": "view == dsh.changes && viewItem == dsh.changes.entry",
+          "group": "inline@2"
+        },
+        {
+          "command": "dsh.changes.undo",
+          "when": "view == dsh.changes && viewItem == dsh.changes.entry",
+          "group": "inline@3"
         }
       ],
       "editor/title": [
@@ -366,6 +428,11 @@
           "type": "boolean",
           "default": true,
           "description": "%dsh.cfg.features.theme-follow%"
+        },
+        "dsh.features.changes-review": {
+          "type": "boolean",
+          "default": false,
+          "description": "%dsh.cfg.features.changes-review%"
         },
         "dsh.keybindings.ctrlL": {
           "type": "boolean",

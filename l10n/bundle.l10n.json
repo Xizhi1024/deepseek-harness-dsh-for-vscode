@@ -156,5 +156,8 @@
   "Orphan sweep: terminated {count} DSH process(es) from dead VS Code windows ({pids})": "Orphan sweep: terminated {count} DSH process(es) from dead VS Code windows ({pids})",
   "DSH compat: {compat}": "DSH compat: {compat}",
   "Connect the DSH sidebar before opening extra instances.": "Connect the DSH sidebar before opening extra instances.",
-  "New DSH instance failed: {message}": "New DSH instance failed: {message}"
+  "New DSH instance failed: {message}": "New DSH instance failed: {message}",
+  "Untitled session": "Untitled session",
+  "Open Diff": "Open Diff",
+  "Change diff failed: {message}": "Change diff failed: {message}"
 }

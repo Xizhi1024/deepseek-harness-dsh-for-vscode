@@ -16,9 +16,10 @@ test('published sidebar and Webview IDs remain stable across manifest and runtim
   assert.ok(Object.hasOwn(manifest.contributes.views, CONTAINER_ID));
   assert.deepStrictEqual(
     manifest.contributes.views[CONTAINER_ID].map((entry) => entry.id),
-    [VIEW_ID]
+    [VIEW_ID, 'dsh.changes']
   );
   assert.ok(manifest.activationEvents.includes(`onView:${VIEW_ID}`));
+  assert.ok(manifest.activationEvents.includes('onView:dsh.changes'));
   assert.ok(manifest.activationEvents.includes('onCommand:dsh.addFileToThread'));
 });
 
@@ -34,6 +35,23 @@ test('editor title exposes one persistent icon and DSH view title exposes only t
     command: 'dsh.newInstance',
     when: 'config.dsh.multiInstance.entry && view == dsh.webview',
     group: 'navigation@10'
+  }, {
+    command: 'dsh.changes.refresh',
+    when: 'view == dsh.changes',
+    group: 'navigation@1'
+  }]);
+  assert.deepStrictEqual(menus['view/item/context'], [{
+    command: 'dsh.changes.openDiff',
+    when: 'view == dsh.changes && viewItem == dsh.changes.entry',
+    group: 'inline@1'
+  }, {
+    command: 'dsh.changes.accept',
+    when: 'view == dsh.changes && viewItem == dsh.changes.entry',
+    group: 'inline@2'
+  }, {
+    command: 'dsh.changes.undo',
+    when: 'view == dsh.changes && viewItem == dsh.changes.entry',
+    group: 'inline@3'
   }]);
   assert.deepStrictEqual(menus['editor/context'], [{
     command: 'dsh.addFileToThread',
@@ -110,6 +128,11 @@ test('extension-host smoke expectations cover every contributed command id', () 
     'dsh.addProblems',
     'dsh.addSelectionToThread',
     'dsh.capabilities',
+    'dsh.changes.accept',
+    'dsh.changes.focus',
+    'dsh.changes.openDiff',
+    'dsh.changes.refresh',
+    'dsh.changes.undo',
     'dsh.cleanupOrphans',
     'dsh.diagnose',
     'dsh.focusSidebar',

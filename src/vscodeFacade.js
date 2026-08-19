@@ -19,6 +19,7 @@ function createVscodeFacade(api) {
     l10n: api.l10n,
     Position: api.Position,
     Range: api.Range,
+    TreeItem: api.TreeItem,
     WorkspaceEdit: api.WorkspaceEdit,
     StatusBarAlignment: api.StatusBarAlignment,
     ConfigurationTarget: api.ConfigurationTarget,

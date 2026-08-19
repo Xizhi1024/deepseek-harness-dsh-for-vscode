@@ -156,5 +156,8 @@
   "Orphan sweep: terminated {count} DSH process(es) from dead VS Code windows ({pids})": "孤儿清扫：已终止 {count} 个来自已退出 VS Code 窗口的 DSH 进程（{pids}）",
   "DSH compat: {compat}": "DSH 兼容性：{compat}",
   "Connect the DSH sidebar before opening extra instances.": "请先连接 DSH 侧栏，再打开附加实例。",
-  "New DSH instance failed: {message}": "新建 DSH 实例失败：{message}"
+  "New DSH instance failed: {message}": "新建 DSH 实例失败：{message}",
+  "Untitled session": "未命名会话",
+  "Open Diff": "打开差异",
+  "Change diff failed: {message}": "打开变更差异失败：{message}"
 }

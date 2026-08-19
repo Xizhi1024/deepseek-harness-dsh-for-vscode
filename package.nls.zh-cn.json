@@ -26,6 +26,7 @@
   "dsh.cfg.bridge.ui": "允许 DSH 经桥展示 VS Code 用户可见界面（窗口消息、进度通知、状态栏、输出通道、confirm/ask 询问）。默认关闭。",
   "dsh.view.title": "DeepSeek Harness (DSH)",
   "dsh.view.name": "DeepSeek Harness (DSH)",
+  "dsh.view.changes": "DSH 变更",
   "dsh.cap.untrusted": "会启动本地进程并操作工作区文件。",
   "dsh.cap.virtual": "需要 dsh CLI 与真实文件系统。",
   "dsh.cmd.category": "DeepSeek Harness",
@@ -45,5 +46,11 @@
   "dsh.cmd.diagnose": "诊断",
   "dsh.cmd.cleanupOrphans": "清理孤儿 DSH 服务",
   "dsh.cmd.restartClean": "干净重启 DSH 服务",
-  "dsh.cmd.onboarding": "设置 DSH"
+  "dsh.cmd.onboarding": "设置 DSH",
+  "dsh.cmd.changes.openDiff": "打开差异",
+  "dsh.cmd.changes.accept": "接受变更",
+  "dsh.cmd.changes.undo": "撤销变更",
+  "dsh.cmd.changes.refresh": "刷新变更",
+  "dsh.cmd.changes.focus": "聚焦 DSH 变更",
+  "dsh.cfg.features.changes-review": "审查 DSH 提议的工作区编辑：审批弹窗、dsh.changes 树视图与 vscode/changes/push 桥接处理器。默认关闭。"
 }
