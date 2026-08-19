@@ -204,7 +204,7 @@ at-file（附件同时生成 @file 提及，C）；session-checkpoint-policy（R
 | A | 0.7.0 | **R25** ✅ `d9808e81`（审计 2 轮）+ **R1** ✅ `121b0075`（审计 PASS+微修：拒绝点号 profile 名）+ **R2** ✅ `a99c6851`（审计 2 轮：l10n 键同步/POSIX 收敛/去重）+ **R5** ✅ `fc717782`（审计 PASS：startupErrors 13+1 码集中，裸拼接清零）+ **R23 spike** ✅ PASS（§5 结论已回写） | +contracts+l10n | —（未动 harness） |
 | B | 0.7.0 | **R5 干净重启 ✅** `cbb0046`（审计 PASS：D1 禁用发现式 overlay + --patch 自愈恰一次 + 补齐计划 §3 早期退出自愈行）+ **R12 主题 ✅ 扩展侧** `636f79a2`（审计 PASS：dsh_theme + postMessage 实时切 + theme-follow L1）+ **R12 DSH 侧 ✅ 审计 PASS** `19718ea8`（本地分支 feature/r12-boot-theme，待用户修 WIP 后补 replay test:web 再 push） | 同上 | boot-theme：test:gui ✅ + replay test:web ⏳（受阻于用户 WIP profile-boot.ts:229） |
 | C | 0.7.1 | **全部完成**：R10 ✅ `0a2b9f2`（有界 folder 附件）· watchdog 四件套+owner 树杀+OutputChannel ✅ `451b546`（审计 PASS，偏离③保守等价裁决）· onboarding+zh README 同步 ✅ `d5a559b` · R15 copy 回落+paste 读桥 ✅ `3030a7c4`（paste 的 v3a 反馈 defer D）· Ctrl+L（when=config 默认关）✅ `3030a7c4` · dshCompat ✅ `3030a7c4`（Diagnose 消费；spawn 行为不变） | 同上 | 集成包 node:test ✅ 16 用例（watchdog 矩阵） |
-| C2 | 0.7.2 | R16 多开（双击/图标入口） | +多实例生命周期测试 | — |
+| C2 | 0.7.2 | **R16 多开 ✅** `16d7c0a`（线性合并——feature tip==master tip 时 --no-ff 不可用，协议偏离已记录；dsh.newInstance 命令 + view/title 受控入口（config 门默认关）+ stopOnClose + 独立 DSH child + 焦点路由；4 生命周期测试；偏离：onboarding 不加多开步、面板会话导航 defer） | 多实例生命周期测试 ✅（multiInstance.test.js 4 用例） | — |
 | D | 0.8.0 | R6 v3a（运行>调试>测试>远程 smoke）+ v3a 上下文/UI 扩充（editor 门控读取、progress/statusbar/output/confirm）+ R22 MCP 消费 + DSH tools + R14S1（changes/push）+ Ctrl+K（D8✅ 不绑默认）+ MCP serve + 市场 deep-link +（spike 过）R23 实现 | +审批门测试+WSL/SSH smoke | tools.js 测试；上收则 REAL+快照+Note |
 | E | 0.9 | R14S2（D5）+ Ctrl+I + R20 + T2 + R24 + R18 POC（D13）+ R23（未提前时） | — | harness 全门禁 + FIM 日志政策（D10） |
 
