@@ -23,6 +23,7 @@
   "dsh.cfg.multiInstance.entry": "Show the new-instance entry in the DSH sidebar title bar. Off by default.",
   "dsh.cfg.bridge.terminal": "Let DSH use VS Code terminals through the bridge (create/send/read, max 8). Off by default.",
   "dsh.cfg.bridge.editorRead": "Let DSH read the active editor's unsaved buffer through the bridge (editor/read). Off by default.",
+  "dsh.cfg.bridge.ui": "Let DSH show user-visible VS Code surfaces through the bridge (window messages, progress notifications, status bar, output channel, confirm/ask prompts). Off by default.",
   "dsh.view.title": "DeepSeek Harness (DSH)",
   "dsh.view.name": "DeepSeek Harness (DSH)",
   "dsh.cap.untrusted": "Launches a local process and touches workspace files.",

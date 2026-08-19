@@ -184,6 +184,7 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 | `dsh.multiInstance.entry` | false | 在 DSH 侧栏标题栏显示「新建实例」入口（默认关闭） |
 | `dsh.bridge.terminal` | false | 允许 DSH 经运行时桥使用 VS Code 终端（create/send/read，上限 8 个） |
 | `dsh.bridge.editorRead` | false | 允许 DSH 经桥读取活动编辑器的未保存缓冲 |
+| `dsh.bridge.ui` | false | 允许 DSH 经桥展示 VS Code 用户可见界面（窗口消息、进度通知、状态栏、输出通道、confirm/ask 询问） |
 
 `dsh.closePolicy` 取值：
 

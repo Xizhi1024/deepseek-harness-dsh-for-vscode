@@ -386,6 +386,11 @@
           "type": "boolean",
           "default": false,
           "description": "%dsh.cfg.bridge.editorRead%"
+        },
+        "dsh.bridge.ui": {
+          "type": "boolean",
+          "default": false,
+          "description": "%dsh.cfg.bridge.ui%"
         }
       }
     }

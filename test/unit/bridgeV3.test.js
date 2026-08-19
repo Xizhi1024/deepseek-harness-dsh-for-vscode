@@ -80,12 +80,25 @@ test('protocol v3 freezes the full v3a method table and versions', () => {
   assert.ok(!METHODS_V3.includes('vscode/extensions/callExport'), 'T2 callExport stays E-batch');
 });
 
-test('consent gates keep terminal and editor/read unmounted by default', () => {
+test('consent gates keep terminal, editor/read and UI surfaces unmounted by default', () => {
   const fake = fakeVscode();
   const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags() });
   assert.strictEqual(handlers['vscode/terminal/create'], undefined);
   assert.strictEqual(handlers['vscode/editor/read'], undefined);
+  assert.strictEqual(handlers['vscode/window/showMessage'], undefined, 'showMessage requires bridge.ui');
+  assert.strictEqual(handlers['vscode/progress/start'], undefined, 'progress requires bridge.ui');
+  assert.strictEqual(handlers['vscode/statusbar/update'], undefined, 'statusbar requires bridge.ui');
+  assert.strictEqual(handlers['vscode/output/append'], undefined, 'output requires bridge.ui');
+  assert.strictEqual(handlers['vscode/confirm/ask'], undefined, 'confirm requires bridge.ui');
   assert.ok(typeof handlers['vscode/editor/getState'] === 'function', 'metadata state stays ungated');
+});
+
+test('dsh.bridge.ui mounts the five user-visible handlers when enabled', () => {
+  const fake = fakeVscode();
+  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'bridge.ui': true }) });
+  for (const method of ['vscode/window/showMessage', 'vscode/progress/start', 'vscode/statusbar/update', 'vscode/output/append', 'vscode/confirm/ask']) {
+    assert.ok(typeof handlers[method] === 'function', method + ' mounts with bridge.ui');
+  }
 });
 
 test('terminal bridge caps terminals and trims the ring buffer', async () => {
@@ -121,7 +134,7 @@ test('tasks list filters to workspace-declared tasks and run executes exactly th
 
 test('findFiles caps results and showMessage routes levels', async () => {
   const fake = fakeVscode();
-  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags() });
+  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'bridge.ui': true }) });
   const found = await handlers['vscode/workspace/findFiles']({ include: '**' });
   assert.strictEqual(found.files.length, MAX_FIND_FILES);
   assert.strictEqual(found.capped, true);
@@ -156,7 +169,7 @@ test('editor state is metadata-only and gated read returns buffer text', async (
 
 test('progress bridge caps concurrency and confirm fails closed', async () => {
   const fake = fakeVscode();
-  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags() });
+  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'bridge.ui': true }) });
   const first = await handlers['vscode/progress/start']({ title: 'one' });
   const second = await handlers['vscode/progress/start']({ title: 'two' });
   await assert.rejects(handlers['vscode/progress/start']({ title: 'three' }), /at most/);

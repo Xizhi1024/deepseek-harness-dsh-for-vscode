@@ -4,9 +4,10 @@
  * v3a runtime bridge handlers (plan R6, D3 verdict).
  *
  * Every handler is a function (params, { signal }) -> result and throws errors
- * carrying a bridgeCode. Consent-gated surfaces (terminal, editor read) are
- * only mounted when their dsh.bridge.* setting is enabled; unmounted methods
- * never reach the initialize advertisement, so DSH registers no tool for them.
+ * carrying a bridgeCode. Consent-gated surfaces (terminal, editor read, and
+ * the user-visible UI surfaces) are only mounted when their dsh.bridge.*
+ * setting is enabled; unmounted methods never reach the initialize
+ * advertisement, so DSH registers no tool for them.
  *
  * Deliberately NOT mounted yet (frozen in METHODS_V3, later D slices):
  * vscode/changes/push (R14S1), vscode/mcp/* (R22).
@@ -195,15 +196,19 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {} }) {
     const uris = await vscode.workspace.findFiles(include, exclude, maxResults);
     return { files: (Array.isArray(uris) ? uris : []).map((uri) => String(uri)).slice(0, maxResults), capped: uris.length >= maxResults };
   };
-  handlers['vscode/window/showMessage'] = async (params) => {
-    if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'showMessage params must be an object');
-    const message = requireString(params.message, 'message');
-    const level = params.level === 'warning' || params.level === 'error' ? params.level : 'info';
-    if (level === 'error') await vscode.window.showErrorMessage(message);
-    else if (level === 'warning') await vscode.window.showWarningMessage(message);
-    else await vscode.window.showInformationMessage(message);
-    return {};
-  };
+
+  // ---- user-visible surfaces (consent-gated: dsh.bridge.ui) -----------------
+  if (getFlag('bridge.ui')) {
+    handlers['vscode/window/showMessage'] = async (params) => {
+      if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'showMessage params must be an object');
+      const message = requireString(params.message, 'message');
+      const level = params.level === 'warning' || params.level === 'error' ? params.level : 'info';
+      if (level === 'error') await vscode.window.showErrorMessage(message);
+      else if (level === 'warning') await vscode.window.showWarningMessage(message);
+      else await vscode.window.showInformationMessage(message);
+      return {};
+    };
+  }
 
   // ---- extensions (declared surface, no callExport in v3a) ------------------
   handlers['vscode/extensions/list'] = async () => {
@@ -292,8 +297,8 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {} }) {
     };
   }
 
-  // ---- progress (≤2 concurrent, 120s auto-end) ------------------------------
-  if (typeof vscode.window.withProgress === 'function') {
+  // ---- progress (≤2 concurrent, 120s auto-end; gated by dsh.bridge.ui) ------
+  if (getFlag('bridge.ui') && typeof vscode.window.withProgress === 'function') {
     const progressHandles = new Map();
     let progressSeq = 0;
     const autoEnd = (id) => {
@@ -339,8 +344,8 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {} }) {
     };
   }
 
-  // ---- statusbar (one dedicated item, $(dsh) prefixed) ---------------------
-  if (typeof vscode.window.createStatusBarItem === 'function' && vscode.StatusBarAlignment) {
+  // ---- statusbar (one dedicated item, $(dsh) prefixed; gated) ---------------
+  if (getFlag('bridge.ui') && typeof vscode.window.createStatusBarItem === 'function' && vscode.StatusBarAlignment) {
     let bridgeItem = null;
     handlers['vscode/statusbar/update'] = async (params) => {
       if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'statusbar/update params must be an object');
@@ -354,42 +359,44 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {} }) {
     };
   }
 
-  // ---- output (same DSH channel as the degradation chain) -------------------
-  handlers['vscode/output/append'] = async (params) => {
-    if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'output/append params must be an object');
-    const line = typeof params.line === 'string' ? params.line : '';
-    appendOutputLine(line);
-    return {};
-  };
+  // ---- output (same DSH channel as the degradation chain; gated) ------------
+  if (getFlag('bridge.ui')) {
+    handlers['vscode/output/append'] = async (params) => {
+      if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'output/append params must be an object');
+      const line = typeof params.line === 'string' ? params.line : '';
+      appendOutputLine(line);
+      return {};
+    };
 
-  // ---- confirm (fail-closed: timeout = deny) --------------------------------
-  const withTimeout = (promise, ms) => Promise.race([
-    promise,
-    new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(undefined), ms);
-      if (timer.unref) timer.unref();
-    }),
-  ]);
-  handlers['vscode/confirm/ask'] = async (params) => {
-    if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'confirm/ask params must be an object');
-    const kind = params.kind === 'input' || params.kind === 'warning' ? params.kind : 'pick';
-    const prompt = requireString(params.prompt, 'prompt');
-    let answer;
-    if (kind === 'input') {
-      answer = await withTimeout(vscode.window.showInputBox({ prompt }), CONFIRM_TIMEOUT_MS);
-    } else if (kind === 'warning') {
-      const choice = await withTimeout(vscode.window.showWarningMessage(prompt, { modal: false }, 'Confirm'), CONFIRM_TIMEOUT_MS);
-      answer = choice === 'Confirm' ? 'confirmed' : undefined;
-    } else {
-      const items = Array.isArray(params.items) ? params.items.filter((item) => typeof item === 'string').slice(0, 8) : [];
-      const choice = await withTimeout(vscode.window.showQuickPick(items.length > 0 ? items : ['OK']), CONFIRM_TIMEOUT_MS);
-      answer = typeof choice === 'string' ? choice : undefined;
-    }
-    if (answer === undefined) {
-      return { approved: false, value: null, reason: 'timeout-or-dismissed' };
-    }
-    return { approved: true, value: answer };
-  };
+    // ---- confirm (fail-closed: timeout = deny) ------------------------------
+    const withTimeout = (promise, ms) => Promise.race([
+      promise,
+      new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(undefined), ms);
+        if (timer.unref) timer.unref();
+      }),
+    ]);
+    handlers['vscode/confirm/ask'] = async (params) => {
+      if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'confirm/ask params must be an object');
+      const kind = params.kind === 'input' || params.kind === 'warning' ? params.kind : 'pick';
+      const prompt = requireString(params.prompt, 'prompt');
+      let answer;
+      if (kind === 'input') {
+        answer = await withTimeout(vscode.window.showInputBox({ prompt }), CONFIRM_TIMEOUT_MS);
+      } else if (kind === 'warning') {
+        const choice = await withTimeout(vscode.window.showWarningMessage(prompt, { modal: false }, 'Confirm'), CONFIRM_TIMEOUT_MS);
+        answer = choice === 'Confirm' ? 'confirmed' : undefined;
+      } else {
+        const items = Array.isArray(params.items) ? params.items.filter((item) => typeof item === 'string').slice(0, 8) : [];
+        const choice = await withTimeout(vscode.window.showQuickPick(items.length > 0 ? items : ['OK']), CONFIRM_TIMEOUT_MS);
+        answer = typeof choice === 'string' ? choice : undefined;
+      }
+      if (answer === undefined) {
+        return { approved: false, value: null, reason: 'timeout-or-dismissed' };
+      }
+      return { approved: true, value: answer };
+    };
+  }
 
   return handlers;
 }

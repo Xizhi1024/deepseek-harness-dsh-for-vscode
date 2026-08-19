@@ -187,6 +187,7 @@ Achieving a Cursor/Claude Code-like experience requires both sides of the bridge
 | `dsh.multiInstance.entry` | false | Show the new-instance entry in the DSH sidebar title bar (off by default) |
 | `dsh.bridge.terminal` | false | Let DSH use VS Code terminals through the runtime bridge (create/send/read, max 8) |
 | `dsh.bridge.editorRead` | false | Let DSH read the active editor's unsaved buffer through the bridge |
+| `dsh.bridge.ui` | false | Let DSH show user-visible VS Code surfaces through the bridge (window messages, progress notifications, status bar, output channel, confirm/ask prompts) |
 
 `dsh.closePolicy` values:
 
