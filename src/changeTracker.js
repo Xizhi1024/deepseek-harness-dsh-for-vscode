@@ -253,9 +253,14 @@ function createChangeTracker({
   now = () => new Date().toISOString(),
   fsOps = {},
 } = {}) {
-  if (!vscode || !vscode.workspace || typeof vscode.workspace.applyEdit !== 'function') {
-    throw new TypeError('createChangeTracker requires vscode.workspace.applyEdit');
+  if (!vscode || !vscode.workspace) {
+    throw new TypeError('createChangeTracker requires vscode.workspace');
   }
+  // Workspace edit APIs (applyEdit / openTextDocument / getWorkspaceFolder)
+  // are validated lazily where they are used: constructing the tracker (an
+  // L0-path support) must not fail a host facade that omits them — journal
+  // recording still works and edit operations degrade with explicit bridge
+  // errors instead of killing the sidebar (plan §1 lifeline).
   const {
     readFileSync = fs.readFileSync,
     writeFileSync = fs.writeFileSync,
@@ -331,6 +336,9 @@ function createChangeTracker({
    * @returns {Promise<{applied: boolean}>} Apply result.
    */
   async function applyEdits(edits) {
+    if (typeof vscode.workspace.applyEdit !== 'function') {
+      throw new ChangeTrackerError('VSCODE_EDIT_UNAVAILABLE', 'This VS Code facade cannot apply workspace edits');
+    }
     const workspaceEdit = buildWorkspaceEdit(edits, vscode);
     const applied = await vscode.workspace.applyEdit(workspaceEdit);
     if (!applied) {
@@ -418,6 +426,9 @@ function createChangeTracker({
         updateStatus(changeId, 'undone');
         return { undone: true, method: 'checkpoint', changeId, ...checkpointResult };
       }
+    }
+    if (typeof vscode.workspace.applyEdit !== 'function') {
+      throw new ChangeTrackerError('VSCODE_EDIT_UNAVAILABLE', 'This VS Code facade cannot apply workspace edits');
     }
     const inverse = buildInverseWorkspaceEdit(entry, vscode);
     const applied = await vscode.workspace.applyEdit(inverse);

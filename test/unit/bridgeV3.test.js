@@ -285,7 +285,7 @@ test('changes/push rejects edits outside the workspace', async () => {
   );
 });
 
-test('mcp/* handlers are gated by features.mcp-consume and require a manager', async () => {
+test('mcp/* handlers are gated by features.mcp-consume; a missing manager degrades to VSCODE_MCP_UNAVAILABLE', async () => {
   const fake = fakeVscode();
   const manager = {
     async listServers() { return { servers: [] }; },
@@ -297,8 +297,18 @@ test('mcp/* handlers are gated by features.mcp-consume and require a manager', a
   assert.strictEqual(off['vscode/mcp/listTools'], undefined);
   assert.strictEqual(off['vscode/mcp/callTool'], undefined);
 
+  // Flag on + degraded manager: methods stay advertised and fail with a
+  // visible bridge error instead of silently disappearing (L0 hardening).
   const noManager = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.mcp-consume': true }) });
-  assert.strictEqual(noManager['vscode/mcp/listServers'], undefined, 'a missing manager keeps mcp methods unadvertised');
+  assert.ok(typeof noManager['vscode/mcp/listServers'] === 'function', 'flag on advertises mcp methods even without a manager');
+  await assert.rejects(
+    noManager['vscode/mcp/listServers'](),
+    (error) => error.bridgeCode === 'VSCODE_MCP_UNAVAILABLE',
+  );
+  await assert.rejects(
+    noManager['vscode/mcp/callTool']({ server: 's1', tool: 't1' }),
+    (error) => error.bridgeCode === 'VSCODE_MCP_UNAVAILABLE',
+  );
 
   const on = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.mcp-consume': true }), mcpManager: manager });
   assert.ok(typeof on['vscode/mcp/listServers'] === 'function');
@@ -306,4 +316,12 @@ test('mcp/* handlers are gated by features.mcp-consume and require a manager', a
   assert.ok(typeof on['vscode/mcp/callTool'] === 'function');
   const tools = await on['vscode/mcp/listTools']({ server: 's1' });
   assert.deepStrictEqual(tools, { server: 's1', tools: [] });
+
+  // Production wiring passes a getter, so a manager assigned after the
+  // handler map was built is still resolved at call time.
+  let resolved = null;
+  const lazy = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.mcp-consume': true }), getMcpManager: () => resolved });
+  resolved = manager;
+  const lazyTools = await lazy['vscode/mcp/listTools']({ server: 's2' });
+  assert.deepStrictEqual(lazyTools, { server: 's2', tools: [] });
 });

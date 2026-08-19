@@ -119,10 +119,10 @@ function initializeReply(message, methods) {
 test('bridgeEnv: missing or invalid env disables the bridge', () => {
   assert.deepStrictEqual(bridgeEnv({}), { ok: false, reason: 'env-missing' });
   assert.deepStrictEqual(bridgeEnv({ DSH_VSCODE_BRIDGE_PORT: '1' }), { ok: false, reason: 'env-missing' });
-  assert.deepStrictEqual(bridgeEnv({ DSH_VSCODE_BRIDGE_TOKEN: 't' }), { ok: false, reason: 'env-missing' });
-  assert.deepStrictEqual(bridgeEnv({ DSH_VSCODE_BRIDGE_PORT: '0', DSH_VSCODE_BRIDGE_TOKEN: 't' }), { ok: false, reason: 'env-missing' });
-  assert.deepStrictEqual(bridgeEnv({ DSH_VSCODE_BRIDGE_HOST: 'example.com', DSH_VSCODE_BRIDGE_PORT: '1', DSH_VSCODE_BRIDGE_TOKEN: 't' }), { ok: false, reason: 'env-invalid-host' });
-  assert.deepStrictEqual(bridgeEnv({ DSH_VSCODE_BRIDGE_PORT: '3080', DSH_VSCODE_BRIDGE_TOKEN: 't' }), {
+  assert.deepStrictEqual(bridgeEnv({ DSH_VSCODE_BRIDGE_TOKEN: 't' }), { ok: false, reason: 'env-missing' }); // allow-secret-scan
+  assert.deepStrictEqual(bridgeEnv({ DSH_VSCODE_BRIDGE_PORT: '0', DSH_VSCODE_BRIDGE_TOKEN: 't' }), { ok: false, reason: 'env-missing' }); // allow-secret-scan
+  assert.deepStrictEqual(bridgeEnv({ DSH_VSCODE_BRIDGE_HOST: 'example.com', DSH_VSCODE_BRIDGE_PORT: '1', DSH_VSCODE_BRIDGE_TOKEN: 't' }), { ok: false, reason: 'env-invalid-host' }); // allow-secret-scan
+  assert.deepStrictEqual(bridgeEnv({ DSH_VSCODE_BRIDGE_PORT: '3080', DSH_VSCODE_BRIDGE_TOKEN: 't' }), { // allow-secret-scan
     ok: true,
     host: '127.0.0.1',
     port: 3080,
@@ -163,7 +163,7 @@ test('createBridgeTools: initialize negotiates v3 and registers only advertised 
   ));
   const ctx = fakeCtx();
   const bridge = createBridgeTools({
-    env: { DSH_VSCODE_BRIDGE_PORT: String(server.address().port), DSH_VSCODE_BRIDGE_TOKEN: 'secret' },
+    env: { DSH_VSCODE_BRIDGE_PORT: String(server.address().port), DSH_VSCODE_BRIDGE_TOKEN: 'secret' }, // allow-secret-scan
     ctx,
     net,
     backoffMs: [5, 5, 5, 5],
@@ -187,7 +187,7 @@ test('createBridgeTools: request/response round trip and error mapping', async (
   });
   const ctx = fakeCtx();
   const bridge = createBridgeTools({
-    env: { DSH_VSCODE_BRIDGE_PORT: String(server.address().port), DSH_VSCODE_BRIDGE_TOKEN: 'secret' },
+    env: { DSH_VSCODE_BRIDGE_PORT: String(server.address().port), DSH_VSCODE_BRIDGE_TOKEN: 'secret' }, // allow-secret-scan
     ctx,
     net,
     backoffMs: [5, 5, 5, 5],
@@ -214,7 +214,7 @@ test('createBridgeTools: bridge errors surface as {code, message} to the model',
   });
   const ctx = fakeCtx();
   const bridge = createBridgeTools({
-    env: { DSH_VSCODE_BRIDGE_PORT: String(server.address().port), DSH_VSCODE_BRIDGE_TOKEN: 'secret' },
+    env: { DSH_VSCODE_BRIDGE_PORT: String(server.address().port), DSH_VSCODE_BRIDGE_TOKEN: 'secret' }, // allow-secret-scan
     ctx,
     net,
     backoffMs: [5, 5, 5, 5],
@@ -245,7 +245,7 @@ test('createBridgeTools: AbortSignal forwards $/cancelRequest and rejects with V
   });
   const ctx = fakeCtx();
   const bridge = createBridgeTools({
-    env: { DSH_VSCODE_BRIDGE_PORT: String(server.address().port), DSH_VSCODE_BRIDGE_TOKEN: 'secret' },
+    env: { DSH_VSCODE_BRIDGE_PORT: String(server.address().port), DSH_VSCODE_BRIDGE_TOKEN: 'secret' }, // allow-secret-scan
     ctx,
     net,
     backoffMs: [5, 5, 5, 5],
@@ -277,7 +277,7 @@ test('createBridgeTools: reconnect re-initializes and swaps the tool generation'
   });
   const ctx = fakeCtx();
   const bridge = createBridgeTools({
-    env: { DSH_VSCODE_BRIDGE_PORT: String(server.address().port), DSH_VSCODE_BRIDGE_TOKEN: 'secret' },
+    env: { DSH_VSCODE_BRIDGE_PORT: String(server.address().port), DSH_VSCODE_BRIDGE_TOKEN: 'secret' }, // allow-secret-scan
     ctx,
     net,
     backoffMs: [5, 5, 5, 5],

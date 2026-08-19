@@ -1321,14 +1321,27 @@ async function setupCoreSidebar({ context, services }) {
     vscode,
     loc,
   });
-  mcpManager = injectedDependencies.mcpManager || createMcpManager({
-    vscode,
-    env: process.env,
-    getSources: () => readMcpSources(vscode),
-    consentGate: mcpConsentGate,
-    spawn,
-    logger: (line) => appendDiagnostic(line),
-  });
+  // L0 lifeline hardening (plan §1 component isolation): the MCP aggregator
+  // is an L2 support; a facade that cannot host it (e.g. no showInputBox)
+  // must degrade to null instead of killing the sidebar. v3 mcp/* handlers
+  // resolve the manager lazily and report VSCODE_MCP_UNAVAILABLE when null.
+  mcpManager = null;
+  if (injectedDependencies.mcpManager) {
+    mcpManager = injectedDependencies.mcpManager;
+  } else {
+    try {
+      mcpManager = createMcpManager({
+        vscode,
+        env: process.env,
+        getSources: () => readMcpSources(vscode),
+        consentGate: mcpConsentGate,
+        spawn,
+        logger: (line) => appendDiagnostic(line),
+      });
+    } catch (error) {
+      appendDiagnostic(`mcp-consume support degraded: ${error && error.message ? error.message : String(error)}`);
+    }
+  }
   services.mcpManager = mcpManager;
   services.mcpConsentGate = mcpConsentGate;
   const extensionBridgeHandlers = injectedDependencies.extensionBridgeHandlers === undefined
@@ -1342,7 +1355,7 @@ async function setupCoreSidebar({ context, services }) {
       getFlag: (key) => vscode.workspace.getConfiguration("dsh").get(key, false),
       appendOutputLine: appendDiagnostic,
       changeTracker,
-      mcpManager,
+      getMcpManager: () => mcpManager,
     })
     : injectedDependencies.v3Handlers;
   versionedBridge = await versionedBridgeStarter({

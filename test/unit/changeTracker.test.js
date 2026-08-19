@@ -257,3 +257,28 @@ test('applyEdits surfaces VS Code rejection as VSCODE_EDIT_REJECTED', async () =
     (error) => error.bridgeCode === 'VSCODE_EDIT_REJECTED',
   );
 });
+test('construction tolerates a facade without applyEdit; applyEdits/undo degrade to VSCODE_EDIT_UNAVAILABLE', async () => {
+  const base = fakeVscode();
+  const vscode = {
+    Uri: base.Uri,
+    Position: base.Position,
+    Range: base.Range,
+    WorkspaceEdit: base.WorkspaceEdit,
+    workspace: {
+      workspaceFolders: base.workspace.workspaceFolders,
+      getWorkspaceFolder: base.workspace.getWorkspaceFolder,
+      openTextDocument: base.workspace.openTextDocument,
+    },
+  };
+  const tracker = createChangeTracker({ vscode });
+  const normalized = validateWireEdits([edits.insert], vscode);
+  await assert.rejects(
+    tracker.applyEdits(normalized),
+    (error) => error.bridgeCode === 'VSCODE_EDIT_UNAVAILABLE',
+  );
+  const entry = await tracker.record({ edits: normalized.map((edit) => ({ ...edit, uri: String(edit.uri) })) });
+  await assert.rejects(
+    tracker.undo(entry.id),
+    (error) => error.bridgeCode === 'VSCODE_EDIT_UNAVAILABLE',
+  );
+});

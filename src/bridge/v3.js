@@ -54,15 +54,19 @@ function requireString(value, field) {
  * @param {object} deps.vscode - VS Code facade (window/workspace/tasks/debug/extensions/commands).
  * @param {Function} deps.getFlag - (key) => boolean setting lookup for consent gates.
  * @param {Function} [deps.appendOutputLine] - DSH OutputChannel sink (best-effort).
+ * @param {Function} [deps.getMcpManager] - lazy () => MCP manager resolver (L0 construction may degrade to null).
  * @returns {object} method name -> handler.
  */
-function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, changeTracker = null, mcpManager = null }) {
+function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, changeTracker = null, mcpManager = null, getMcpManager = null }) {
   if (!vscode || !vscode.window || !vscode.workspace) {
     throw new TypeError('createV3Handlers requires a vscode facade');
   }
   if (typeof getFlag !== 'function') {
     throw new TypeError('createV3Handlers requires a getFlag(key) setting reader');
   }
+  // The MCP manager is an L2 support constructed on the L0 path; resolve it
+  // lazily so a degraded construction (null) never breaks the L0 lifeline.
+  const resolveMcpManager = typeof getMcpManager === 'function' ? getMcpManager : () => mcpManager;
   const handlers = {};
 
   // ---- terminal (consent-gated: dsh.bridge.terminal) -----------------------
@@ -459,19 +463,27 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
   }
 
   // ---- mcp/* (L2 gate: dsh.features.mcp-consume) -----------------------------
-  // The manager is created in L0 (no side effects) and wired by the L2 setup;
-  // when the manager is absent these methods stay unadvertised.
-  if (getFlag('features.mcp-consume') && mcpManager) {
-    handlers['vscode/mcp/listServers'] = async () => mcpManager.listServers();
+  // The manager is created in L0 and resolved lazily: when its construction
+  // degraded to null the methods stay advertised (feature on) and fail with
+  // a visible VSCODE_MCP_UNAVAILABLE error instead of silently vanishing.
+  if (getFlag('features.mcp-consume')) {
+    const requireMcpManager = () => {
+      const manager = resolveMcpManager();
+      if (!manager) {
+        throw v3Error('VSCODE_MCP_UNAVAILABLE', 'The MCP consume support is unavailable (manager construction failed on this host)');
+      }
+      return manager;
+    };
+    handlers['vscode/mcp/listServers'] = async () => requireMcpManager().listServers();
     handlers['vscode/mcp/listTools'] = async (params) => {
       if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'mcp/listTools params must be an object');
-      return mcpManager.listTools(requireString(params.server, 'server'));
+      return requireMcpManager().listTools(requireString(params.server, 'server'));
     };
     handlers['vscode/mcp/callTool'] = async (params) => {
       if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'mcp/callTool params must be an object');
       const server = requireString(params.server, 'server');
       const tool = requireString(params.tool, 'tool');
-      return mcpManager.callTool(server, tool, params.arguments);
+      return requireMcpManager().callTool(server, tool, params.arguments);
     };
   }
 
