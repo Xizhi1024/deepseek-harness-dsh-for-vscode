@@ -10,8 +10,8 @@ const {
   V2_NOTIFICATION_SCHEMA,
 } = require('../../src/protocol/ch1');
 
-test('CH1 protocol exposes frozen versions 1 and 2', () => {
-  assert.deepStrictEqual(PROTOCOL_VERSIONS, [1, 2]);
+test('CH1 protocol exposes frozen versions 1, 2 and 3', () => {
+  assert.deepStrictEqual(PROTOCOL_VERSIONS, [1, 2, 3]);
   assert.ok(Object.isFrozen(PROTOCOL_VERSIONS));
 });
 

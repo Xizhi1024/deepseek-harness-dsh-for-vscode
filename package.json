@@ -376,6 +376,16 @@
           "type": "boolean",
           "default": false,
           "description": "%dsh.cfg.multiInstance.entry%"
+        },
+        "dsh.bridge.terminal": {
+          "type": "boolean",
+          "default": false,
+          "description": "%dsh.cfg.bridge.terminal%"
+        },
+        "dsh.bridge.editorRead": {
+          "type": "boolean",
+          "default": false,
+          "description": "%dsh.cfg.bridge.editorRead%"
         }
       }
     }
