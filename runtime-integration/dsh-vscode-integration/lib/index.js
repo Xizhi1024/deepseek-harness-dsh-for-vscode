@@ -1,7 +1,12 @@
 import { readFileSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import net from 'node:net';
 
-const inject = ['apiProxy'];
+import { createBridgeTools } from './tools.js';
+
+const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+
+const inject = ['apiProxy', 'tools'];
 const name = 'dsh-vscode-integration';
 
 // ---------------------------------------------------------------------------
@@ -343,6 +348,23 @@ function apply(ctx) {
       monitor.stop();
     };
   }, 'dsh-vscode-integration: host.openPath bridge + C1 watchdog');
+
+  ctx.effect(() => {
+    const defineTool = ctx.tools && typeof ctx.tools.defineTool === 'function'
+      ? ctx.tools.defineTool.bind(ctx.tools)
+      : null;
+    const bridge = createBridgeTools({
+      env: process.env,
+      ctx,
+      defineTool,
+      net,
+      version: packageJson.version,
+    });
+    const started = bridge.start();
+    return () => {
+      if (started && typeof started.stop === 'function') started.stop();
+    };
+  }, 'dsh-vscode-integration: vscode bridge tools');
 }
 
 export {

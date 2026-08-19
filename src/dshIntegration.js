@@ -9,6 +9,7 @@ const INTEGRATION_FILES = Object.freeze([
   'package.json',
   'lib/index.js',
   'lib/client.js',
+  'lib/tools.js',
 ]);
 
 function requireAbsolute(value, label) {
