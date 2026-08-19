@@ -1,5 +1,7 @@
 "use strict";
 
+const { createChangeTracker, validateWireEdits, MAX_LABEL_CHARS } = require('../changeTracker');
+
 /**
  * v3a runtime bridge handlers (plan R6, D3 verdict).
  *
@@ -26,6 +28,14 @@ function v3Error(bridgeCode, message) {
   return error;
 }
 
+const withTimeout = (promise, ms) => Promise.race([
+  promise,
+  new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(undefined), ms);
+    if (timer.unref) timer.unref();
+  }),
+]);
+
 function isRecord(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -46,7 +56,7 @@ function requireString(value, field) {
  * @param {Function} [deps.appendOutputLine] - DSH OutputChannel sink (best-effort).
  * @returns {object} method name -> handler.
  */
-function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {} }) {
+function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, changeTracker = null }) {
   if (!vscode || !vscode.window || !vscode.workspace) {
     throw new TypeError('createV3Handlers requires a vscode facade');
   }
@@ -369,13 +379,6 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {} }) {
     };
 
     // ---- confirm (fail-closed: timeout = deny) ------------------------------
-    const withTimeout = (promise, ms) => Promise.race([
-      promise,
-      new Promise((resolve) => {
-        const timer = setTimeout(() => resolve(undefined), ms);
-        if (timer.unref) timer.unref();
-      }),
-    ]);
     handlers['vscode/confirm/ask'] = async (params) => {
       if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'confirm/ask params must be an object');
       const kind = params.kind === 'input' || params.kind === 'warning' ? params.kind : 'pick';
@@ -398,7 +401,71 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {} }) {
     };
   }
 
+  // ---- changes/push (L2 gate: dsh.features.changes-review) -------------------
+  // Not-approved paths return a model-visible result instead of throwing, so
+  // the DSH agent can report the user's decision without a bridge error.
+  if (getFlag('features.changes-review')) {
+    const tracker = changeTracker || createChangeTracker({ storageUri: null, vscode });
+    const sessionApprovals = new Set();
+
+    handlers['vscode/changes/push'] = async (params) => {
+      if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'changes/push params must be an object');
+      if (params.sessionId !== undefined && typeof params.sessionId !== 'string') {
+        throw v3Error('VSCODE_INVALID_PARAMS', 'changes/push sessionId must be a string');
+      }
+      if (params.label !== undefined) {
+        if (typeof params.label !== 'string' || params.label.length > MAX_LABEL_CHARS) {
+          throw v3Error('VSCODE_INVALID_PARAMS', `changes/push label must be a string of at most ${MAX_LABEL_CHARS} characters`);
+        }
+      }
+      if (params.mode !== undefined && params.mode !== 'ask' && params.mode !== 'session') {
+        throw v3Error('VSCODE_INVALID_PARAMS', "changes/push mode must be 'ask' or 'session'");
+      }
+      const sessionId = typeof params.sessionId === 'string' ? params.sessionId : '';
+      const label = typeof params.label === 'string' ? params.label : '';
+      const mode = params.mode === 'session' ? 'session' : 'ask';
+      const edits = validateWireEdits(params.edits, vscode);
+
+      if (mode === 'session' && sessionId.length > 0 && sessionApprovals.has(sessionId)) {
+        const before = await tracker.snapshotBefore(edits);
+        await tracker.applyEdits(edits);
+        const entry = await tracker.record({ sessionId, label, edits: stringifyEdits(edits), before });
+        return { applied: true, approved: true, changeIds: [entry.id] };
+      }
+
+      const files = new Set(edits.map((edit) => String(edit.uri))).size;
+      const detail = `${files} file(s), ${edits.length} edit(s)` + (label.length > 0 ? ` — ${label}` : '');
+      const message = `DSH requests workspace edits (${detail})`;
+      const choice = await withTimeout(
+        vscode.window.showWarningMessage(message, { modal: true }, 'Allow Once', 'Allow Session', 'Reject'),
+        CONFIRM_TIMEOUT_MS,
+      );
+
+      if (choice === 'Allow Session') {
+        if (sessionId.length > 0) sessionApprovals.add(sessionId);
+      } else if (choice !== 'Allow Once') {
+        return {
+          applied: false,
+          approved: false,
+          reason: choice === 'Reject' ? 'user-rejected' : 'timeout-or-dismissed',
+        };
+      }
+
+      const before = await tracker.snapshotBefore(edits);
+      await tracker.applyEdits(edits);
+      const entry = await tracker.record({ sessionId, label, edits: stringifyEdits(edits), before });
+      return { applied: true, approved: true, changeIds: [entry.id] };
+    };
+  }
+
   return handlers;
+}
+
+function stringifyEdits(edits) {
+  return edits.map((edit) => {
+    const clone = { ...edit, uri: String(edit.uri) };
+    return clone;
+  });
 }
 
 module.exports = {
