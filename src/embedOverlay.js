@@ -206,6 +206,7 @@ function writeCleanOverlay(dshHome, profileName = 'web', options = {}) {
 }
 
 module.exports = {
+  CLEAN_OVERLAY_FILENAME,
   EMBED_DISABLED_PLUGIN_IDS,
   EMBED_INTEGRATION_PACKAGE,
   EMBED_INTEGRATION_PLUGIN_ID,
