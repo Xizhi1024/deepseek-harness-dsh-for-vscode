@@ -202,7 +202,7 @@ at-file（附件同时生成 @file 提及，C）；session-checkpoint-policy（R
 |---|---|---|---|---|
 | P0 | 0.6.1 | WIP 落地（check:w0→提交→merge）+ safe.directory ✅ **已完成**（`c27856f` 经 `be91d20` 合入并推送；2026-08-17 复跑 check:w0 绿） | check:w0 + test:extension-host | — |
 | A | 0.7.0 | **R25** ✅ `d9808e81`（审计 2 轮）+ **R1** ✅ `121b0075`（审计 PASS+微修：拒绝点号 profile 名）+ **R2** ✅ `a99c6851`（审计 2 轮：l10n 键同步/POSIX 收敛/去重）+ **R5** ✅ `fc717782`（审计 PASS：startupErrors 13+1 码集中，裸拼接清零）+ **R23 spike** ✅ PASS（§5 结论已回写） | +contracts+l10n | —（未动 harness） |
-| B | 0.7.0 | R5 干净重启 + R12 主题 | 同上 | boot-theme：test:gui + replay test:web |
+| B | 0.7.0 | **R5 干净重启 ✅** `cbb0046`（审计 PASS：D1 禁用发现式 overlay + --patch 自愈恰一次 + 补齐计划 §3 早期退出自愈行）+ **R12 主题 ✅ 扩展侧** `636f79a2`（审计 PASS：dsh_theme + postMessage 实时切 + theme-follow L1）+ **R12 DSH 侧 ✅ 审计 PASS** `19718ea8`（本地分支 feature/r12-boot-theme，待用户修 WIP 后补 replay test:web 再 push） | 同上 | boot-theme：test:gui ✅ + replay test:web ⏳（受阻于用户 WIP profile-boot.ts:229） |
 | C | 0.7.1 | R10 + R15 + Ctrl+L + OutputChannel + watchdog（防误杀四件套）+ 孤儿清扫 + dshCompat + **onboarding（编辑器内提示→向导→告知怎么改）** | 同上 | client.js（VSIX 内）：node:test |
 | C2 | 0.7.2 | R16 多开（双击/图标入口） | +多实例生命周期测试 | — |
 | D | 0.8.0 | R6 v3a（运行>调试>测试>远程 smoke）+ v3a 上下文/UI 扩充（editor 门控读取、progress/statusbar/output/confirm）+ R22 MCP 消费 + DSH tools + R14S1（changes/push）+ Ctrl+K（D8✅ 不绑默认）+ MCP serve + 市场 deep-link +（spike 过）R23 实现 | +审批门测试+WSL/SSH smoke | tools.js 测试；上收则 REAL+快照+Note |
