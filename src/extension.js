@@ -120,7 +120,7 @@ let threadAttachmentCoordinator = null; // owning-window request/ack bridge into
 let injectedDependencies = {}; // activation seams shared with the feature setups (deps stays { context, services })
 let registry = null; // R25 feature registry (created in activateWithDependencies)
 let featureFailures = []; // R25 [{ id, error, at }] folded into dsh.diagnose
-const instancePanels = new Map(); // R16: instanceId -> { panel, manager }
+const instancePanels = new Map(); // R16: instanceId -> { panel, server } (shared child, per-panel session)
 let instanceSeq = 0; // R16: monotonically increasing instance counter
 let lastFocusedInstanceId = null; // R16: most recently focused DSH surface (null = sidebar)
 let interactionHandlers = []; // webview interaction routers registered by L1/L2 features
@@ -155,34 +155,26 @@ function focusedComposerWebview() {
 }
 
 /**
- * R16 (D7): open one extra DSH instance as an editor-area WebviewPanel with
- * its own DSH child process. The window-level bridge token is shared (the live
- * bridgeEnv bag), so bridge features keep working across surfaces. Extra
- * children write their own registry entries (owner identity is window-level).
- *
- * Requires the sidebar's managed runtime: a reused external instance cannot
- * seed additional children, and user-managed mode (dsh.autoStart=false) only
- * ever reuses.
+ * R16 (D7, revised): open one extra DSH surface as an editor-area
+ * WebviewPanel. Architecture: ONE DSH child process per VS Code window serves
+ * every surface (sidebar + panels); each panel gets its own DSH session via
+ * dsh_session, mirroring how the sidebar itself is served. No second process
+ * is spawned and nothing is stopped when a panel closes — closing a panel
+ * releases its session handle only.
  *
  * @param {object} deps
- * @param {Function} deps.createServerManager - injected ServerManager factory.
- * @param {object} deps.spawnEnv - live shared bridge env bag.
+ * @param {object} deps.server - RunningServer handle of the shared child.
+ * @param {Function} [deps.createSessionFn] - injectable session creator (tests).
+ * @param {object} [deps.vscode] - injectable VS Code facade (tests).
  * @returns {Promise<void>}
  */
 async function openInstancePanel({
-  createServerManager,
-  spawnEnv,
   server = currentServer,
-  runtime = (manager && manager.resolvedRuntime) || null,
+  createSessionFn = createSession,
   vscode: facade = vscode,
-}) {
+} = {}) {
   if (server === null) {
     facade.window.showInformationMessage(loc("Connect the DSH sidebar before opening extra instances."));
-    return;
-  }
-  const cfg = hostContext.config();
-  if (runtime === null || !cfg.autoStart) {
-    facade.window.showInformationMessage(loc("Extra instances need the managed auto-start mode (dsh.autoStart)."));
     return;
   }
   const id = ++instanceSeq;
@@ -190,45 +182,36 @@ async function openInstancePanel({
   const panel = facade.window.createWebviewPanel("dsh.instance", title, facade.ViewColumn.Active, {
     enableScripts: true,
   });
-  panel.webview.html = statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail: "", lang: vscode.env.language });
-  const instManager = createServerManager({
-    spawnEnv,
-    embedPatchPath,
-    onStatus: () => { /* instance panels keep their own status in-band */ },
-  });
-  instManager.setResolvedRuntime(runtime);
-  let instanceServer = null;
+  panel.webview.html = statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail: "", lang: facade.env.language });
+  // Session API calls use the raw loopback URL, never the externalized one
+  // (same rule as the sidebar session commands).
+  const baseUrl = server.url;
+  let sessionId = null;
   try {
-    instanceServer = await instManager.ensureServer({
-      host: cfg.host,
-      port: cfg.port,
-      autoStart: true,
-      cwd: hostContext.workspaceCwd(),
-      registryFile: hostContext.registryFilePath(),
-    });
+    sessionId = await createSessionFn(baseUrl, { cwd: boundCwd });
   } catch (error) {
     panel.dispose();
-    await instManager.stop().catch(() => { /* the child never got ready */ });
     throw error;
   }
-  const externalUrl = await externalize(instanceServer.url);
+  const externalUrl = await externalize(server.url);
+  const sessionValue = sessionIdFromValue(sessionId);
   const paint = () => {
     panel.webview.html = framePage({
       url: externalUrl,
-      lang: vscode.env.language,
+      lang: facade.env.language,
       failText: loc("Failed to load: DSH service unreachable"),
       openBrowserLabel: loc("Open in browser"),
       retryLabel: loc("Retry"),
-      sessionId: null,
+      sessionId: sessionValue,
       theme: currentDshTheme,
     });
   };
   paint();
   panel.webview.onDidReceiveMessage(createWebviewMessageHandler({
     openBrowser: () => {
-      const candidate = safeHttpUrl(instanceServer.url);
+      const candidate = safeHttpUrl(server.url);
       if (candidate && candidate !== "about:blank") {
-        vscode.env.openExternal(vscode.Uri.parse(candidate));
+        facade.env.openExternal(vscode.Uri.parse(candidate));
       }
     },
     retry: () => paint(),
@@ -247,13 +230,10 @@ async function openInstancePanel({
   panel.onDidDispose(() => {
     instancePanels.delete(id);
     if (lastFocusedInstanceId === id) lastFocusedInstanceId = null;
-    const stopOnClose = facade.workspace.getConfiguration("dsh").get("multiInstance.stopOnClose", true);
-    if (stopOnClose) {
-      instManager.stop().catch(() => { /* already gone */ });
-      appendDiagnostic("[instance] " + title + " stopped with its panel");
-    }
+    // The shared child keeps serving the sidebar; nothing to stop here.
+    appendDiagnostic("[instance] " + title + " closed (session " + (sessionValue || "none") + " released)");
   });
-  instancePanels.set(id, { panel, manager: instManager });
+  instancePanels.set(id, { panel, server });
   lastFocusedInstanceId = id;
 }
 
@@ -1112,7 +1092,6 @@ async function setupCoreServer({ context, services }) {
   services.bridgeEnv = {};
   const createServerManager = injectedDependencies.createServerManager
     || ((options) => new ServerManager(options));
-  services.createServerManager = createServerManager; // R16: instance panels reuse the injected factory
   manager = createServerManager({
     spawnEnv: services.bridgeEnv, // live shared bag: L0 publishes it, L1/L2 bridge features merge into it
     embedPatchPath,
@@ -1972,7 +1951,7 @@ async function activateWithDependencies(context, dependencies = {}) {
   // DSH child. Registered outside the feature batches like onboarding (no
   // activation-time subscription; panels and their managers are per-instance).
   vscode.commands.registerCommand("dsh.newInstance", () => {
-    openInstancePanel({ createServerManager: services.createServerManager, spawnEnv: services.bridgeEnv }).catch((error) => {
+    openInstancePanel().catch((error) => {
       vscode.window.showErrorMessage(loc("New DSH instance failed: {message}", {
         message: error && error.message ? error.message : String(error),
       }));
@@ -1997,10 +1976,10 @@ async function activate(context) {
 }
 
 async function deactivate() {
-  // R16: extra instance managers are not owned by the feature registry —
-  // stop them alongside the main manager (own-child rule applies per manager).
+  // R16 (shared-server architecture): panels ride the main child; dispose
+  // their webviews only — the registry teardown stops the one shared process.
   for (const inst of instancePanels.values()) {
-    inst.manager?.stop?.().catch(() => { /* teardown best-effort */ });
+    inst.panel?.dispose?.();
   }
   instancePanels.clear();
   // On VS Code exit, stop only an owned process — and honor the close policy:

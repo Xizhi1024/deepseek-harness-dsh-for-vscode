@@ -376,11 +376,6 @@
           "type": "boolean",
           "default": false,
           "description": "%dsh.cfg.multiInstance.entry%"
-        },
-        "dsh.multiInstance.stopOnClose": {
-          "type": "boolean",
-          "default": true,
-          "description": "%dsh.cfg.multiInstance.stopOnClose%"
         }
       }
     }

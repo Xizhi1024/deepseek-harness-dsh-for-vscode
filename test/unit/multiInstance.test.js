@@ -146,91 +146,68 @@ test('dsh.newInstance is registered last and declines politely without a connect
   await deactivate();
 });
 
-test('openInstancePanel creates a panel with its own manager and stops it on close by default', async () => {
-  const fake = createFakeVscode({ autoStart: true });
+test('openInstancePanel shares the one DSH child and gives the panel its own session', async () => {
+  const fake = createFakeVscode();
   const context = { globalStorageUri: { fsPath: path.join(os.tmpdir(), 'dsh-mi-2-' + process.pid) }, subscriptions: [] };
   await activate(fake, context);
 
-  const stops = [];
-  const factoryOptions = [];
-  const fakeManager = {
-    setResolvedRuntime() {},
-    resolvedRuntime: { executablePath: 'C:\\dsh\\bin\\dsh.exe' },
-    async ensureServer() { return { url: 'http://127.0.0.1:3081', host: '127.0.0.1', port: 3081, pid: 4242, owned: true }; },
-    async stop() { stops.push('stop'); },
-    hasOwnedChild() { return true; },
-  };
+  const sharedServer = { url: 'http://127.0.0.1:3080', host: '127.0.0.1', port: 3080, pid: 111, owned: true };
+  const sessionCalls = [];
   await openInstancePanel({
-    createServerManager: (options) => { factoryOptions.push(options); return fakeManager; },
-    spawnEnv: {},
-    server: { url: 'http://127.0.0.1:3080', host: '127.0.0.1', port: 3080, pid: 111, owned: true },
-    runtime: fakeManager.resolvedRuntime,
+    server: sharedServer,
+    createSessionFn: async (baseUrl, opts) => {
+      sessionCalls.push({ baseUrl, opts });
+      return 'sess-42';
+    },
     vscode: fake.api,
   });
 
   assert.strictEqual(fake.panels.length, 1);
   const panel = fake.panels[0];
   assert.strictEqual(panel.title, 'DSH #1');
-  assert.ok(panel.webview.html.includes('127.0.0.1:3081'), 'the panel paints the instance URL');
-  assert.ok(panel.webview.html.includes('dsh_embed'), 'the iframe embed mode is applied');
-  assert.strictEqual(stops.length, 0, 'nothing stops while the panel lives');
-  assert.strictEqual(factoryOptions.length, 1);
-  assert.ok(factoryOptions[0].spawnEnv !== undefined, 'the manager shares the window bridge env');
+  assert.ok(panel.webview.html.includes('127.0.0.1:3080'), 'the panel paints the SHARED server URL');
+  assert.ok(panel.webview.html.includes('dsh_session'), 'the iframe carries the per-panel session');
+  assert.ok(panel.webview.html.includes('sess-42'), 'the created session id reaches the iframe');
+  assert.strictEqual(sessionCalls.length, 1);
+  assert.strictEqual(sessionCalls[0].baseUrl, 'http://127.0.0.1:3080', 'session API uses the raw loopback URL');
 
+  // Focus routing: an active panel wins over the sidebar for attachments.
+  assert.strictEqual(focusedComposerWebview(), panel.webview, 'the focused panel is the composer target');
   panel.dispose();
-  assert.strictEqual(stops.length, 1, 'default stopOnClose stops the instance with the panel');
   assert.strictEqual(focusedComposerWebview(), null, 'a disposed panel never receives attachments');
   await deactivate();
 });
 
-test('stopOnClose=false keeps the server after the panel closes', async () => {
-  const fake = createFakeVscode({ autoStart: true, 'multiInstance.stopOnClose': false });
+test('a failed session creation disposes the panel and surfaces the error', async () => {
+  const fake = createFakeVscode();
   const context = { globalStorageUri: { fsPath: path.join(os.tmpdir(), 'dsh-mi-3-' + process.pid) }, subscriptions: [] };
   await activate(fake, context);
-  const stops = [];
-  const fakeManager = {
-    setResolvedRuntime() {},
-    resolvedRuntime: { executablePath: 'C:\\dsh\\bin\\dsh.exe' },
-    async ensureServer() { return { url: 'http://127.0.0.1:3082', host: '127.0.0.1', port: 3082, pid: 4243, owned: true }; },
-    async stop() { stops.push('stop'); },
-    hasOwnedChild() { return true; },
-  };
-  await openInstancePanel({
-    createServerManager: () => fakeManager,
-    spawnEnv: {},
-    server: { url: 'http://127.0.0.1:3080', host: '127.0.0.1', port: 3080, pid: 111, owned: true },
-    runtime: fakeManager.resolvedRuntime,
-    vscode: fake.api,
-  });
-  fake.panels[0].dispose();
-  assert.strictEqual(stops.length, 0, 'stopOnClose=false keeps the child running');
-  await deactivate();
-});
-
-test('a failed spawn disposes the panel and stops the half-started manager', async () => {
-  const fake = createFakeVscode({ autoStart: true });
-  const context = { globalStorageUri: { fsPath: path.join(os.tmpdir(), 'dsh-mi-4-' + process.pid) }, subscriptions: [] };
-  await activate(fake, context);
-  const stops = [];
-  const fakeManager = {
-    setResolvedRuntime() {},
-    resolvedRuntime: { executablePath: 'C:\\dsh\\bin\\dsh.exe' },
-    async ensureServer() { throw new Error('no free port'); },
-    async stop() { stops.push('stop'); },
-    hasOwnedChild() { return true; },
-  };
+  const sharedServer = { url: 'http://127.0.0.1:3080', host: '127.0.0.1', port: 3080, pid: 111, owned: true };
   await assert.rejects(
     openInstancePanel({
-      createServerManager: () => fakeManager,
-      spawnEnv: {},
-      server: { url: 'http://127.0.0.1:3080', host: '127.0.0.1', port: 3080, pid: 111, owned: true },
-      runtime: fakeManager.resolvedRuntime,
+      server: sharedServer,
+      createSessionFn: async () => { throw new Error('session api down'); },
       vscode: fake.api,
     }),
-    /no free port/,
+    /session api down/,
   );
   assert.strictEqual(fake.panels.length, 1, 'the panel was created optimistically');
   assert.strictEqual(fake.panels[0].active, false, 'and disposed again on failure');
-  assert.strictEqual(stops.length, 1, 'the half-started manager is stopped');
+  await deactivate();
+});
+
+test('deactivate disposes instance panels without touching the shared server', async () => {
+  const fake = createFakeVscode();
+  const context = { globalStorageUri: { fsPath: path.join(os.tmpdir(), 'dsh-mi-4-' + process.pid) }, subscriptions: [] };
+  await activate(fake, context);
+  const sharedServer = { url: 'http://127.0.0.1:3080', host: '127.0.0.1', port: 3080, pid: 111, owned: true };
+  await openInstancePanel({
+    server: sharedServer,
+    createSessionFn: async () => 'sess-1',
+    vscode: fake.api,
+  });
+  const panel = fake.panels[0];
+  await deactivate();
+  assert.strictEqual(panel.active, false, 'deactivate disposes the panel webview');
   await deactivate();
 });
