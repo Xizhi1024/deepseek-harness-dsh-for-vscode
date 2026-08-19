@@ -17,6 +17,7 @@
   "dsh.cfg.features.thread-attachment": "将活动文件/选区/Problems 添加到 DSH 对话（添加对话命令与线程模块）。",
   "dsh.cfg.features.editor-links": "在本 VS Code 窗口打开 DSH Read… 与草稿附件链接（文本文档桥）。",
   "dsh.cfg.features.statusbar-basic": "状态栏基础 DSH 状态指示条。",
+  "dsh.cfg.features.theme-follow": "让内嵌 DSH iframe 跟随 VS Code 当前颜色主题（深色/浅色）。",
   "dsh.view.title": "DeepSeek Harness (DSH)",
   "dsh.view.name": "DeepSeek Harness (DSH)",
   "dsh.cap.untrusted": "会启动本地进程并操作工作区文件。",

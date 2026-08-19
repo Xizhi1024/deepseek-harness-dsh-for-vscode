@@ -6,6 +6,7 @@ const {
   REQUEST_ID,
   VERSIONS,
 } = require("./protocol/webview");
+const { DSH_THEME_CHANGED } = require("./webviewMessages");
 
 /**
  * Escapes a value for safe interpolation into HTML text content or an
@@ -75,15 +76,19 @@ function safeHttpUrl(value) {
  * Adds the DSH compact-layout marker to an iframe URL while preserving any
  * existing query parameters and fragment. When a valid session id is supplied
  * the `dsh_session` query parameter is added as well; invalid session ids are
- * ignored so the iframe simply opens the DSH default session. Invalid or
+ * ignored so the iframe simply opens the DSH default session. When a valid
+ * theme (`dark` or `light`) is supplied the `dsh_theme` query parameter is
+ * added so the DSH web UI can follow the VS Code color theme; any other value
+ * is ignored so older DSH builds keep their existing URL exactly. Invalid or
  * non-http(s) URLs are returned as `about:blank` so the webview's normal
  * fallback UI remains responsible for the failure.
  *
  * @param {string} url - Externalized DSH URL.
  * @param {string} [sessionId] - Optional DSH session id.
+ * @param {string} [theme] - Optional `dark` or `light` theme marker.
  * @returns {string} URL carrying the VS Code embed marker.
  */
-function withVscodeEmbedMode(url, sessionId = undefined) {
+function withVscodeEmbedMode(url, sessionId = undefined, theme = undefined) {
   const safe = safeHttpUrl(url);
   if (safe === "about:blank") return safe;
   try {
@@ -96,6 +101,9 @@ function withVscodeEmbedMode(url, sessionId = undefined) {
       && !sessionId.includes("\0")
     ) {
       parsed.searchParams.set("dsh_session", sessionId);
+    }
+    if (theme === "dark" || theme === "light") {
+      parsed.searchParams.set("dsh_theme", theme);
     }
     return parsed.toString();
   } catch {
@@ -226,6 +234,7 @@ ${WEBVIEW_CSP_META}
  * @param {object} options
  * @param {string} options.url - DSH web URL to embed in the iframe.
  * @param {string} [options.sessionId] - Optional DSH session id for the iframe URL.
+ * @param {string} [options.theme] - Optional `dark` or `light` theme marker for the iframe URL.
  * @param {string} [options.failText] - Fallback heading when the iframe cannot load.
  * @param {string} [options.openBrowserLabel] - Label of the open-in-browser link.
  * @param {string} [options.retryLabel] - Label of the retry button.
@@ -235,12 +244,13 @@ ${WEBVIEW_CSP_META}
 function framePage({
   url,
   sessionId,
+  theme,
   failText = "Failed to load: DSH service unreachable",
   openBrowserLabel = "Open in browser",
   retryLabel = "Retry",
   lang = "en",
 } = {}) {
-  const safeFrameUrl = escapeHtml(withVscodeEmbedMode(url, sessionId));
+  const safeFrameUrl = escapeHtml(withVscodeEmbedMode(url, sessionId, theme));
   const safeBrowserUrl = escapeHtml(safeHttpUrl(url));
   let frameOrigin = 'null';
   try { frameOrigin = new URL(safeHttpUrl(url)).origin; } catch { /* null sentinel */ }
@@ -296,6 +306,7 @@ ${WEBVIEW_CSP_META}
     const CHANNELS = ${channelsScript};
     const VERSIONS = ${versionsScript};
     const MESSAGE_TYPES = ${messageTypesScript};
+    const DSH_THEME_CHANGED = ${safeScriptJson(DSH_THEME_CHANGED)};
     const DSH_ORIGIN = ${safeFrameOriginScript};
     const REQUEST_ID = new RegExp(${requestIdRuleScript});
     const BRIDGE_CHANNEL = CHANNELS.INTERACTION;
@@ -417,6 +428,18 @@ ${WEBVIEW_CSP_META}
       ) {
         pendingThreadAttachments.set(message.requestId, message);
         forwardThreadAttachments();
+      }
+      if (
+        event.source !== frame.contentWindow
+        && message && message.type === DSH_THEME_CHANGED
+        && (message.theme === "dark" || message.theme === "light")
+      ) {
+        if (!frame.contentWindow) return;
+        frame.contentWindow.postMessage({
+          type: DSH_THEME_CHANGED,
+          theme: message.theme,
+        }, DSH_ORIGIN);
+        return;
       }
     });
 

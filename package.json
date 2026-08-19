@@ -315,6 +315,11 @@
           "type": "boolean",
           "default": true,
           "description": "%dsh.cfg.features.statusbar-basic%"
+        },
+        "dsh.features.theme-follow": {
+          "type": "boolean",
+          "default": true,
+          "description": "%dsh.cfg.features.theme-follow%"
         }
       }
     }
