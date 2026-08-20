@@ -232,9 +232,10 @@ window.__ModuleLoader__.load({
         if (isCopyShortcut || isCutShortcut) {
           // Only claim the shortcut while the selection actually lives in this
           // document; otherwise let the host handle its own focused control.
-          const selection = window.getSelection ? window.getSelection() : null;
-          const hasSelection = Boolean(selection && String(selection));
-          if (!hasSelection) return;
+          // currentSelectionText covers rendered-content selections AND
+          // selections inside input/textarea — window.getSelection misses the
+          // latter, and the chat composer is a textarea (the primary case).
+          if (!currentSelectionText()) return;
           event.preventDefault();
           // cut fallback below only copies (no deletion) — acceptable for the
           // chat-input use case; copy is the primary path.

@@ -131,6 +131,20 @@ test('Cmd+C without any selection is not claimed (host keeps its own copy target
   assert.strictEqual(shim.execCalls.length, 0);
 });
 
+test('Cmd+C is claimed when the selection lives inside the focused input (chat composer case)', () => {
+  // window.getSelection() is empty for input selections — the shortcut must
+  // still be claimed through the focused-control selection check.
+  const shim = createShim({ selectionText: '' });
+  const client = loadClient(shim);
+  client.apply({ effect: (fn) => { fn(); return () => {}; } });
+  shim.activeElement.selectionStart = 0;
+  shim.activeElement.selectionEnd = 12;
+  const event = keydown();
+  shim.keyListeners[0](event);
+  assert.strictEqual(event.defaultPrevented, true, 'input selection: shortcut must be claimed');
+  assert.strictEqual(shim.execCalls[0].command, 'copy');
+});
+
 test('plain typing without Cmd/Ctrl never triggers execCommand', () => {
   const shim = createShim();
   const client = loadClient(shim);
