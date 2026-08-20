@@ -62,11 +62,13 @@ function formatSelectionAttachment(attachment, label) {
 }
 
 function formatFileAttachment(attachment, label) {
-  if (!attachment || attachment.kind !== 'active-file' || typeof attachment.content !== 'string') {
-    throw new TypeError('An active-file attachment is required');
+  // 'active-file' (single active editor) and 'file' (explicit multi-pick from
+  // attachFiles) share the same wire shape and link semantics.
+  if (!attachment || (attachment.kind !== 'active-file' && attachment.kind !== 'file') || typeof attachment.content !== 'string') {
+    throw new TypeError('A file attachment is required');
   }
   if (typeof attachment.id !== 'string' || !/^ctx-[1-9][0-9]*$/.test(attachment.id)) {
-    throw new TypeError('A valid active-file attachment id is required');
+    throw new TypeError('A valid file attachment id is required');
   }
   const fileName = attachmentFileName(label, 'file');
   const linkLabel = fileName.replace(/([\\\[\]])/g, '\\$1');

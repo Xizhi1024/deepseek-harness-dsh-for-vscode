@@ -32,6 +32,17 @@ test('selection attachment becomes a compact clickable Markdown reference', () =
   assert.doesNotMatch(text, /const value/);
 });
 
+test('file-kind attachment from attachFiles formats like an active-file link', () => {
+  const text = formatFileAttachment({
+    id: 'ctx-12',
+    kind: 'file',
+    document: { languageId: 'plaintext' },
+    content: 'multi-pick file body',
+  }, 'file:///D:/work/notes.txt');
+  assert.strictEqual(text, '[notes.txt](https://dsh-vscode.invalid/attachment/ctx-12)');
+  assert.doesNotMatch(text, /multi-pick file body/);
+});
+
 test('file attachment becomes a compact clickable Markdown reference without a line range', () => {
   const text = formatFileAttachment({
     id: 'ctx-7',

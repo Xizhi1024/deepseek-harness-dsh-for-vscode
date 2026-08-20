@@ -483,7 +483,7 @@ test('errors expose bridgeCode and public objects are frozen', () => {
   assert.strictEqual(Object.isFrozen(ctx), true);
   assert.strictEqual(Object.isFrozen(ctx.handlers), true);
   assert.strictEqual(Object.isFrozen(ATTACHMENT_KINDS), true);
-  assert.deepStrictEqual(ATTACHMENT_KINDS, ['active-file', 'selection', 'problems', 'folder']);
+  assert.deepStrictEqual(ATTACHMENT_KINDS, ['active-file', 'selection', 'problems', 'folder', 'file']);
   assert.strictEqual(DEFAULT_MAX_ATTACHMENT_BYTES, 1 * 1024 * 1024);
   assert.strictEqual(DEFAULT_MAX_DIAGNOSTIC_ITEMS, 1000);
   assert.strictEqual(DEFAULT_MAX_DIAGNOSTIC_MESSAGE_CHARS, 2000);
