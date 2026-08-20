@@ -52,7 +52,7 @@ function resultMessage(requestId, ok, error = undefined, data = undefined) {
   };
 }
 
-async function handleInteractionRequest({ vscode, webview, message, openAttachment = undefined }) {
+async function handleInteractionRequest({ vscode, webview, message, openAttachment = undefined, onReadError = undefined }) {
   const request = parseInteractionRequest(message);
   if (!request) return false;
   try {
@@ -76,6 +76,12 @@ async function handleInteractionRequest({ vscode, webview, message, openAttachme
     }
     await webview.postMessage(resultMessage(request.requestId, true, undefined, data));
   } catch (error) {
+    // Optional host hook so a failed paste read can surface a UI notice
+    // (gated by dsh.bridge.ui in extension.js) without this pure module
+    // touching vscode.window.
+    if (request.method === 'clipboard/readText' && typeof onReadError === 'function') {
+      try { await onReadError(error); } catch { /* host notice is best-effort */ }
+    }
     await webview.postMessage(resultMessage(
       request.requestId,
       false,

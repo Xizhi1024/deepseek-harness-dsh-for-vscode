@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { activate, activateWithDependencies, deactivate, isRetryableStartupError, FEATURE_CATALOG, callExportJournal } = require('../src/extension');
+const { activate, activateWithDependencies, deactivate, isRetryableStartupError, FEATURE_CATALOG, callExportJournal, readMcpSources } = require('../src/extension');
 const { CONTAINER_ID, VIEW_ID } = require('../src/types');
 
 function disposable() {
@@ -2101,3 +2101,27 @@ test('callExportJournal writes through tmp+rename and swallows rename failure', 
   journal.record({ extensionId: 'pub.a', method: 'run', argsSummary: { type: 'undefined', keys: [], bytes: 0 }, result: { ok: true } });
   assert.ok(fs.existsSync(filePath + '.' + process.pid + '.tmp'), 'tmp write must be attempted before rename');
 });
+test('readMcpSources includes the remoteValue layer between user and workspace', () => {
+  const inspectResult = {
+    key: 'servers',
+    globalValue: { alpha: { command: 'alpha-user' } },
+    remoteValue: { beta: { command: 'beta-remote' } },
+    workspaceValue: { gamma: { command: 'gamma-ws' } },
+  };
+  const fakeVscode = {
+    workspace: {
+      workspaceFolders: [],
+      isTrusted: true,
+      getConfiguration() {
+        return { inspect: () => inspectResult };
+      },
+      fs: {
+        readFile: async () => { throw new Error('no mcp.json in tests'); },
+      },
+    },
+  };
+  const sources = readMcpSources(fakeVscode);
+  assert.deepStrictEqual(sources.map((entry) => entry.source), ['user', 'remote', 'workspace']);
+  assert.ok(sources[1].servers.some((server) => server.name === 'beta'));
+});
+

@@ -6,6 +6,7 @@
   "Retry": "Retry",
   "Failed to load: DSH service unreachable": "Failed to load: DSH service unreachable",
   "DSH: connecting…": "DSH: connecting…",
+  "DSH: clipboard read failed: {message}": "DSH: clipboard read failed: {message}",
   "DSH: unavailable": "DSH: unavailable",
   "DSH: stopped": "DSH: stopped",
   "DeepSeek Harness stopped": "DeepSeek Harness stopped",

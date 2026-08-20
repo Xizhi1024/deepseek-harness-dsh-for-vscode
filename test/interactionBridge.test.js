@@ -62,3 +62,29 @@ test('interaction handler reads the clipboard and returns the payload', async ()
   assert.strictEqual(replies[0].ok, true);
   assert.deepStrictEqual(replies[0].data, { text: 'pasted' });
 });
+test('a failing clipboard read calls the optional onReadError hook before replying', async () => {
+  const replies = [];
+  const readErrors = [];
+  const webview = { postMessage: async (m) => { replies.push(m); } };
+  const vscode = {
+    env: { clipboard: { async readText() { throw new Error('clipboard locked'); } } },
+    commands: { async executeCommand() {} },
+  };
+  const handled = await handleInteractionRequest({
+    vscode,
+    webview,
+    message: {
+      type: 'dshBridge', channel: 'dsh-vscode-interaction', version: 1,
+      requestId: 'request_9',
+      method: 'clipboard/readText',
+      params: {},
+    },
+    onReadError: async (error) => { readErrors.push(String(error.message)); },
+  });
+  assert.strictEqual(handled, true);
+  assert.strictEqual(readErrors.length, 1);
+  assert.match(readErrors[0], /clipboard locked/);
+  assert.strictEqual(replies.length, 1);
+  assert.strictEqual(replies[0].ok, false);
+});
+

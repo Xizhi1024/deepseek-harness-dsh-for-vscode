@@ -6,6 +6,7 @@
   "Retry": "重试",
   "Failed to load: DSH service unreachable": "加载失败：DSH 服务不可达",
   "DSH: connecting…": "DSH：连接中…",
+  "DSH: clipboard read failed: {message}": "DSH：剪贴板读取失败：{message}",
   "DSH: unavailable": "DSH：不可用",
   "DSH: stopped": "DSH：已停止",
   "DeepSeek Harness stopped": "DeepSeek Harness 已停止",

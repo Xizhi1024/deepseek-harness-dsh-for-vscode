@@ -1088,7 +1088,10 @@ function readMcpSources(vscode, fsApi = fs) {
     if (inspected.globalValue !== undefined && inspected.globalValue !== null) {
       sources.push({ source: 'user', servers: normalizeServersValue(inspected.globalValue) });
     }
-    if (inspected.workspaceValue !== undefined && inspected.workspaceValue !== null) {
+    if (inspected.remoteValue !== undefined && inspected.remoteValue !== null) {
+        sources.push({ source: 'remote', servers: normalizeServersValue(inspected.remoteValue) });
+      }
+      if (inspected.workspaceValue !== undefined && inspected.workspaceValue !== null) {
       sources.push({ source: 'workspace', servers: normalizeServersValue(inspected.workspaceValue) });
     }
     if (inspected.workspaceFolderValue !== undefined && inspected.workspaceFolderValue !== null) {
@@ -1586,6 +1589,13 @@ async function setupEditorLinks({ context, services }) {
       webview,
       message,
       openAttachment: (attachmentId) => services.editorContext?.openAttachment(attachmentId),
+      // E-CLEANUP: surface a notice when a paste read fails and the
+      // dsh.bridge.ui gate is on; silent otherwise (same gate as v3 UI).
+      onReadError: (error) => {
+        if (!getFlag('bridge.ui')) return undefined;
+        const detail = error && error.message ? error.message : String(error);
+        return vscode.window.showWarningMessage(loc('DSH: clipboard read failed: {message}', { message: detail }));
+      },
     });
   };
   interactionHandlers.push(handler);
@@ -2549,4 +2559,4 @@ async function deactivate() {
   }
 }
 
-module.exports = { activate, deactivate, activateWithDependencies, isRetryableStartupError, themeFromColorThemeKind, openInstancePanel, focusedComposerWebview, FEATURE_CATALOG, callExportJournal };
+module.exports = { activate, deactivate, activateWithDependencies, isRetryableStartupError, themeFromColorThemeKind, openInstancePanel, focusedComposerWebview, FEATURE_CATALOG, callExportJournal, readMcpSources };
