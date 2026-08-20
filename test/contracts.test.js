@@ -185,6 +185,7 @@ test('dsh.features.* configuration keys mirror the featureRegistry catalog (L1/L
     assert.strictEqual(entry.type, 'boolean', feature.id + ' must be a boolean switch');
     assert.strictEqual(entry.default, feature.defaultEnabled, feature.id + ' default must match defaultEnabled');
   }
+  assert.strictEqual(properties['dsh.features.call-export'].scope, 'machine', 'call-export must be machine-scoped');
 });
 
 test('CH1 v3 method table freezes 32 methods including extensions/callExport', () => {

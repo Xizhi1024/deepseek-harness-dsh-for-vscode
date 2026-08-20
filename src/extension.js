@@ -75,6 +75,7 @@ const { createWorkspaceBinding, BINDING_STATES } = require("./context/workspaceB
 const { createEditorContext } = require("./editorContext");
 const { createV3Handlers } = require("./bridge/v3");
 const { createChangeTracker } = require("./changeTracker");
+const callExportJournal = require("./callExportJournal");
 const { createChangeTree } = require("./changeTree");
 const { createLmRoute } = require("./lmRoute");
 const { createMcpManager } = require("./mcp/manager");
@@ -121,6 +122,7 @@ let changeTree = null; // R14S1 TreeView/command surface (created in L2 changes-
 let lmRoute = null; // R23 model-route provider (created in L2 lm-route)
 let mcpManager = null; // S2b MCP consume aggregator (created in L0, no side effects)
 let mcpConsentGate = null; // S2b per-server consent gate (created in L0)
+let callExportJournalInstance = null; // E-T2b callExport journal (created in L0, wired into v3)
 let embedPatchPath = null; // generated --patch overlay applied to extension-owned DSH children
 let runtimeStorageRoot = null; // managed runtime storage under VS Code global storage
 let activeDshHome = null; // effective shared/isolated DSH user-data home
@@ -1019,6 +1021,7 @@ const FEATURE_CATALOG = [
   { id: 'ctrl-k', label: 'Edit with DSH (Ctrl+K)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCtrlK },
   { id: 'lm-route', label: 'DSH model routing', layer: 'L2', defaultEnabled: false, core: false, setup: setupLmRoute },
   { id: 'mcp-consume', label: 'MCP servers', layer: 'L2', defaultEnabled: false, core: false, setup: setupMcpConsume },
+  { id: 'call-export', label: 'Call extension exports (vscode/extensions/callExport)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCallExport },
 ];
 
 /**
@@ -1344,6 +1347,11 @@ async function setupCoreSidebar({ context, services }) {
   }
   services.mcpManager = mcpManager;
   services.mcpConsentGate = mcpConsentGate;
+  callExportJournalInstance = injectedDependencies.callExportJournal
+    || callExportJournal.createCallExportJournal({
+      storageDirProvider: () => context.globalStorageUri || null,
+    });
+  services.callExportJournal = callExportJournalInstance;
   const extensionBridgeHandlers = injectedDependencies.extensionBridgeHandlers === undefined
     ? createExtensionBridgeHandlers({ vscode })
     : injectedDependencies.extensionBridgeHandlers;
@@ -1356,6 +1364,7 @@ async function setupCoreSidebar({ context, services }) {
       appendOutputLine: appendDiagnostic,
       changeTracker,
       getMcpManager: () => mcpManager,
+      callExportJournal: callExportJournalInstance,
     })
     : injectedDependencies.v3Handlers;
   versionedBridge = await versionedBridgeStarter({
@@ -1630,6 +1639,21 @@ async function setupCtrlK() {
  */
 async function setupMcpConsume() {
   return () => {};
+}
+
+/**
+ * E-T2b: L2 call-export (dsh.features.call-export). The journal is created
+ * and injected on the L0 path (setupCoreSidebar) so the v3 handler assembly
+ * always receives it; this L2 setup is a synchronous idempotent marker that
+ * publishes the same instance into services. It registers no commands —
+ * callExport is a passive bridge method.
+ */
+function setupCallExport({ context, services }) {
+  callExportJournalInstance = injectedDependencies.callExportJournal
+    || callExportJournal.createCallExportJournal({
+      storageDirProvider: () => context.globalStorageUri || null,
+    });
+  services.callExportJournal = callExportJournalInstance;
 }
 
 async function setupLmRoute({ context, services }) {
@@ -2283,4 +2307,4 @@ async function deactivate() {
   }
 }
 
-module.exports = { activate, deactivate, activateWithDependencies, isRetryableStartupError, themeFromColorThemeKind, openInstancePanel, focusedComposerWebview, FEATURE_CATALOG };
+module.exports = { activate, deactivate, activateWithDependencies, isRetryableStartupError, themeFromColorThemeKind, openInstancePanel, focusedComposerWebview, FEATURE_CATALOG, callExportJournal };

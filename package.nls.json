@@ -60,5 +60,6 @@
   "dsh.cfg.features.ctrl-k": "Enable the Edit with DSH (Ctrl+K) command that sends the active selection and an instruction to the DSH conversation. Off by default; no keybinding is contributed.",
   "dsh.cfg.features.lm-route": "Expose DSH models to the VS Code language-model chat picker (vendor dsh). Off by default.",
   "dsh.cfg.lm.route": "DSH model routing mode. off = never register the dsh chat provider; fixed = fetch /api/lm/models once and cache; dynamic = refresh the model list on every picker open.",
-  "dsh.cfg.features.mcp-consume": "Let DSH consume VS Code MCP servers through the bridge (vscode/mcp/listServers|listTools|callTool). Off by default."
+  "dsh.cfg.features.mcp-consume": "Let DSH consume VS Code MCP servers through the bridge (vscode/mcp/listServers|listTools|callTool). Off by default.",
+  "dsh.cfg.features.call-export": "Let DSH call exported methods of installed VS Code extensions through the bridge (vscode/extensions/callExport). Off by default; activation and invocation share this consent gate."
 }

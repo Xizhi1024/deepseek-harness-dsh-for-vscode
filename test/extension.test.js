@@ -1,11 +1,12 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { activateWithDependencies, deactivate, isRetryableStartupError } = require('../src/extension');
+const { activateWithDependencies, deactivate, isRetryableStartupError, FEATURE_CATALOG, callExportJournal } = require('../src/extension');
 const { CONTAINER_ID, VIEW_ID } = require('../src/types');
 
 function disposable() {
@@ -1486,6 +1487,30 @@ test('mcp-consume L2 feature registers refresh and forget-consent commands only 
   await deactivate();
 });
 
+test('call-export L2 feature is catalogued off by default and contributes no command', () => {
+  const feature = FEATURE_CATALOG.find((entry) => entry.id === 'call-export');
+  assert.ok(feature, 'call-export must be present in FEATURE_CATALOG');
+  assert.strictEqual(feature.layer, 'L2');
+  assert.strictEqual(feature.defaultEnabled, false);
+  assert.strictEqual(feature.core, false);
+  assert.strictEqual(typeof feature.setup, 'function');
+
+  const manifest = require('../package.json');
+  const entry = manifest.contributes.configuration.properties['dsh.features.call-export'];
+  assert.ok(entry, 'dsh.features.call-export must be contributed');
+  assert.strictEqual(entry.type, 'boolean');
+  assert.strictEqual(entry.default, false);
+  assert.strictEqual(entry.scope, 'machine');
+  assert.ok(
+    !manifest.activationEvents.some((event) => event.includes('callExport')),
+    'callExport contributes no activation event',
+  );
+  assert.ok(
+    !manifest.contributes.commands.some((command) => command.command.includes('callExport')),
+    'callExport contributes no command',
+  );
+});
+
 test('C1 spawn env injection: heartbeat path + window id always; watchdog off only under closePolicy=never', async () => {
   const setSpawnEnvCalls = [];
   const setOwnerIdentityCalls = [];
@@ -1542,4 +1567,51 @@ test('C1 spawn env injection: heartbeat path + window id always; watchdog off on
     assert.strictEqual(identity.vscodePid, process.pid, 'owner vscodePid is this extension host');
     assert.ok(typeof identity.windowId === 'string' && identity.windowId.length > 0);
   }
+});
+
+test('callExportJournal no-ops when storageDirProvider is null or returns null', () => {
+  const noProvider = callExportJournal.createCallExportJournal({});
+  noProvider.record({ extensionId: 'pub.a', method: 'run', argsSummary: { type: 'undefined', keys: [], bytes: 0 }, result: { ok: true } });
+  const nullProvider = callExportJournal.createCallExportJournal({ storageDirProvider: () => null });
+  nullProvider.record({ extensionId: 'pub.a', method: 'run', argsSummary: { type: 'undefined', keys: [], bytes: 0 }, result: { ok: true } });
+});
+
+test('callExportJournal persists a JSON array and trims the oldest entries', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-call-export-journal-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const journal = callExportJournal.createCallExportJournal({
+    storageDirProvider: () => ({ fsPath: root }),
+    now: () => Date.parse('2025-01-01T00:00:00.000Z'),
+    maxEntries: 2,
+  });
+  const summary = { type: 'undefined', keys: [], bytes: 0 };
+  journal.record({ extensionId: 'pub.a', method: 'echo', argsSummary: summary, result: { ok: true } });
+  journal.record({ extensionId: 'pub.b', method: 'boom', argsSummary: summary, result: { ok: false, errorCode: 'VSCODE_CALL_EXPORT_FAILED' } });
+  journal.record({ extensionId: 'pub.c', method: 'run', argsSummary: summary, result: { ok: true } });
+  const filePath = path.join(root, 'callExport', 'journal.json');
+  assert.ok(fs.existsSync(filePath), 'journal.json must be written');
+  const entries = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  assert.strictEqual(entries.length, 2);
+  assert.strictEqual(entries[0].extensionId, 'pub.b');
+  assert.strictEqual(entries[1].extensionId, 'pub.c');
+  assert.strictEqual(entries[0].id, 'ce-2');
+  assert.strictEqual(entries[1].id, 'ce-3');
+  assert.strictEqual(entries[1].at, '2025-01-01T00:00:00.000Z');
+  assert.deepStrictEqual(entries[0].result, { ok: false, errorCode: 'VSCODE_CALL_EXPORT_FAILED' });
+  assert.deepStrictEqual(entries[1].argsSummary, { type: 'undefined', keys: [], bytes: 0 });
+  assert.ok(!fs.existsSync(filePath + '.' + process.pid + '.tmp'), 'tmp file must be renamed away');
+});
+
+test('callExportJournal writes through tmp+rename and swallows rename failure', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-call-export-io-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const journal = callExportJournal.createCallExportJournal({
+    storageDirProvider: () => ({ fsPath: root }),
+  });
+  const filePath = path.join(root, 'callExport', 'journal.json');
+  // Occupy the destination as a directory so the final rename fails. The
+  // temporary file still gets written first, proving the tmp+rename path.
+  fs.mkdirSync(filePath, { recursive: true });
+  journal.record({ extensionId: 'pub.a', method: 'run', argsSummary: { type: 'undefined', keys: [], bytes: 0 }, result: { ok: true } });
+  assert.ok(fs.existsSync(filePath + '.' + process.pid + '.tmp'), 'tmp write must be attempted before rename');
 });
