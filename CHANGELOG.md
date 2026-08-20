@@ -3,6 +3,19 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-08-20
+
+### Fixed / 修复
+
+- **发布包泄漏内部计划文档**：0.9.0 的 VSIX 意外带入了 `planning/0.7/` 两份内部编排文档；内部实现笔记（B0–B4）、QA findings 与批次计划现统一移至 `docs/dev/`，并以深度通配加固 `.vscodeignore`（`**/planning/**`、`**/*_IMPL_NOTES.md` 等），发布包复验零泄漏（92 文件）。
+  Release-package hygiene: the 0.9.0 VSIX accidentally shipped the internal `planning/0.7/` documents. Implementation notes, QA findings and batch planning now live under `docs/dev/`, with hardened `.vscodeignore` depth globs; the repackaged VSIX is verified leak-free (92 files).
+
+- **文档整理**：`KNOWN_ISSUES.md` 重写为当前状态索引（4 个历史问题均已修复，附 0.9.0 剪贴板/主题修复的验收提示）；两份 README 的陈旧 0.6 版本引用全部更新，交互保证补充原生 ⌘C/⌘X/⌘V 与主题跟随，Implementation 章节新增仓库结构说明。
+  Documentation tidy-up: `KNOWN_ISSUES.md` rewritten as a current-state index (all four historical issues fixed, with verification notes); stale 0.6 references refreshed across both READMEs, the interaction guarantee now covers native ⌘C/⌘X/⌘V and theme-follow, and the Implementation section documents the repository layout.
+
+- **README 能力矩阵与实现对齐**：桥接能力表此前仍把终端/任务/调试/Git/搜索/UI 标为「尚未暴露」，而 v3 桥实际已实现并按同意开关交付。两份 README 重写为三段式——常开只读方法表、`dsh.bridge.*`/`dsh.features.*` 同意开关后的 v3 能力族表（terminal、ui、editorRead、changes-review、mcp、call-export、tasks/debug、git 读取）、以及仅剩的真实未实现项（applyEdit、断点/单步、Git 写）；Usage 补模型路由 / MCP 消费 / 变更评审条目，配置表补 `dsh.features.call-export`，onboarding 撤销「后续版本提供」陈旧声明，路线图收敛为剩余工作。
+  README capability matrix aligned with the implementation: the bridge tables previously listed terminals/tasks/debug/Git/search/UI as "not exposed" although the v3 bridge already ships them behind consent switches. Both READMEs now carry a three-part matrix — always-on read-only methods, the consent-gated v3 families (terminal, ui, editorRead, changes-review, mcp, call-export, tasks/debug, git read), and the genuinely remaining gaps (applyEdit, breakpoints/stepping, git writes); Usage gains model-routing / MCP / changes-review entries, the configuration table documents `dsh.features.call-export`, the onboarding copy drops the stale "coming later" wording, and the roadmap shrinks to the actual remainder.
+
 ## [0.9.0] - 2026-08-20
 
 0.7/0.8 为过渡性内部构建未单独立档，本条目汇总 0.6.0 以来的全部用户可见变更。

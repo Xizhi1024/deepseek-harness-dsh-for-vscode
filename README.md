@@ -39,7 +39,7 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 - Dev: open this repo → `F5` → **Run Extension**
 - Verify: `npm ci` → `npm run check:w0` → `npm run test:extension-host`
 - Secret scan: `npm run test:secrets` scans the source/docs that would enter the VSIX (never `node_modules`, `.git`, or `.vscode-test`) and exits 1 on hardcoded bridge tokens, `Authorization: Bearer` credentials, API keys, private keys, or password literals; example/test fixtures are released with an explicit `// allow-secret-scan` comment.
-- Package: `npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.9.0.vsix`
+- Package: `npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.9.1.vsix`
 
 ## Usage
 
@@ -54,12 +54,15 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 - Commands (command palette): **Open DSH in Browser** · **New Session** · **Switch Session** · **Open Session History** · **Restart DSH Server** · **Restart DSH Server Cleanly** · **Stop DSH Server** · **Focus DSH Sidebar** · **Add File to DSH Thread** · **Add Folder to DSH Thread** · **Add to DSH Thread** · **Add Active File to DSH Context** · **Add Active Selection to DSH Context** · **Add Problems to DSH Context** · **Capabilities and Integrations** · **Diagnose** · **Clean Up Orphan DSH Servers** · **Set up DSH** · **New DSH Instance** · **DSH Changes** · **Set DSH FIM API Key**
 - With `dsh.autoStart` on, the server is started at VS Code startup even if the sidebar is never opened
 - Extra surfaces: run **DSH: New DSH Instance** (or enable the sidebar title-bar entry with `dsh.multiInstance.entry`) to open another DSH panel in the editor area. All surfaces share the window's single DSH process; each panel gets its own DSH session (`dsh_session`), and closing a panel releases that session only
+- Model routing (L2, off by default): set `dsh.lm.route` to `fixed` or `dynamic` (with `dsh.features.lm-route`) and DSH models appear in the VS Code language-model chat picker as vendor `dsh`, served through bridge-token-authenticated `/api/lm` routes — never through Copilot quota
+- MCP consumption (L2, off by default): with `dsh.features.mcp-consume` enabled, DSH can use the VS Code-side MCP servers configured in the DSH profile through `vscode/mcp/*` bridge methods; every server/tool call passes the consent gate (**DSH: Refresh MCP Servers** / **DSH: Forget MCP Consent**)
+- Changes review (L2, off by default): with `dsh.features.changes-review` enabled, workspace edits pushed by DSH appear in the **DSH Changes** tree with open-diff / accept / undo actions and approval prompts before any file is touched
 
 > **Restart DSH Server Cleanly** disables every non-core (non-`@deepseek-ai/*`, non-embed) plugin in the active profile via `vscode-clean.overlay.yml` before restarting. When startup fails with `HEALTH_TIMEOUT` or `SPAWN_EXITED_EARLY`, the status page offers a **Restart-Clean** entry; in clean mode it shows a banner with **Restart-normal**, which restarts with the normal embed overlay. A startup that exits early while a `--patch` overlay is in effect automatically retries exactly once without the patch (recorded in Diagnose).
 
 ## First-run setup (onboarding)
 
-On the first activation the extension asks **“DSH is ready — set it up?”** with three choices: **Set up** opens a multi-step wizard, **Not now** asks again on the next activation, and **Never** stops asking (until the command is run). The wizard walks through the **profile** (default `web`, validated against `^[A-Za-z0-9._-]{1,64}$`; a change takes effect after reloading the window), **auto-start**, **close policy**, an informational **watchdog / roadmap** step (plan-only features such as multi-instance, Tab completion, MCP, and model routing are marked *coming in later releases*), the implemented **DSH feature switches**, and a **summary** to confirm. Every accepted step writes its `dsh.*` setting immediately (global scope), so skipping a step keeps its current value. All copy is bilingual through the `vscode.l10n` bundle. Re-run the wizard at any time with the **Set up DSH** command, and change individual values later in Settings (`dsh.*`).
+On the first activation the extension asks **“DSH is ready — set it up?”** with three choices: **Set up** opens a multi-step wizard, **Not now** asks again on the next activation, and **Never** stops asking (until the command is run). The wizard walks through the **profile** (default `web`, validated against `^[A-Za-z0-9._-]{1,64}$`; a change takes effect after reloading the window), **auto-start**, **close policy**, an informational **watchdog / roadmap** step (display-only; opt-in L2 features such as multi-instance, Tab completion, MCP, and model routing are listed as switches you enable later in Settings), the implemented **DSH feature switches**, and a **summary** to confirm. Every accepted step writes its `dsh.*` setting immediately (global scope), so skipping a step keeps its current value. All copy is bilingual through the `vscode.l10n` bundle. Re-run the wizard at any time with the **Set up DSH** command, and change individual values later in Settings (`dsh.*`).
 
 ## Session navigation
 
@@ -137,11 +140,11 @@ The extension never installs third-party providers. **Every third-party provider
 
 Provider state is refreshed through `vscode.extensions.onDidChange`, which emits `vscode/providerStatesChanged` notifications on the versioned bridge. Detection re-reads `vscode.extensions` on every call and never caches state across workspaces.
 
-## VS Code bridge capabilities & roadmap (0.6+)
+## VS Code bridge capabilities & roadmap
 
-The versioned bridge (`versionedBridgeServer` + CH1 protocol) is the channel DSH uses to reach the VS Code window. It is intentionally narrow today: read-only, explicit-attachment oriented, and guarded by workspace trust and loopback tokens.
+The versioned bridge (`versionedBridgeServer` + CH1 protocol, v1→v3 negotiated) is the channel DSH uses to reach the VS Code window. Always-on methods stay read/open-only and are guarded by workspace trust plus per-window loopback tokens; every capability that touches terminals, UI surfaces, editor buffers or cross-extension calls ships **off by default** behind an explicit `dsh.bridge.*` / `dsh.features.*` consent switch.
 
-### Currently exposed to DSH
+### Exposed to DSH (always on)
 
 | Type | Exposed methods / notifications |
 |---|---|
@@ -149,60 +152,40 @@ The versioned bridge (`versionedBridgeServer` + CH1 protocol) is the channel DSH
 | Open file | `vscode/editor/open` |
 | Open diff | `vscode/editor/openDiff` |
 | Diagnostics | `vscode/workspace/getDiagnostics` |
-| Extension / provider | `vscode/extensions/getProviderStates` · `vscode/extensions/openDetails` |
+| Extension / provider | `vscode/extensions/getProviderStates` · `vscode/extensions/openDetails` · `vscode/extensions/list` |
+| Workspace search | `vscode/workspace/findFiles` |
 | Notifications (v1) | `vscode/contextChanged` · `vscode/providerStatesChanged` · `vscode/workspaceChanged` |
 | Notifications (v2) | + `vscode/editor/selectionChanged` · `vscode/editor/activeEditorChanged` · `vscode/diagnosticsChanged` |
 
+### Exposed to DSH behind consent switches (v3, default off)
+
+| Switch | Capability family |
+|---|---|
+| `dsh.bridge.terminal` | `vscode/terminal/create` · `vscode/terminal/sendText` · `vscode/terminal/read` — integrated terminals created/sent/read through the bridge (max 8 concurrent, ring-buffer readback) |
+| `dsh.bridge.ui` | `vscode/window/showMessage` · `vscode/confirm/ask` · `vscode/progress/*` · `vscode/statusbar/update` · `vscode/output/append` — user-visible VS Code surfaces |
+| `dsh.bridge.editorRead` | `vscode/editor/getState` · `vscode/editor/read` — read the active editor's unsaved buffer |
+| `dsh.features.changes-review` | `vscode/changes/push` — DSH-proposed workspace edits reviewed in the **DSH Changes** tree (open-diff / accept / undo, approval-gated) |
+| `dsh.features.mcp-consume` | `vscode/mcp/listServers` · `vscode/mcp/listTools` · `vscode/mcp/callTool` — consent-gated MCP tool calls |
+| `dsh.features.call-export` | `vscode/extensions/callExport` — call other extensions' exports faces behind the consent gate with a call journal |
+| Tasks & debug | `vscode/tasks/list` · `vscode/tasks/run` · `vscode/debug/start` · `vscode/debug/stop` · `vscode/debug/getStack` — launch-config debug sessions plus `tasks.json` execution |
+| Git read | `vscode/git/getStatus` · `vscode/git/getDiff` — read-only Git state via the built-in Git extension API |
+
 ### Not exposed yet
 
-- Debugging: start/stop sessions, breakpoints, call stack, variables
-- Integrated terminal: create/write/read
-- Tasks: run `tasks.json` / npm scripts / test runners
 - File editing: `applyEdits` / direct workspace file mutation
-- Git / SCM: stage, commit, apply diff
-- User interaction UI: QuickPick, input box, permission confirmations
-- Workspace search: `findFiles` / symbols / LSP results
+- Debug breakpoints / step control (sessions and stack readback only)
+- Git writes: stage, commit, apply diff
 
 ### Roadmap to Cursor / Claude Code-style experience
 
-Achieving a Cursor/Claude Code-like experience requires both sides of the bridge:
+The v3 bridge now covers much of the original roadmap — terminals, tasks, debug start/stop/stack, Git status/diff readback, workspace search, confirm/progress/status-bar/output UI surfaces, and the changes-review approval layer. What remains:
 
-1. **Extend CH1 to a v3 method set**, for example:
-   ```text
-   vscode/editor/applyEdit
-   vscode/debug/start
-   vscode/debug/stop
-   vscode/debug/breakpoints
-   vscode/debug/getStack
-   vscode/debug/step
-   vscode/terminal/create
-   vscode/terminal/write
-   vscode/terminal/read
-   vscode/tasks/run
-   vscode/git/stage
-   vscode/git/commit
-   vscode/workspace/findFiles
-   vscode/window/showInputBox
-   vscode/window/showQuickPick
-   vscode/window/showConfirm
-   ```
-   Each method needs a handler in the extension host, security checks (`file://`, workspace trust, token auth), version negotiation, and tests.
+1. **Write-side editor methods** — `vscode/editor/applyEdit` and direct workspace file mutation, with per-edit approval and rollback.
+2. **Debug depth** — breakpoints and step control (sessions and stack readback already work).
+3. **Git writes** — stage / commit / apply-diff, each behind explicit confirmation.
+4. **Agent-loop UX polish** — streaming terminal output into the conversation, diagnostics/test feedback loops, and in-editor accept/reject UI for model suggestions.
 
-2. **Add matching tools in the DSH runtime**, such as `vscode_apply_edit`, `vscode_run_debug`, `vscode_terminal_exec`, `vscode_run_task`, `vscode_git_commit`, `vscode_ask_user`.
-
-3. **Add a permission / approval / diff-review layer**:
-   - sensitive operations (edit files, run commands, debug, commit) require explicit user confirmation
-   - show proposed diffs and operation history
-   - allow apply / reject / rollback
-
-4. **Build the agent-loop UX**:
-   - multi-file editing and applying changes
-   - automatic feedback from diagnostics and test runs
-   - streaming terminal output back to the conversation
-   - debugger state (stack/variables) readback
-   - in-editor progress and accept/reject UI for model suggestions
-
-**Current status:** the extension exposes a small read-only VS Code surface. Full Cursor/Claude Code parity is not implemented yet and is a multi-milestone roadmap, beyond the current release scope.
+**Current status:** the always-on surface stays read/open-only; every capability that can execute or mutate anything ships behind an explicit consent switch (see the table above).
 
 ## Configuration
 
@@ -231,6 +214,7 @@ Achieving a Cursor/Claude Code-like experience requires both sides of the bridge
 | `dsh.lm.route` | `off` | DSH model routing mode: `off` = never register the dsh chat provider; `fixed` = fetch `/api/lm/models` once and cache; `dynamic` = refresh the model list on every picker open |
 | `dsh.features.mcp-consume` | false | Let DSH consume VS Code MCP servers through the bridge (`vscode/mcp/listServers`/`listTools`/`callTool`) (L2 feature) |
 | `dsh.features.exports` | false | Enable the programmatic exports API returned by the extension `activate()` face (`ask`/`listSessions`/`addContext`) (L2 feature; disabled calls throw `DSH_EXPORT_DISABLED`) |
+| `dsh.features.call-export` | false | Let DSH call other extensions' exports faces through `vscode/extensions/callExport` behind the consent gate, with a call journal (L2 feature, machine scope) |
 | `dsh.features.chat-participant` | false | Enable the **@dsh** chat participant in the VS Code chat view; consumes DSH sessions only, never the `vscode.lm`/Copilot quota (L2 feature) |
 | `dsh.features.tab-completion` | false | Enable the DSH FIM tab-completion provider for `file` documents (L2 feature; POC-grade) |
 | `dsh.fim.model` | (empty) | Machine-scoped DSH-side FIM model name used for tab completion; the upstream API key and base URL are configured in the DSH-side vscode-fim plugin |

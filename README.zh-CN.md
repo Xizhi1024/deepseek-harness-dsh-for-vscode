@@ -39,7 +39,7 @@
 - 开发调试：打开本仓库 → `F5` → **Run Extension**
 - 验证：`npm ci` → `npm run check:w0` → `npm run test:extension-host`
 - 密钥扫描：`npm run test:secrets` 扫描将进入 VSIX 的源码/文档（不扫 `node_modules`、`.git`、`.vscode-test`），命中硬编码桥接 token、`Authorization: Bearer` 凭据、API key、私钥或密码字面量时以 1 退出；示例/测试 fixture 使用显式 `// allow-secret-scan` 注释放行。
-- 打包安装：`npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.9.0.vsix`
+- 打包安装：`npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.9.1.vsix`
 
 ## 使用
 
@@ -54,12 +54,18 @@
 - 命令（命令面板）：**在浏览器中打开 DSH** · **新建会话** · **切换会话** · **打开会话历史** · **重启 DSH 服务** · **干净重启 DSH 服务** · **停止 DSH 服务** · **聚焦 DSH 侧边栏** · **将文件添加到 DSH 对话** · **将文件夹添加到 DSH 对话** · **添加到 DSH 对话** · **将活动文件添加到 DSH 上下文** · **将活动选区添加到 DSH 上下文** · **将 Problems 添加到 DSH 上下文** · **能力与集成** · **诊断** · **清理孤儿 DSH 服务** · **设置 DSH** · **新建 DSH 实例** · **DSH 变更** · **设置 DSH FIM API Key**
 - 附加面板：运行 **DSH: 新建 DSH 实例**（或开启 `dsh.multiInstance.entry` 显示侧栏标题栏入口）在编辑器区域打开新的 DSH 面板。所有面板共享本窗口唯一的 DSH 进程；每个面板拥有独立 DSH 会话（`dsh_session`），关闭面板仅释放该会话
 - `dsh.autoStart` 开启时，VS Code 启动即拉取服务，即使侧边栏从未打开
+- 模型路由（L2，默认关闭）：`dsh.lm.route` 设为 `fixed` 或 `dynamic`（配合 `dsh.features.lm-route`）后，DSH 模型以 vendor `dsh` 出现在 VS Code 语言模型选择器，经桥令牌鉴权的 `/api/lm` 路由提供服务——绝不消耗 Copilot 配额
+- MCP 消费（L2，默认关闭）：开启 `dsh.features.mcp-consume` 后，DSH 可经 `vscode/mcp/*` 桥方法使用 DSH profile 中配置的 VS Code 侧 MCP 服务器；每个服务器/工具调用都要过同意门（**DSH: 刷新 MCP 服务器** / **DSH: 忘记 MCP 同意**）
+- 变更评审（L2，默认关闭）：开启 `dsh.features.changes-review` 后，DSH 推送的工作区编辑进入 **DSH 变更** 树，提供 diff 查看 / 接受 / 撤销，写文件前需审批
+- 模型路由（L2，默认关闭）：`dsh.lm.route` 设为 `fixed` 或 `dynamic`（配合 `dsh.features.lm-route`）后，DSH 模型以 vendor `dsh` 出现在 VS Code 语言模型选择器，经桥令牌鉴权的 `/api/lm` 路由提供服务——绝不消耗 Copilot 配额
+- MCP 消费（L2，默认关闭）：开启 `dsh.features.mcp-consume` 后，DSH 可经 `vscode/mcp/*` 桥方法使用 DSH profile 中配置的 VS Code 侧 MCP 服务器；每个服务器/工具调用都要过同意门（**DSH: 刷新 MCP 服务器** / **DSH: 忘记 MCP 同意**）
+- 变更评审（L2，默认关闭）：开启 `dsh.features.changes-review` 后，DSH 推送的工作区编辑进入 **DSH 变更** 树，提供 diff 查看 / 接受 / 撤销，写文件前需审批
 
 > **干净重启 DSH 服务** 会在重启前通过 `vscode-clean.overlay.yml` 禁用活动 profile 中所有非核心（非 `@deepseek-ai/*`、非 embed）插件。当启动以 `HEALTH_TIMEOUT` 或 `SPAWN_EXITED_EARLY` 失败时，状态页提供 **Restart-Clean** 入口；干净模式下会显示带 **Restart-normal** 的横幅，后者以正常 embed overlay 重启。当 `--patch` overlay 生效期间发生提前退出时，会自动不带该 patch 重试恰好一次（记录在 Diagnose 中）。
 
 ## 首次运行设置（onboarding）
 
-首次激活时，扩展会询问 **“DSH 已就绪——现在设置吗？”**，提供三个选择：**设置**（Set up）打开多步向导，**暂时不要**（Not now）在下次激活时再次询问，**不再询问**（Never）则不再询问（直到执行该命令为止）。向导依次引导 **profile**（默认 `web`，按 `^[A-Za-z0-9._-]{1,64}$` 校验；修改后需要重载窗口生效）、**自动启动**、**关闭策略**、信息性的 **watchdog / 路线图** 步骤（多实例、Tab 补全、MCP、模型路由等仅在规划中的功能标记为*后续版本提供*）、已实现的 **DSH 功能开关**，以及确认用的 **汇总**。每个通过的步骤都会立即（全局作用域）写入其 `dsh.*` 设置，因此跳过某一步会保留其当前值。所有文案都经 `vscode.l10n` 语言包提供双语。随时用 **设置 DSH** 命令重跑向导，之后再在设置页（`dsh.*`）逐项调整。
+首次激活时，扩展会询问 **“DSH 已就绪——现在设置吗？”**，提供三个选择：**设置**（Set up）打开多步向导，**暂时不要**（Not now）在下次激活时再次询问，**不再询问**（Never）则不再询问（直到执行该命令为止）。向导依次引导 **profile**（默认 `web`，按 `^[A-Za-z0-9._-]{1,64}$` 校验；修改后需要重载窗口生效）、**自动启动**、**关闭策略**、信息性的 **watchdog / 路线图** 步骤（多实例、Tab 补全、MCP、模型路由等 L2 可选特性作为开关列出，之后在设置中按需开启）、已实现的 **DSH 功能开关**，以及确认用的 **汇总**。每个通过的步骤都会立即（全局作用域）写入其 `dsh.*` 设置，因此跳过某一步会保留其当前值。所有文案都经 `vscode.l10n` 语言包提供双语。随时用 **设置 DSH** 命令重跑向导，之后再在设置页（`dsh.*`）逐项调整。
 
 ## 会话切换
 
@@ -135,11 +141,11 @@ v1 边界：
 
 provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化桥上发送 `vscode/providerStatesChanged` 通知。检测器每次调用都会重新读取 `vscode.extensions`，绝不跨工作区缓存状态。
 
-## VS Code 桥接能力与路线图（0.6+）
+## VS Code 桥接能力与路线图
 
-版本化桥（`versionedBridgeServer` + CH1 协议）是 DSH 访问 VS Code 窗口的通道。目前设计上刻意保持很窄：只读、显式附件导向，并受工作区信任与回环 token 保护。
+版本化桥（`versionedBridgeServer` + CH1 协议，v1→v3 协商）是 DSH 访问 VS Code 窗口的通道。常开方法保持只读/仅打开，受工作区信任与按窗口回环 token 保护；凡是触及终端、UI 表面、编辑器缓冲或跨扩展调用的能力族都**默认关闭**，藏在显式的 `dsh.bridge.*` / `dsh.features.*` 同意开关之后。
 
-### 当前已暴露给 DSH 的能力
+### 已暴露给 DSH（常开）
 
 | 类型 | 已暴露的方法 / 通知 |
 |---|---|
@@ -147,60 +153,40 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 | 打开文件 | `vscode/editor/open` |
 | 打开 Diff | `vscode/editor/openDiff` |
 | 诊断 | `vscode/workspace/getDiagnostics` |
-| 扩展 / Provider | `vscode/extensions/getProviderStates` · `vscode/extensions/openDetails` |
+| 扩展 / Provider | `vscode/extensions/getProviderStates` · `vscode/extensions/openDetails` · `vscode/extensions/list` |
+| 工作区搜索 | `vscode/workspace/findFiles` |
 | 通知（v1） | `vscode/contextChanged` · `vscode/providerStatesChanged` · `vscode/workspaceChanged` |
 | 通知（v2） | + `vscode/editor/selectionChanged` · `vscode/editor/activeEditorChanged` · `vscode/diagnosticsChanged` |
 
+### 同意开关之后的能力（v3，默认关闭）
+
+| 开关 | 能力族 |
+|---|---|
+| `dsh.bridge.terminal` | `vscode/terminal/create` · `vscode/terminal/sendText` · `vscode/terminal/read` —— 桥建集成终端（最多 8 个并发，环形缓冲回读） |
+| `dsh.bridge.ui` | `vscode/window/showMessage` · `vscode/confirm/ask` · `vscode/progress/*` · `vscode/statusbar/update` · `vscode/output/append` —— 用户可见的 VS Code 表面 |
+| `dsh.bridge.editorRead` | `vscode/editor/getState` · `vscode/editor/read` —— 读取活动编辑器未保存缓冲 |
+| `dsh.features.changes-review` | `vscode/changes/push` —— DSH 提议的工作区编辑进入 **DSH 变更** 树评审（diff / 接受 / 撤销，需审批） |
+| `dsh.features.mcp-consume` | `vscode/mcp/listServers` · `vscode/mcp/listTools` · `vscode/mcp/callTool` —— 过同意门的 MCP 工具调用 |
+| `dsh.features.call-export` | `vscode/extensions/callExport` —— 经同意门调用其他扩展的 exports 面，带调用日志 |
+| 任务与调试 | `vscode/tasks/list` · `vscode/tasks/run` · `vscode/debug/start` · `vscode/debug/stop` · `vscode/debug/getStack` —— launch.json 调试会话与 `tasks.json` 执行 |
+| Git 读取 | `vscode/git/getStatus` · `vscode/git/getDiff` —— 经内置 Git 扩展 API 的只读状态 |
+
 ### 尚未暴露
 
-- 调试：启动/停止调试会话、断点、调用栈、变量查看
-- 集成终端：创建 / 写入 / 读取
-- 任务：运行 `tasks.json` / npm 脚本 / 测试运行器
 - 文件编辑：`applyEdits` / 直接修改工作区文件
-- Git / SCM：暂存、提交、应用 diff
-- 用户交互 UI：QuickPick、输入框、权限确认弹窗
-- 工作区搜索：`findFiles` / 符号 / LSP 结果
+- 调试断点 / 单步控制（会话与调用栈回读已可用）
+- Git 写操作：暂存、提交、应用 diff
 
 ### 实现 Cursor / Claude Code 式体验的路线图
 
-要接近 Cursor / Claude Code 的体验，需要桥两侧同时推进：
+v3 桥已覆盖原路线图的大半——终端、任务、调试 启动/停止/调用栈、Git 状态/diff 回读、工作区搜索、确认/进度/状态栏/输出 UI 表面，以及带审批的变更评审层。剩余部分：
 
-1. **把 CH1 扩展为 v3 方法集**，例如：
-   ```text
-   vscode/editor/applyEdit
-   vscode/debug/start
-   vscode/debug/stop
-   vscode/debug/breakpoints
-   vscode/debug/getStack
-   vscode/debug/step
-   vscode/terminal/create
-   vscode/terminal/write
-   vscode/terminal/read
-   vscode/tasks/run
-   vscode/git/stage
-   vscode/git/commit
-   vscode/workspace/findFiles
-   vscode/window/showInputBox
-   vscode/window/showQuickPick
-   vscode/window/showConfirm
-   ```
-   每个方法都需在扩展宿主中实现 handler，并做安全校验（`file://`、工作区信任、token 鉴权）、版本协商与测试。
+1. **写侧编辑器方法** —— `vscode/editor/applyEdit` 与直接工作区文件修改，带逐编辑审批与回滚。
+2. **调试深度** —— 断点与单步控制（会话与调用栈回读已可用）。
+3. **Git 写操作** —— 暂存 / 提交 / 应用 diff，每步显式确认。
+4. **Agent-loop 体验打磨** —— 终端输出流入对话、诊断/测试反馈闭环、编辑器内建议的接受/拒绝 UI。
 
-2. **在 DSH runtime 增加对应工具**，例如 `vscode_apply_edit`、`vscode_run_debug`、`vscode_terminal_exec`、`vscode_run_task`、`vscode_git_commit`、`vscode_ask_user`。
-
-3. **增加权限 / 审批 / diff 预览层**：
-   - 敏感操作（改文件、执行命令、调试、提交代码）需要显式用户确认
-   - 展示建议 diff 与操作历史
-   - 支持应用 / 拒绝 / 回滚
-
-4. **补齐 agent-loop 体验**：
-   - 多文件编辑与批量应用
-   - 自动回传诊断与测试结果
-   - 终端输出流式回到对话
-   - 读取调试器状态（调用栈 / 变量）
-   - 编辑器内展示 AI 进度与接受/拒绝 UI
-
-**当前状态：** 扩展目前只暴露较小的只读 VS Code 能力。完整对标 Cursor / Claude Code 尚未实现，属于多里程碑路线图，超出当前发布范围。
+**当前状态：** 常开表面保持只读/仅打开；凡可执行或可变更的能力都藏在显式同意开关之后（见上表）。
 
 ## 配置
 
@@ -229,6 +215,7 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 | `dsh.lm.route` | `off` | DSH 模型路由模式：`off` = 从不注册 dsh 聊天 provider；`fixed` = 拉取一次 `/api/lm/models` 并缓存；`dynamic` = 每次打开选择器时刷新模型列表 |
 | `dsh.features.mcp-consume` | false | 允许 DSH 经桥使用 VS Code MCP 服务器（`vscode/mcp/listServers`/`listTools`/`callTool`）（L2 功能） |
 | `dsh.features.exports` | false | 启用扩展 `activate()` 返回的编程式导出 API（`ask`/`listSessions`/`addContext`）（L2 功能；关闭时调用抛 `DSH_EXPORT_DISABLED`） |
+| `dsh.features.call-export` | false | 允许 DSH 经同意门调用其他扩展的 exports 面（`vscode/extensions/callExport`），带调用日志（L2 功能，机器作用域） |
 | `dsh.features.chat-participant` | false | 在 VS Code 聊天视图中启用 **@dsh** 聊天参与者；只消费 DSH 会话，绝不使用 `vscode.lm`/Copilot 配额（L2 功能） |
 | `dsh.features.tab-completion` | false | 为 `file` 文档启用 DSH FIM Tab 补全 provider（L2 功能；POC 级） |
 | `dsh.fim.model` | （空） | 机器级：Tab 补全使用的 DSH 侧 FIM 模型名；上游 API key 与 base URL 在 DSH 侧 vscode-fim 插件中配置 |
