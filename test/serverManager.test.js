@@ -482,7 +482,7 @@ test('ServerManager passes the generated embed overlay through as --patch', (t) 
   const launch = manager._buildLaunchSpec('127.0.0.1', 4321);
   assert.strictEqual(launch.command, executable);
   assert.deepStrictEqual(launch.args, [
-    '--patch', overlay, '--profile', 'web', '--host', '127.0.0.1', '--port', '4321',
+    '--patch', overlay, '--profile', 'web', '--host', '127.0.0.1', '--port', '4321', '--no-open',
   ]);
   assert.throws(
     () => new ServerManager({ resolvedRuntime: runtime, embedPatchPath: 'relative.yml' })._buildLaunchSpec('127.0.0.1', 4321),

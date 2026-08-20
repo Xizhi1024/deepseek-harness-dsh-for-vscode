@@ -44,7 +44,7 @@ test('managed launch uses an absolute verified executable and fixed web-profile 
   assert.strictEqual(launch.command, runtime.executablePath);
   assert.deepStrictEqual(launch.args, [
     runtime.entrypointArgs[0],
-    '--profile', 'web', '--host', '127.0.0.1', '--port', '4321',
+    '--profile', 'web', '--host', '127.0.0.1', '--port', '4321', '--no-open',
   ]);
   assert.deepStrictEqual(launch.env, {
     DSH_HOME: runtime.dshHome,
@@ -63,7 +63,7 @@ test('managed launch accepts any legal profile name and keeps spawn order', (t) 
   const launch = buildManagedLaunchSpec(custom, '127.0.0.1', 4321, 'win32');
   assert.deepStrictEqual(launch.args, [
     runtime.entrypointArgs[0],
-    '--profile', 'dev', '--host', '127.0.0.1', '--port', '4321',
+    '--profile', 'dev', '--host', '127.0.0.1', '--port', '4321', '--no-open',
   ]);
 });
 
@@ -101,6 +101,17 @@ test('managed launch validates loopback and port before spawning', (t) => {
   );
 });
 
+test('managed launch always passes --no-open: the embedded sidebar replaces the browser handoff', (t) => {
+  const runtime = fixture(t, '.exe');
+  const plain = buildManagedLaunchSpec(runtime, '127.0.0.1', 4321, 'win32');
+  assert.ok(plain.args.includes('--no-open'), 'plain managed spawn must disable the browser handoff');
+  const patched = buildManagedLaunchSpec(runtime, '127.0.0.1', 4321, 'win32', {
+    patchPath: writeEmbedOverlay(runtime.dshHome),
+  });
+  assert.ok(patched.args.includes('--no-open'), 'patched managed spawn must disable the browser handoff');
+  assert.strictEqual(patched.args.filter((arg) => arg === '--no-open').length, 1, 'exactly one --no-open');
+});
+
 test('managed launch appends a verified embed --patch before --profile', (t) => {
   const runtime = fixture(t, '.exe');
   const overlayPath = writeEmbedOverlay(runtime.dshHome);
@@ -114,6 +125,7 @@ test('managed launch appends a verified embed --patch before --profile', (t) => 
     '--profile', 'web',
     '--host', '127.0.0.1',
     '--port', '4321',
+    '--no-open',
   ]);
   assert.deepStrictEqual(launch.env, {
     DSH_HOME: runtime.dshHome,

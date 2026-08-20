@@ -142,6 +142,11 @@ function buildManagedLaunchSpec(runtimeInput, host, port, platform = process.pla
       '--profile', runtime.profileName,
       '--host', host,
       '--port', String(port),
+      // The DSH web app defaults to handing the URL to the system browser
+      // once its loader tree settles; the embedded sidebar IS the UI here,
+      // so every managed spawn must opt out explicitly (dsh-web-app
+      // startup flag, honored since 0.1.0-rc.7).
+      '--no-open',
     ]),
     env: Object.freeze({
       DSH_HOME: runtime.dshHome,

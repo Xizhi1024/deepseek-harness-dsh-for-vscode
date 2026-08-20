@@ -39,7 +39,7 @@
 - 开发调试：打开本仓库 → `F5` → **Run Extension**
 - 验证：`npm ci` → `npm run check:w0` → `npm run test:extension-host`
 - 密钥扫描：`npm run test:secrets` 扫描将进入 VSIX 的源码/文档（不扫 `node_modules`、`.git`、`.vscode-test`），命中硬编码桥接 token、`Authorization: Bearer` 凭据、API key、私钥或密码字面量时以 1 退出；示例/测试 fixture 使用显式 `// allow-secret-scan` 注释放行。
-- 打包安装：`npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.9.1.vsix`
+- 打包安装：`npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.9.2.vsix`
 
 ## 使用
 

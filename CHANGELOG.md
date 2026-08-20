@@ -3,6 +3,13 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-08-20
+
+### Fixed / 修复
+
+- **启动即自动打开系统浏览器**：DSH 运行时（dsh-web-app ≥ 0.1.0-rc.7）默认在 Web 服务就绪后把 URL 移交给系统默认浏览器。扩展此前托管的每次拉起（auto-start、侧栏连接、重启、干净重启）都没传 `--no-open`，因此 VS Code 里嵌着侧栏的同时还会弹出一个浏览器页面。现在 `buildManagedLaunchSpec` 在所有托管启动参数末尾固定追加 `--no-open`——嵌入的侧栏就是 UI，无需浏览器交接。已加回归测试（普通与 --patch 两种 spawn 都必须恰含一个 `--no-open`）。
+  Startup no longer opens a system browser: the DSH runtime (dsh-web-app >= 0.1.0-rc.7) defaults to handing the Web URL to the default browser once the server is ready, and the extension's managed spawns never passed `--no-open`, so launching the sidebar also popped a browser page. `buildManagedLaunchSpec` now appends `--no-open` to every managed launch — the embedded sidebar IS the UI. Regression tests cover both plain and `--patch` spawns.
+
 ## [0.9.1] - 2026-08-20
 
 ### Fixed / 修复
