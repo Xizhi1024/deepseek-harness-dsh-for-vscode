@@ -4,9 +4,9 @@
 
 把本地 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）Web 界面嵌入 VS Code 辅助侧边栏（右侧栏，与 Copilot Chat 同排）。默认情况下，每个 VS Code 窗口都会以当前工作区为 cwd 单独启动并持有一个 `dsh web` 子进程，再以紧凑的全屏 iframe 渲染。
 
-## **VS CODE 交互保证（0.6.0）**
+## **VS CODE 交互保证（0.9.0）**
 
-**在扩展自管的 DSH 会话中，模型输出的“复制”使用 VS Code 剪贴板，`Read …` 文件（包括共享旧会话中位于当前工作区之外的绝对路径）在拥有该 DSH 进程的 VS Code 窗口中打开，HTTP/HTTPS 链接在 VS Code Simple Browser 中打开。Markdown 文件不再回退到 Typora 等 Windows 默认关联程序。在编辑器正文右键，无需选中文字即可“将文件添加到 DSH 对话”，选中代码后也可“添加到 DSH 对话”；两者都只向当前 DSH 草稿追加紧凑的文件名/行号 Markdown 链接，不粘贴代码正文；消息渲染后点击链接，会在所属 VS Code 窗口重新打开并选中该附件。扩展绝不会自动发送。**
+**在扩展自管的 DSH 会话中，模型输出的“复制”**与嵌入页面内的原生 ⌘C/⌘X/⌘V（Ctrl+C/X/V）**——包括聊天输入框内的选区——均使用 VS Code 剪贴板**；嵌入页面跟随 VS Code 明暗主题而非操作系统；`Read …` 文件（包括共享旧会话中位于当前工作区之外的绝对路径）在拥有该 DSH 进程的 VS Code 窗口中打开，HTTP/HTTPS 链接在 VS Code Simple Browser 中打开。Markdown 文件不再回退到 Typora 等 Windows 默认关联程序。在编辑器正文右键，无需选中文字即可“将文件添加到 DSH 对话”，选中代码后也可“添加到 DSH 对话”；两者都只向当前 DSH 草稿追加紧凑的文件名/行号 Markdown 链接，不粘贴代码正文；消息渲染后点击链接，会在所属 VS Code 窗口重新打开并选中该附件。扩展绝不会自动发送。**
 
 ## 选区链接示例
 
@@ -17,7 +17,7 @@
 ## 🚨 **重要警告：隔离模式会让原有模块看起来全部“消失”**
 
 > [!IMPORTANT]
-> **0.6.0 默认使用 `dsh.home.mode: shared`，直接采用 DSH 官方用户目录（优先 `DSH_HOME`，否则 `~/.dsh`）。独立 DSH 原有的模块、skills、providers、凭据、预设和会话会直接共享到 VS Code 侧栏。**
+> **默认（自 0.6.0 起）使用 `dsh.home.mode: shared`，直接采用 DSH 官方用户目录（优先 `DSH_HOME`，否则 `~/.dsh`）。独立 DSH 原有的模块、skills、providers、凭据、预设和会话会直接共享到 VS Code 侧栏。**
 >
 > 只有需要为本扩展单独维护一套模块配置时，才应设置 `dsh.home.mode: isolated`。隔离模式使用扩展私有的 `globalStorage/.dsh`，首次只有官方 `web` profile。切换模式后，所有模块可能看起来突然消失，但数据没有被删除，只是仍在另一套 DSH_HOME 中；扩展绝不会自动复制或合并两个目录。
 >
@@ -126,7 +126,7 @@ v1 边界：
 
 **诊断** 会读取 `dsh.*` 配置、服务状态、桥接状态、目录 revision 与 provider 检测结果，并显示一条摘要消息。完整诊断输出与 OutputChannel 有意留到后续 W4 切片。
 
-## 0.6 能力
+## 工作区与桥接能力（0.6–0.9）
 
 - **插件目录**（`src/catalog/*`、`src/detection/*`、`src/diagnose/*`）：经 schema 校验的 catalog 契约描述 DSH 插件分类/条目，L3 探针在选定 DSH home 内检测已安装插件，诊断结果包含插件摘要。
 - **工作区注册表**（`src/context/workspaceBinding.js`、`src/ch2/workspaceClient.js`）：侧边栏通过 DSH 的 `workspace.list/create` API 绑定 VS Code 工作区根。切换活动工作区根时经注册表重绑会话——**不会 kill 或重启自管子进程**。自管服务自动创建工作区记录，复用服务会先征求同意。
@@ -200,7 +200,7 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
    - 读取调试器状态（调用栈 / 变量）
    - 编辑器内展示 AI 进度与接受/拒绝 UI
 
-**当前状态：** 扩展目前只暴露较小的只读 VS Code 能力。完整对标 Cursor / Claude Code 尚未实现，属于多里程碑路线图，不在 0.6 批次范围内。
+**当前状态：** 扩展目前只暴露较小的只读 VS Code 能力。完整对标 Cursor / Claude Code 尚未实现，属于多里程碑路线图，超出当前发布范围。
 
 ## 配置
 
@@ -305,6 +305,8 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 - **部分 DSH 复制按钮仍可能失败**：桥只替换 `navigator.clipboard.writeText`；DSH UI 若走 `document.execCommand('copy')` 兜底，会写入 webview 剪贴板而不是 VS Code 剪贴板，该项属于 DSH UI 侧。模型输出经标准 clipboard API 的复制正常工作。
 
 ## 实现原理
+
+仓库结构：`src/`（扩展宿主）、`runtime-integration/dsh-vscode-integration/`（扩展每次激活时同步进 DSH home 的双半插件之 DSH 侧）、`test/`（单元与扩展宿主测试）、`scripts/`（lint / 打包 / 秘密扫描门禁）、`media/`、`l10n/`。内部实现笔记、QA 记录与批次计划位于 `docs/dev/`，绝不进入发布 VSIX；面向用户的问题历史见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) 与 [CHANGELOG.md](CHANGELOG.md)。
 
 | 文件 | 职责 |
 |---|---|

@@ -4,9 +4,9 @@
 
 Embeds the local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) web UI in the VS Code auxiliary sidebar (right rail, alongside Copilot Chat). By default, every VS Code window starts and owns one `dsh web` child with the current workspace as cwd, then renders it in a compact full-screen iframe.
 
-## **VS CODE INTERACTION GUARANTEE (0.6.0)**
+## **VS CODE INTERACTION GUARANTEE (0.9.0)**
 
-**In an extension-owned DSH session, model-output Copy uses the VS Code clipboard, `Read …` files—including absolute paths from shared older sessions outside the current workspace—open in the exact owning VS Code window, and HTTP/HTTPS links open in VS Code Simple Browser. Markdown files no longer fall through to Windows file associations such as Typora. Right-click the editor body to add either the whole file (`Add File to DSH Thread`, no selection required) or the current selection (`Add to DSH Thread`); both append only a compact Markdown file/link to the active DSH draft—never the selected source text. Clicking the rendered link reopens that approved file/selection in the owning VS Code window. Nothing is ever auto-sent.**
+**In an extension-owned DSH session, model-output Copy **and native ⌘C/⌘X/⌘V (Ctrl+C/X/V) inside the embedded page** use the VS Code clipboard—including selections inside the chat composer—, `Read …` files—including absolute paths from shared older sessions outside the current workspace—open in the exact owning VS Code window, and HTTP/HTTPS links open in VS Code Simple Browser. The embedded page follows the VS Code color theme (light/dark) instead of the OS. Markdown files no longer fall through to Windows file associations such as Typora. Right-click the editor body to add either the whole file (`Add File to DSH Thread`, no selection required) or the current selection (`Add to DSH Thread`); both append only a compact Markdown file/link to the active DSH draft—never the selected source text. Clicking the rendered link reopens that approved file/selection in the owning VS Code window. Nothing is ever auto-sent.**
 
 ## Selection-link example
 
@@ -17,7 +17,7 @@ Select one or more code ranges, right-click **Add to DSH Thread**, and the DSH d
 ## 🚨 **IMPORTANT: ISOLATED MODE CAN MAKE ALL EXISTING MODULES APPEAR TO DISAPPEAR**
 
 > [!IMPORTANT]
-> **Version 0.6.0 defaults to `dsh.home.mode: shared` and directly uses the official DSH home (`DSH_HOME`, otherwise `~/.dsh`). Existing modules, skills, providers, credentials, presets, and sessions are therefore shared with standalone DSH.**
+> **The default is `dsh.home.mode: shared` (since 0.6.0): the extension directly uses the official DSH home (`DSH_HOME`, otherwise `~/.dsh`). Existing modules, skills, providers, credentials, presets, and sessions are therefore shared with standalone DSH.**
 >
 > Set `dsh.home.mode` to `isolated` only when this VS Code extension needs a completely separate module configuration. Isolated mode uses the extension's private `globalStorage/.dsh`, initially containing only the official `web` profile. Switching modes can therefore make every module appear to disappear, but nothing is deleted—the data remains in the other DSH home. The extension never copies or merges the two homes.
 >
@@ -128,7 +128,7 @@ The extension never installs third-party providers. **Every third-party provider
 
 **Diagnose** reads the `dsh.*` configuration, server state, bridge state, catalog revision, and provider detection results, then shows a single summary message. Diagnostics are also mirrored to the **`DSH` OutputChannel** (VS Code → Output → DSH) — the last link of the failure-degradation chain — including feature failures, startup errors, self-heal events and orphan-sweep events.
 
-## 0.6 capabilities
+## Workspace & bridge capabilities (0.6–0.9)
 
 - **Plugin catalog** (`src/catalog/*`, `src/detection/*`, `src/diagnose/*`): a schema-validated catalog contract describes DSH plugin categories/entries, and the L3 probe detects installed plugins in the selected DSH home. `Diagnose` includes the plugin summary.
 - **Workspace registry** (`src/context/workspaceBinding.js`, `src/ch2/workspaceClient.js`): the sidebar binds VS Code workspace roots through DSH's `workspace.list/create` API. Switching the active workspace root rebinds the DSH session through the registry — the owned child process is **not** killed or restarted. Owned servers auto-create the workspace record; reused servers ask for consent.
@@ -202,7 +202,7 @@ Achieving a Cursor/Claude Code-like experience requires both sides of the bridge
    - debugger state (stack/variables) readback
    - in-editor progress and accept/reject UI for model suggestions
 
-**Current status:** the extension exposes a small read-only VS Code surface. Full Cursor/Claude Code parity is not implemented yet and is a multi-milestone roadmap, not part of the 0.6 batch.
+**Current status:** the extension exposes a small read-only VS Code surface. Full Cursor/Claude Code parity is not implemented yet and is a multi-milestone roadmap, beyond the current release scope.
 
 ## Configuration
 
@@ -311,6 +311,8 @@ B batch and is not implemented in A batch.
 - **Some DSH copy buttons may still fail**: the bridge only replaces `navigator.clipboard.writeText`; a DSH UI fallback that uses `document.execCommand('copy')` writes to the webview clipboard instead of the VS Code clipboard and belongs to the DSH UI side. Model-output Copy through the standard clipboard API works.
 
 ## Implementation
+
+Repository layout: `src/` (extension host), `runtime-integration/dsh-vscode-integration/` (the DSH-side dual-half plugin the extension syncs into the DSH home), `test/` (unit + extension-host suites), `scripts/` (lint / packaging / secret-scan gates), `media/`, `l10n/`. Internal implementation notes, QA findings and batch planning live under `docs/dev/` and never enter the published VSIX; user-facing issue history is in [KNOWN_ISSUES.md](KNOWN_ISSUES.md) and [CHANGELOG.md](CHANGELOG.md).
 
 | File | Responsibility |
 |---|---|
