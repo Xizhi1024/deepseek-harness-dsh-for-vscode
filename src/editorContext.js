@@ -30,7 +30,7 @@ const DEFAULT_MAX_DIAGNOSTIC_MESSAGE_CHARS = 2000;
  * Supported editor attachment kinds, in wire-protocol spelling.
  * @type {readonly string[]}
  */
-const ATTACHMENT_KINDS = Object.freeze(['active-file', 'selection', 'problems', 'folder']);
+const ATTACHMENT_KINDS = Object.freeze(['active-file', 'selection', 'problems', 'folder', 'file']);
 
 /**
  * Error raised by editor-context operations. Carries a stable bridge code
@@ -455,6 +455,44 @@ function createEditorContext(options = {}) {
   }
 
   /**
+   * Attach one to eight workspace files by URI for Ctrl+I style multi-file
+   * context. Unlike `attachActiveFile` this has no `allowOutsideWorkspace`
+   * mode: the command picks from the workspace file list, so the
+   * workspace-only gate is frozen here.
+   *
+   * The full URI list is validated before any document is opened, and all
+   * documents are read and budget-checked before any attachment is added,
+   * so a rejected request never leaves a partial attachment pool.
+   *
+   * @param {object[]} uris - File-scheme VS Code URI objects (1-8).
+   * @param {object} [options] - Reserved for symmetry with the other attach
+   *   methods; currently unused.
+   * @returns {Promise<object[]>} Attachments in the input order.
+   */
+  async function attachFiles(uris, options = {}) {
+    if (!Array.isArray(uris)) throw invalidParams('uris must be an array');
+    if (uris.length < 1) throw invalidParams('uris must contain at least one URI');
+    if (uris.length > 8) throw invalidParams('uris must contain at most 8 URIs');
+    for (const uri of uris) assertDocumentUriSafe(uri);
+
+    const opened = [];
+    for (const uri of uris) {
+      const document = await vscode.workspace.openTextDocument(uri);
+      const content = document.getText();
+      assertAttachmentFits(content);
+      opened.push({ uri, document, content });
+    }
+
+    return opened.map(({ uri, document, content }) => addAttachment({
+      id: nextAttachmentId(),
+      kind: 'file',
+      document: documentMetadata(document, describeUri(uri)),
+      content,
+      createdAt: now(),
+    }));
+  }
+
+  /**
    * Clear all attachments and bump the revision.
    *
    * @returns {void}
@@ -690,6 +728,7 @@ function createEditorContext(options = {}) {
     attachActiveSelection,
     attachProblems,
     attachFolder,
+    attachFiles,
     clearAttachments,
     attachmentSnapshot,
     openAttachment,
