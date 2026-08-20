@@ -32,6 +32,7 @@ function createVscodeFacade(api) {
     tasks: api.tasks,
     debug: api.debug,
     version: api.version,
+    chat: api.chat,
     Uri: api.Uri,
     window: api.window,
     workspace: api.workspace,
