@@ -97,11 +97,12 @@ function createExportsFace(deps) {
   ) {
     throw new TypeError('deps.editorContext.attachFiles and deps.editorContext.attachFolder must be functions');
   }
+  // The real vscode.Uri is a class (typeof 'function') with static
+  // methods; validate the two consumed members instead of its container type.
   if (
     !isRecord(deps.vscode)
-    || !isRecord(deps.vscode.Uri)
-    || typeof deps.vscode.Uri.parse !== 'function'
-    || typeof deps.vscode.Uri.isUri !== 'function'
+    || typeof (deps.vscode.Uri && deps.vscode.Uri.parse) !== 'function'
+    || typeof (deps.vscode.Uri && deps.vscode.Uri.isUri) !== 'function'
   ) {
     throw new TypeError('deps.vscode.Uri.parse and deps.vscode.Uri.isUri must be functions');
   }

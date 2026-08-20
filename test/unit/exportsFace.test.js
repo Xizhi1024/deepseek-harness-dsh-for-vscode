@@ -81,6 +81,21 @@ function makeDeps(overrides = {}) {
   return { deps, calls };
 }
 
+test('createExportsFace accepts the real vscode.Uri class form (statics on a function)', () => {
+  // The real vscode.Uri is a class: typeof 'function', with parse/isUri as
+  // static members. The face must not reject that container shape.
+  const { deps } = makeDeps();
+  const UriClass = function Uri(value) {
+    this.scheme = value.startsWith('file:') ? 'file' : 'other';
+    this.toString = () => value;
+  };
+  UriClass.parse = (value) => new UriClass(value);
+  UriClass.isUri = (value) => Boolean(value && typeof value.toString === 'function');
+  deps.vscode = { Uri: UriClass };
+  const face = createExportsFace(deps);
+  assert.equal(face.version, '1');
+});
+
 test('createExportsFace returns a frozen v1 face with ask, listSessions, addContext', () => {
   const { deps } = makeDeps();
   const face = createExportsFace(deps);
