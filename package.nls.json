@@ -42,6 +42,7 @@
   "dsh.cmd.addProblems": "Add Problems to DSH Context",
   "dsh.cmd.newSession": "New Session",
   "dsh.cmd.switchSession": "Switch Session",
+  "dsh.cmd.openSessionHistory": "Open Session History",
   "dsh.cmd.capabilities": "Capabilities and Integrations",
   "dsh.cmd.diagnose": "Diagnose",
   "dsh.cmd.cleanupOrphans": "Clean Up Orphan DSH Servers",
@@ -55,8 +56,11 @@
   "dsh.cmd.ctrlKEdit": "Edit with DSH (Ctrl+K)",
   "dsh.cmd.ctrlIEdit": "Edit with DSH Files (Ctrl+I)",
   "dsh.cmd.mcp.refresh": "Refresh MCP Servers",
+  "dsh.cmd.fim.setApiKey": "Set DSH FIM API Key",
   "dsh.cmd.mcp.forgetConsent": "Forget MCP Server Consent",
   "dsh.lm.vendor": "DSH",
+  "dsh.participant.name": "DSH",
+  "dsh.participant.description": "Ask the local DeepSeek Harness (DSH) from the VS Code chat view. Off by default; enable with dsh.features.chat-participant.",
   "dsh.cfg.features.changes-review": "Review workspace edits proposed by DSH: approval prompts, the dsh.changes tree view, and the vscode/changes/push bridge handler. Off by default.",
   "dsh.cfg.features.ctrl-k": "Enable the Edit with DSH (Ctrl+K) command that sends the active selection and an instruction to the DSH conversation. Off by default; no keybinding is contributed.",
   "dsh.cfg.features.ctrl-i": "Enable the Edit with DSH Files (Ctrl+I) command that lets you pick 1-8 workspace files and sends them as a multi-file context block to the DSH conversation. Off by default; no keybinding is contributed.",
@@ -64,5 +68,8 @@
   "dsh.cfg.lm.route": "DSH model routing mode. off = never register the dsh chat provider; fixed = fetch /api/lm/models once and cache; dynamic = refresh the model list on every picker open.",
   "dsh.cfg.features.mcp-consume": "Let DSH consume VS Code MCP servers through the bridge (vscode/mcp/listServers|listTools|callTool). Off by default.",
   "dsh.cfg.features.call-export": "Let DSH call exported methods of installed VS Code extensions through the bridge (vscode/extensions/callExport). Off by default; activation and invocation share this consent gate.",
-  "dsh.cfg.features.exports": "Enable the programmatic exports API returned by the extension activate() face (ask/listSessions/addContext). Off by default; calls throw DSH_EXPORT_DISABLED until enabled."
+  "dsh.cfg.features.exports": "Enable the programmatic exports API returned by the extension activate() face (ask/listSessions/addContext). Off by default; calls throw DSH_EXPORT_DISABLED until enabled.",
+  "dsh.cfg.features.chat-participant": "Enable the @dsh chat participant in the VS Code chat view. Off by default; the participant consumes DSH sessions only and never uses the vscode.lm/Copilot quota.",
+  "dsh.cfg.features.tab-completion": "Enable the DSH FIM tab-completion provider for file documents. Off by default; POC-quality feature.",
+  "dsh.cfg.fim.model": "DSH-side FIM model name used for tab completion. The upstream API key and base URL are configured in the DSH-side vscode-fim plugin, never here."
 }

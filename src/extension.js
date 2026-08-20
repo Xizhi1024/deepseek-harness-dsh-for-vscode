@@ -72,6 +72,8 @@ const { createCleanupOrphansCommand } = require('./commands/cleanupOrphans');
 const { createCtrlIEditCommand } = require('./commands/ctrlIEdit');
 const { createCtrlKEditCommand } = require('./commands/ctrlKEdit');
 const { createDshChatClient } = require('./dshChatClient');
+const { createChatParticipantModule } = require('./chatParticipant');
+const { createInlineCompletionProvider } = require('./inlineCompletion');
 const { createExportsFace } = require('./exportsFace');
 const { createWorkspaceContext } = require("./workspaceContext");
 const { createWorkspaceBinding, BINDING_STATES } = require("./context/workspaceBinding");
@@ -1028,6 +1030,8 @@ const FEATURE_CATALOG = [
   { id: 'call-export', label: 'Call extension exports (vscode/extensions/callExport)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCallExport },
   { id: 'ctrl-i', label: 'Edit with DSH files (Ctrl+I, keybinding not bound)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCtrlI },
   { id: 'exports', label: 'Programmatic exports API (activate() return face)', layer: 'L2', defaultEnabled: false, core: false, setup: setupExports },
+  { id: 'chat-participant', label: 'Chat participant @dsh', layer: 'L2', defaultEnabled: false, core: false, setup: setupChatParticipant },
+  { id: 'tab-completion', label: 'Tab completion (FIM POC)', layer: 'L2', defaultEnabled: false, core: false, setup: setupTabCompletion },
 ];
 
 /**
@@ -1688,6 +1692,87 @@ function setupExports({ context, services }) {
 }
 
 /**
+ * E-asm-2: L2 chat-participant (dsh.features.chat-participant). Registers the
+ * `dsh` chat participant with the asm-1 chatClient + workspace-session seams
+ * (same factory shape as buildExportsFace; asm-1 did not publish a
+ * services.chatClient handle, so a same-factory instance is created here).
+ * Missing vscode.chat API degrades to a diagnostic — an L2 feature never
+ * breaks the L0 lifeline.
+ */
+async function setupChatParticipant({ context, services }) {
+  if (!services.vscode || typeof services.vscode.chat?.createChatParticipant !== 'function') {
+    appendDiagnostic('chat-participant support degraded: vscode.chat.createChatParticipant is unavailable');
+    return () => {};
+  }
+  const ensureConnected = async () => {
+    if (!currentServer) await scheduleConnect(context);
+    return Boolean(currentServer);
+  };
+  const chatClient = createDshChatClient({
+    baseUrlProvider: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
+    ensureConnected,
+  });
+  const participantModule = createChatParticipantModule({
+    chatClient,
+    resolveSessionId: async () => {
+      if (typeof ensureWorkspaceSessionFn !== 'function') {
+        throw new Error('DSH workspace session seam is unavailable');
+      }
+      return ensureWorkspaceSessionFn(
+        currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
+        hostContext.workspaceCwd()
+      );
+    },
+    isEnabled: () => vscode.workspace.getConfiguration('dsh').get('features.chat-participant', false),
+    listSessionsFn: ({ signal }) => listSessions(
+      currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
+      { signal }
+    ),
+    loc,
+  });
+  const participant = services.vscode.chat.createChatParticipant('dsh', participantModule.handleRequest);
+  participant.followupProvider = { provideFollowups: participantModule.provideFollowups };
+  const dispose = () => {
+    try {
+      participant.dispose();
+    } catch (_) {
+      /* participant disposal is best-effort */
+    }
+  };
+  context.subscriptions.push({ dispose });
+  return dispose;
+}
+
+/**
+ * E-asm-2: L2 tab-completion (dsh.features.tab-completion). Generates a
+ * per-window FIM bridge token, injects it through the R23 setSpawnEnv shape
+ * (object merge, cleared with an empty string on teardown), and registers the
+ * inline completion provider for file documents.
+ */
+async function setupTabCompletion({ context, services }) {
+  const token = crypto.randomBytes(32).toString('hex');
+  services.manager?.setSpawnEnv?.({ DSH_FIM_BRIDGE_TOKEN: token });
+  const provider = createInlineCompletionProvider({
+    getServerUrl: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
+    tokenProvider: () => token,
+    getModel: () => vscode.workspace.getConfiguration('dsh').get('fim.model', ''),
+    fetchImpl: globalThis.fetch,
+    log: (line) => appendDiagnostic(line),
+  });
+  const registration = vscode.languages.registerInlineCompletionItemProvider({ scheme: 'file' }, provider.provider);
+  context.subscriptions.push(registration);
+  return () => {
+    try {
+      registration?.dispose?.();
+    } catch (_) {
+      /* registration disposal is best-effort */
+    }
+    provider.dispose();
+    services.manager?.setSpawnEnv?.({ DSH_FIM_BRIDGE_TOKEN: '' });
+  };
+}
+
+/**
  * R23: L2 lm-route (dsh.features.lm-route + dsh.lm.route). Registers the
  * `dsh` language-model chat provider and injects a per-window bridge token so
  * the DSH-side `/api/lm/*` routes only answer this extension host.
@@ -1837,6 +1922,22 @@ function registerFeatureCommands(context, featureOk) {
   }
 
   const registered = [];
+
+  function registerFimSetApiKeyCommand() {
+    return vscode.commands.registerCommand("dsh.fim.setApiKey", async () => {
+      const value = await vscode.window.showInputBox({
+        password: true,
+        prompt: loc('dsh.fim.setApiKey.prompt'),
+      });
+      if (typeof value === 'string' && value.length > 0) {
+        await context.secrets.store('dsh.fim.apiKey', value);
+        vscode.window.showInformationMessage(loc("DSH FIM API key stored"));
+      } else {
+        await context.secrets.delete('dsh.fim.apiKey');
+        vscode.window.showInformationMessage(loc("DSH FIM API key deleted"));
+      }
+    });
+  }
 
   if (featureOk.has('core-sidebar')) {
     registered.push(
@@ -2031,6 +2132,45 @@ function registerFeatureCommands(context, featureOk) {
         }));
       }
     })),
+    ...(featureOk.has('chat-participant')
+      ? [vscode.commands.registerCommand("dsh.openSessionHistory", () => lifecycle.enqueue("open session history", async () => {
+          try {
+            if (!currentServer) await connectNow(context);
+            if (!currentServer) {
+              vscode.window.showWarningMessage(loc("DSH: unavailable"));
+              return;
+            }
+            const baseUrl = currentServer.url;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 6000);
+            let items;
+            try {
+              items = await listSessions(baseUrl, { signal: controller.signal });
+            } finally {
+              clearTimeout(timer);
+            }
+            const rows = rootSessionItems(items);
+            if (rows.length === 0) {
+              vscode.window.showWarningMessage(loc("No sessions available"));
+              return;
+            }
+            const selected = await showSessionQuickPick(vscode, rows, {
+              placeholder: loc("Open Session History"),
+            });
+            if (selected && selected.sessionId) {
+              currentSessionId = sessionIdFromValue(selected.sessionId);
+              renderFrame(context);
+              vscode.window.showInformationMessage(loc("Session switched: {sessionId}", {
+                sessionId: selected.sessionId,
+              }));
+            }
+          } catch (err) {
+            vscode.window.showErrorMessage(loc("Session command failed: {message}", {
+              message: err && err.message ? err.message : String(err),
+            }));
+          }
+        }))]
+      : []),
     vscode.commands.registerCommand("dsh.focusSidebar", async () => {
       await vscode.commands.executeCommand("workbench.view.extension." + CONTAINER_ID);
       await vscode.commands.executeCommand(VIEW_ID + ".focus");
@@ -2181,7 +2321,12 @@ function registerFeatureCommands(context, featureOk) {
       vscode.commands.registerCommand("dsh.mcp.refresh", () => {
         mcpManager.refresh();
         vscode.window.showInformationMessage(loc("MCP servers refreshed"));
-      }),
+      })
+    );
+    if (featureOk.has('tab-completion')) {
+      registered.push(registerFimSetApiKeyCommand());
+    }
+    registered.push(
       vscode.commands.registerCommand("dsh.mcp.forgetConsent", async () => {
         const name = await vscode.window.showInputBox({ prompt: loc("MCP server name to forget") });
         if (typeof name === 'string' && name.length > 0) {
@@ -2190,6 +2335,8 @@ function registerFeatureCommands(context, featureOk) {
         }
       })
     );
+  } else if (featureOk.has('tab-completion')) {
+    registered.push(registerFimSetApiKeyCommand());
   }
 
   context.subscriptions.push(...registered);
@@ -2242,6 +2389,7 @@ async function activateWithDependencies(context, dependencies = {}) {
   }
 
   const services = {};
+  services.vscode = vscode;
   featureFailures = [];
   selfHealEvents = [];
   exportsFaceInstance = null;

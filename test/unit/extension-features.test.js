@@ -188,5 +188,7 @@ test('FEATURE_CATALOG carries the frozen R25 layers', () => {
     'call-export': 'L2',
     'ctrl-i': 'L2',
     'exports': 'L2',
+    'chat-participant': 'L2',
+    'tab-completion': 'L2',
   });
 });

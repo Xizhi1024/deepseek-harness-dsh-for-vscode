@@ -49,6 +49,16 @@ function createFakeVscode(configOverrides = {}) {
     },
     languages: {
       getDiagnostics() { return []; },
+      registerInlineCompletionItemProvider(selector, provider) {
+        registrations.inlineCompletion = { selector, provider };
+        return disposable();
+      },
+    },
+    chat: {
+      createChatParticipant(id, handler) {
+        registrations.chatParticipant = { id, handler, followupProvider: null };
+        return registrations.chatParticipant;
+      },
     },
     lm: {
       registerLanguageModelChatProvider(vendor, provider) {
@@ -1507,6 +1517,331 @@ test('ctrl-i command is registered before ctrl-k when both L2 features are enabl
       && keys.indexOf('dsh.ctrlIEdit') < keys.indexOf('dsh.ctrlKEdit'),
     'dsh.ctrlIEdit must be registered before dsh.ctrlKEdit'
   );
+  await deactivate();
+});
+
+function managerStubWithSpawnEnv(spawnEnvCalls) {
+  return {
+    setSpawnEnv(env) { spawnEnvCalls.push(env); },
+    setOwnerIdentity() {},
+    cancelPending() {},
+    currentChildPid() { return null; },
+    hasOwnedChild() { return false; },
+    async stop() {},
+  };
+}
+
+test('chat-participant L2 feature registers the @dsh chat participant only when enabled', async () => {
+  const off = createFakeVscode();
+  const offContext = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-chat-participant-off-${process.pid}`) },
+    subscriptions: [],
+  };
+  await activateWithDependencies(offContext, {
+    vscode: off.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() {
+      return {
+        setSpawnEnv() {},
+        setOwnerIdentity() {},
+        cancelPending() {},
+        currentChildPid() { return null; },
+        hasOwnedChild() { return false; },
+        async stop() {},
+      };
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  assert.strictEqual(off.registrations.chatParticipant, undefined, 'disabled feature must not create the chat participant');
+  await deactivate();
+
+  const on = createFakeVscode({ 'features.chat-participant': true });
+  const onContext = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-chat-participant-on-${process.pid}`) },
+    subscriptions: [],
+  };
+  await activateWithDependencies(onContext, {
+    vscode: on.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() {
+      return {
+        setSpawnEnv() {},
+        setOwnerIdentity() {},
+        cancelPending() {},
+        currentChildPid() { return null; },
+        hasOwnedChild() { return false; },
+        async stop() {},
+      };
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  assert.ok(on.registrations.chatParticipant, 'enabled feature must create the chat participant');
+  assert.strictEqual(on.registrations.chatParticipant.id, 'dsh');
+  assert.strictEqual(typeof on.registrations.chatParticipant.handler, 'function');
+  assert.strictEqual(typeof on.registrations.chatParticipant.followupProvider.provideFollowups, 'function');
+  await deactivate();
+});
+
+test('tab-completion L2 feature registers the file-scheme provider and clears the bridge token on teardown', async () => {
+  const off = createFakeVscode();
+  const offSpawnEnvCalls = [];
+  const offContext = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-fim-off-${process.pid}`) },
+    subscriptions: [],
+  };
+  await activateWithDependencies(offContext, {
+    vscode: off.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() {
+      return managerStubWithSpawnEnv(offSpawnEnvCalls);
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  assert.strictEqual(off.registrations.inlineCompletion, undefined, 'disabled feature must not register the provider');
+  assert.ok(
+    !offSpawnEnvCalls.some((env) => Object.hasOwn(env, 'DSH_FIM_BRIDGE_TOKEN')),
+    'disabled feature must not write the FIM bridge token',
+  );
+  await deactivate();
+
+  const on = createFakeVscode({ 'features.tab-completion': true, 'fim.model': 'test-fim-model' });
+  const onSpawnEnvCalls = [];
+  const onContext = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-fim-on-${process.pid}`) },
+    subscriptions: [],
+  };
+  await activateWithDependencies(onContext, {
+    vscode: on.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() {
+      return managerStubWithSpawnEnv(onSpawnEnvCalls);
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  assert.ok(on.registrations.inlineCompletion, 'enabled feature must register the inline completion provider');
+  assert.deepStrictEqual(on.registrations.inlineCompletion.selector, { scheme: 'file' });
+  assert.strictEqual(typeof on.registrations.inlineCompletion.provider.provideInlineCompletionItems, 'function');
+  assert.ok(
+    onSpawnEnvCalls.some((env) => typeof env.DSH_FIM_BRIDGE_TOKEN === 'string' && env.DSH_FIM_BRIDGE_TOKEN.length === 64),
+    'enabled feature must inject a 64-char hex FIM bridge token',
+  );
+
+  await deactivate();
+  assert.ok(
+    onSpawnEnvCalls.some((env) => env.DSH_FIM_BRIDGE_TOKEN === ''),
+    'deactivate must clear the injected FIM bridge token',
+  );
+});
+
+test('chat-participant and tab-completion each add exactly one command when enabled', async () => {
+  const off = createFakeVscode();
+  const offContext = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-asm2-commands-off-${process.pid}`) },
+    subscriptions: [],
+  };
+  await activateWithDependencies(offContext, {
+    vscode: off.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() {
+      return {
+        setSpawnEnv() {},
+        setOwnerIdentity() {},
+        cancelPending() {},
+        currentChildPid() { return null; },
+        hasOwnedChild() { return false; },
+        async stop() {},
+      };
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  const offCount = off.commands.size;
+  assert.ok(!off.commands.has('dsh.openSessionHistory'), 'openSessionHistory must be absent when disabled');
+  assert.ok(!off.commands.has('dsh.fim.setApiKey'), 'fim.setApiKey must be absent when disabled');
+  await deactivate();
+
+  const on = createFakeVscode({ 'features.chat-participant': true, 'features.tab-completion': true });
+  const onContext = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-asm2-commands-on-${process.pid}`) },
+    subscriptions: [],
+  };
+  await activateWithDependencies(onContext, {
+    vscode: on.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() {
+      return {
+        setSpawnEnv() {},
+        setOwnerIdentity() {},
+        cancelPending() {},
+        currentChildPid() { return null; },
+        hasOwnedChild() { return false; },
+        async stop() {},
+      };
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  assert.ok(on.commands.has('dsh.openSessionHistory'), 'openSessionHistory must be registered when enabled');
+  assert.ok(on.commands.has('dsh.fim.setApiKey'), 'fim.setApiKey must be registered when enabled');
+  assert.strictEqual(on.commands.size, offCount + 2, 'enabling both features must add exactly two commands');
+  const keys = [...on.commands.keys()];
+  assert.ok(
+    keys.indexOf('dsh.openSessionHistory') === keys.indexOf('dsh.switchSession') + 1,
+    'dsh.openSessionHistory must be registered immediately after dsh.switchSession',
+  );
+  await deactivate();
+});
+
+test('dsh.fim.setApiKey is registered immediately after dsh.mcp.refresh when both features are enabled', async () => {
+  const fake = createFakeVscode({ 'features.tab-completion': true, 'features.mcp-consume': true });
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-fim-command-order-${process.pid}`) },
+    globalState: {
+      _store: new Map(),
+      get(key) { return this._store.get(key); },
+      update(key, value) { this._store.set(key, value); },
+    },
+    subscriptions: [],
+  };
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() {
+      return {
+        setSpawnEnv() {},
+        setOwnerIdentity() {},
+        cancelPending() {},
+        currentChildPid() { return null; },
+        hasOwnedChild() { return false; },
+        async stop() {},
+      };
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  const keys = [...fake.commands.keys()];
+  assert.ok(
+    keys.indexOf('dsh.fim.setApiKey') === keys.indexOf('dsh.mcp.refresh') + 1,
+    'dsh.fim.setApiKey must be registered immediately after dsh.mcp.refresh',
+  );
+  await deactivate();
+});
+
+test('dsh.fim.setApiKey stores non-empty input and deletes on empty input', async () => {
+  const fake = createFakeVscode({ 'features.tab-completion': true });
+  const inputBoxCalls = [];
+  let inputValue = '';
+  fake.api.window.showInputBox = async (options) => {
+    inputBoxCalls.push(options);
+    return inputValue;
+  };
+  const stored = [];
+  const deleted = [];
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-fim-apikey-${process.pid}`) },
+    secrets: {
+      async store(key, value) { stored.push({ key, value }); },
+      async delete(key) { deleted.push(key); },
+    },
+    subscriptions: [],
+  };
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() {
+      return {
+        setSpawnEnv() {},
+        setOwnerIdentity() {},
+        cancelPending() {},
+        currentChildPid() { return null; },
+        hasOwnedChild() { return false; },
+        async stop() {},
+      };
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  inputValue = 'sk-test-fim-key';
+  await fake.commands.get('dsh.fim.setApiKey')();
+  assert.deepStrictEqual(stored, [{ key: 'dsh.fim.apiKey', value: 'sk-test-fim-key' }]);
+  assert.ok(fake.informationMessages.some((message) => message.includes('DSH FIM API key stored')));
+
+  inputValue = '';
+  await fake.commands.get('dsh.fim.setApiKey')();
+  assert.deepStrictEqual(deleted, ['dsh.fim.apiKey']);
+  assert.ok(fake.informationMessages.some((message) => message.includes('DSH FIM API key deleted')));
+
+  assert.strictEqual(inputBoxCalls.length, 2);
+  assert.strictEqual(inputBoxCalls[0].password, true);
+  assert.strictEqual(inputBoxCalls[0].prompt, 'dsh.fim.setApiKey.prompt');
   await deactivate();
 });
 

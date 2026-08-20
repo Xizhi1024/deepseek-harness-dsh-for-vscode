@@ -83,6 +83,14 @@ test('editor title exposes one persistent icon and DSH view title exposes only t
     !manifest.contributes.keybindings.some((entry) => entry.command === 'dsh.ctrlIEdit'),
     'E-asm-1 verdict: Ctrl+I must not contribute a default keybinding'
   );
+  assert.ok(
+    !manifest.contributes.keybindings.some((entry) => entry.command === 'dsh.openSessionHistory'),
+    'dsh.openSessionHistory must not contribute a default keybinding'
+  );
+  assert.ok(
+    !manifest.contributes.keybindings.some((entry) => entry.command === 'dsh.fim.setApiKey'),
+    'dsh.fim.setApiKey must not contribute a default keybinding'
+  );
   assert.deepStrictEqual(menus['editor/title/context'], [{
     command: 'dsh.addFileToThread',
     group: 'dsh@1',
@@ -152,6 +160,8 @@ test('extension-host smoke expectations cover every contributed command id', () 
     'dsh.mcp.refresh',
     'dsh.newSession',
     'dsh.openInBrowser',
+    'dsh.openSessionHistory',
+    'dsh.fim.setApiKey',
     'dsh.restartServer',
     'dsh.restartClean',
     'dsh.stopServer',
@@ -165,6 +175,14 @@ test('extension-host smoke expectations cover every contributed command id', () 
     commandOrder.indexOf('dsh.ctrlIEdit') >= 0 && commandOrder.indexOf('dsh.ctrlKEdit') >= 0
       && commandOrder.indexOf('dsh.ctrlIEdit') < commandOrder.indexOf('dsh.ctrlKEdit'),
     'dsh.ctrlIEdit must be contributed before dsh.ctrlKEdit'
+  );
+  assert.ok(
+    commandOrder.indexOf('dsh.openSessionHistory') === commandOrder.indexOf('dsh.switchSession') + 1,
+    'dsh.openSessionHistory must be contributed immediately after dsh.switchSession'
+  );
+  assert.ok(
+    commandOrder.indexOf('dsh.fim.setApiKey') === commandOrder.indexOf('dsh.mcp.refresh') + 1,
+    'dsh.fim.setApiKey must be contributed immediately after dsh.mcp.refresh'
   );
 });
 
@@ -216,4 +234,30 @@ test('R23 language-model chat provider contribution and routing config are froze
   assert.deepStrictEqual(properties['dsh.lm.route'].enum, ['off', 'fixed', 'dynamic']);
   assert.strictEqual(properties['dsh.features.lm-route'].default, false);
   assert.strictEqual(properties['dsh.features.lm-route'].type, 'boolean');
+});
+
+test('E-asm-2 chat participant contribution, activation events, and FIM config are frozen', () => {
+  assert.deepStrictEqual(manifest.contributes.chatParticipants, [{
+    id: 'dsh',
+    name: '%dsh.participant.name%',
+    description: '%dsh.participant.description%',
+  }]);
+  assert.ok(manifest.activationEvents.includes('onChatParticipant:dsh'));
+  assert.ok(manifest.activationEvents.includes('onCommand:dsh.openSessionHistory'));
+  assert.ok(manifest.activationEvents.includes('onCommand:dsh.fim.setApiKey'));
+
+  const properties = manifest.contributes.configuration.properties;
+  assert.strictEqual(properties['dsh.features.chat-participant'].type, 'boolean');
+  assert.strictEqual(properties['dsh.features.chat-participant'].default, false);
+  assert.strictEqual(properties['dsh.features.tab-completion'].type, 'boolean');
+  assert.strictEqual(properties['dsh.features.tab-completion'].default, false);
+  assert.strictEqual(properties['dsh.fim.model'].type, 'string');
+  assert.strictEqual(properties['dsh.fim.model'].default, '');
+  assert.strictEqual(properties['dsh.fim.model'].scope, 'machine');
+  assert.ok(
+    !Object.hasOwn(properties, 'dsh.fim.apiKey'),
+    'dsh.fim.apiKey must never be contributed as a configuration key'
+  );
+  assert.ok(!Object.hasOwn(properties, 'dsh.fim.baseUrl'), 'dsh.fim.baseUrl must not be contributed');
+  assert.ok(!Object.hasOwn(properties, 'dsh.fim.api'), 'dsh.fim.api must not be contributed');
 });
