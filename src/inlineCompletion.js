@@ -167,7 +167,6 @@ function parseSSEText(raw, log) {
  *   log?: (...args: unknown[]) => void,
  *   setTimeout?: (fn: () => void, ms: number) => unknown,
  *   clearTimeout?: (id: unknown) => void,
- *   now?: () => number,
  * }} deps
  * @returns {{provider: {provideInlineCompletionItems: Function}, dispose: () => void}}
  */
@@ -300,6 +299,11 @@ function createInlineCompletionProvider(deps) {
     const model = getModel();
     if (!model) return [];
 
+    // The newest call always wins the debounce window, including calls that
+    // end in the line-start no-op exit below: a stale pending request for a
+    // cursor that has since moved to a short line must not fire.
+    clearPendingDebounce();
+
     let fullText;
     try {
       fullText = document.getText();
@@ -314,8 +318,6 @@ function createInlineCompletionProvider(deps) {
     if (textBeforeCursor.length < 2) return [];
 
     if (inflight) return [];
-
-    clearPendingDebounce();
 
     return new Promise((resolve) => {
       debounceWaiters.push(resolve);
