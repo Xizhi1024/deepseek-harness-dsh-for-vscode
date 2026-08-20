@@ -69,7 +69,10 @@ const {
   createAddFolderToThreadCommand,
 } = require('./commands/addFileToThread');
 const { createCleanupOrphansCommand } = require('./commands/cleanupOrphans');
+const { createCtrlIEditCommand } = require('./commands/ctrlIEdit');
 const { createCtrlKEditCommand } = require('./commands/ctrlKEdit');
+const { createDshChatClient } = require('./dshChatClient');
+const { createExportsFace } = require('./exportsFace');
 const { createWorkspaceContext } = require("./workspaceContext");
 const { createWorkspaceBinding, BINDING_STATES } = require("./context/workspaceBinding");
 const { createEditorContext } = require("./editorContext");
@@ -135,6 +138,7 @@ let threadAttachmentCoordinator = null; // owning-window request/ack bridge into
 let injectedDependencies = {}; // activation seams shared with the feature setups (deps stays { context, services })
 let registry = null; // R25 feature registry (created in activateWithDependencies)
 let featureFailures = []; // R25 [{ id, error, at }] folded into dsh.diagnose
+let exportsFaceInstance = null; // E-asm-1 activate() return face (always shaped; feature off => methods throw)
 const instancePanels = new Map(); // R16: instanceId -> { panel, server } (shared child, per-panel session)
 let instanceSeq = 0; // R16: monotonically increasing instance counter
 let lastFocusedInstanceId = null; // R16: most recently focused DSH surface (null = sidebar)
@@ -1022,6 +1026,8 @@ const FEATURE_CATALOG = [
   { id: 'lm-route', label: 'DSH model routing', layer: 'L2', defaultEnabled: false, core: false, setup: setupLmRoute },
   { id: 'mcp-consume', label: 'MCP servers', layer: 'L2', defaultEnabled: false, core: false, setup: setupMcpConsume },
   { id: 'call-export', label: 'Call extension exports (vscode/extensions/callExport)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCallExport },
+  { id: 'ctrl-i', label: 'Edit with DSH files (Ctrl+I, keybinding not bound)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCtrlI },
+  { id: 'exports', label: 'Programmatic exports API (activate() return face)', layer: 'L2', defaultEnabled: false, core: false, setup: setupExports },
 ];
 
 /**
@@ -1628,6 +1634,60 @@ async function setupCtrlK() {
 }
 
 /**
+ * E-asm-1: L2 ctrl-i (dsh.features.ctrl-i). The command itself is registered
+ * in registerFeatureCommands; this setup only marks the feature as healthy.
+ */
+async function setupCtrlI() {
+  return () => {};
+}
+
+/**
+ * E-asm-1: L2 exports (dsh.features.exports). Build the frozen activate()
+ * return face from the real chatClient + workspace-session seams and store it
+ * in exportsFaceInstance. The face always exists after activation: with the
+ * feature off every method exists and throws DSH_EXPORT_DISABLED at call time.
+ */
+function buildExportsFace(context) {
+  const ensureConnected = async () => {
+    if (!currentServer) await scheduleConnect(context);
+    return Boolean(currentServer);
+  };
+  return createExportsFace({
+    isEnabled: () => vscode.workspace.getConfiguration('dsh').get('features.exports', false),
+    chatClient: createDshChatClient({
+      baseUrlProvider: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
+      ensureConnected,
+    }),
+    resolveSessionId: async () => {
+      if (typeof ensureWorkspaceSessionFn !== 'function') {
+        throw new Error('DSH workspace session seam is unavailable');
+      }
+      return ensureWorkspaceSessionFn(
+        currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
+        hostContext.workspaceCwd()
+      );
+    },
+    listSessionsFn: ({ signal }) => listSessions(
+      currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
+      { signal }
+    ),
+    getBaseUrl: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
+    editorContext,
+    loc,
+    vscode: { Uri: vscode.Uri },
+  });
+}
+
+function setupExports({ context, services }) {
+  exportsFaceInstance = buildExportsFace(context);
+  if (services) services.exportsFace = exportsFaceInstance;
+  return () => {
+    if (services) services.exportsFace = undefined;
+    exportsFaceInstance = null;
+  };
+}
+
+/**
  * R23: L2 lm-route (dsh.features.lm-route + dsh.lm.route). Registers the
  * `dsh` language-model chat provider and injects a per-window bridge token so
  * the DSH-side `/api/lm/*` routes only answer this extension host.
@@ -2080,6 +2140,24 @@ function registerFeatureCommands(context, featureOk) {
     );
   }
 
+  if (featureOk.has('ctrl-i')) {
+    registered.push(
+      vscode.commands.registerCommand("dsh.ctrlIEdit", createCtrlIEditCommand({
+        vscode,
+        editorContext,
+        coordinator: threadAttachmentCoordinator,
+        formatFileAttachment,
+        waitForResolvedView,
+        ensureConnected: async () => {
+          if (!currentServer) await scheduleConnect(context);
+          return Boolean(currentServer);
+        },
+        loc,
+        focusedComposerWebview,
+      }))
+    );
+  }
+
   if (featureOk.has('ctrl-k')) {
     registered.push(
       vscode.commands.registerCommand("dsh.ctrlKEdit", createCtrlKEditCommand({
@@ -2166,6 +2244,7 @@ async function activateWithDependencies(context, dependencies = {}) {
   const services = {};
   featureFailures = [];
   selfHealEvents = [];
+  exportsFaceInstance = null;
   cleanMode = false;
   cleanPatchPath = null;
   pendingCleanRestart = false;
@@ -2205,6 +2284,19 @@ async function activateWithDependencies(context, dependencies = {}) {
     console.error('dsh-vs-sidebar: feature assembly failed:', err);
     featureFailures = Array.isArray(registry?.failures) ? registry.failures.slice() : featureFailures;
   }
+
+  // E-asm-1: the activate() return face exists even when dsh.features.exports
+  // is off (the face methods then throw DSH_EXPORT_DISABLED at call time).
+  // setupExports already built it when the feature is enabled.
+  if (!exportsFaceInstance) {
+    try {
+      exportsFaceInstance = buildExportsFace(context);
+    } catch (err) {
+      console.error('dsh-vs-sidebar: exports face assembly failed:', err);
+      exportsFaceInstance = null;
+    }
+  }
+  services.exportsFace = exportsFaceInstance || undefined;
 
   // autoStart at VS Code startup: activate even when the sidebar view is never
   // opened. connectNow() is null-safe — no WebviewView resolved yet is fine, the
@@ -2250,8 +2342,9 @@ async function activateWithDependencies(context, dependencies = {}) {
   });
 }
 
-async function activate(context) {
-  return activateWithDependencies(context);
+async function activate(context, dependencies) {
+  await activateWithDependencies(context, dependencies);
+  return exportsFaceInstance;
 }
 
 async function deactivate() {
@@ -2302,6 +2395,7 @@ async function deactivate() {
     currentSessionId = null;
     currentDshTheme = null;
     boundCwd = null;
+    exportsFaceInstance = null;
     stopHeartbeat();
     outputChannel = null;
   }

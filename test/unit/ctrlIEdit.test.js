@@ -187,7 +187,7 @@ test('Ctrl+I picker is bounded, multi-select, and labelled with file name + rela
   assert.strictEqual(picker.items.length, 2);
   assert.deepStrictEqual(picker.items.map((item) => item.label), ['a.ts', 'b.ts']);
   assert.deepStrictEqual(picker.items.map((item) => item.description), ['a.ts', 'b.ts']);
-  assert.deepStrictEqual(harness.state.findFilesCalls, [['**/*', undefined, CTRLI_MAX_FILES]]);
+  assert.deepStrictEqual(harness.state.findFilesCalls, [['**/*', '**/node_modules/**', CTRLI_MAX_FILES]]);
 
   picker.handlers.hide();
   await pending;

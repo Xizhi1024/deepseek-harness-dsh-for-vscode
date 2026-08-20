@@ -162,7 +162,7 @@ function createCtrlIEditCommand({
         else resolve(result);
       };
 
-      Promise.resolve(vscode.workspace.findFiles('**/*', undefined, CTRLI_MAX_FILES)).then(
+      Promise.resolve(vscode.workspace.findFiles('**/*', '**/node_modules/**', CTRLI_MAX_FILES)).then(
         (uris) => {
           if (settled) return;
           const files = Array.isArray(uris) ? uris : [];

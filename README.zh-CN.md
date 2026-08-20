@@ -45,6 +45,7 @@
 
 - `Ctrl+Alt+B` 打开辅助侧边栏 → **DeepSeek Harness (DSH)** 标签
 - 可选 `Ctrl+L`（macOS 为 `Cmd+L`）：开启 `dsh.keybindings.ctrlL` 后，在编辑器中按下即可把当前选区加入 DSH 对话
+- 可选 `Ctrl+I`（macOS 为 `Cmd+I`）：开启 `dsh.features.ctrl-i` 后，运行 **用 DSH 文件编辑（Ctrl+I）**，在 QuickPick 中选择 1–8 个工作区文件，多文件上下文块会发送到 DSH 对话。不贡献默认键位。
 - 可选 `Ctrl+K`（macOS 为 `Cmd+K`）：开启 `dsh.features.ctrl-k` 后，选中代码并运行 **用 DSH 编辑（Ctrl+K）**，输入指令即可把「选区+指令」草稿发送到 DSH 对话。不贡献默认键位——可自行添加：
   ```json
   { "key": "ctrl+k", "command": "dsh.ctrlKEdit", "when": "editorTextFocus && editorHasSelection" }
@@ -76,6 +77,26 @@
 - 超过 1 MiB（UTF-8）的附件直接拒绝而不是静默截断；诊断上限为 1000 条、每条消息 2000 字符。
 - 桥的 `open` / `openDiff` / 显式 diagnostics 只接受受信任且位于已打开工作区内的 `file` URI——桥不暴露任意命令、URI 或文件读取。
 - 发往 DSH 的 `vscode/contextChanged` 通知只携带 revision 与 attachment id，永不携带内容。CH1 v2 新增的 `selectionChanged` / `activeEditorChanged` / `diagnosticsChanged` 同样是纯元数据通知，并在宿主边界按 `V2_NOTIFICATION_SCHEMA` 校验。
+
+## 导出 API
+
+开启 `dsh.features.exports` 后，扩展的 `activate()` 会返回冻结的编程式 API（`version: "1"`），包含三个方法：
+
+| 方法 | 签名 | 说明 |
+|---|---|---|
+| `ask` | `ask(prompt, opts?) → Promise<{accepted: true, sessionId}>` | 把 prompt 加入当前工作区会话。`prompt` 为非空字符串且不超过 100000 字符；`opts.sessionId`（缺省使用当前工作区会话）、`opts.mode`（`"queue"` 或 `"steer"`）、`opts.signal`（AbortSignal）。 |
+| `listSessions` | `listSessions(opts?) → Promise<Array<object>>` | 经会话 API 列出 DSH 会话；`opts.signal` 会被透传。 |
+| `addContext` | `addContext(uri, range?) → Promise<{id, kind, uri}>` | 把一个 `file://` URI（字符串或 `vscode.Uri`）附加到当前上下文。以 `/` 结尾的 URI 走文件夹附加；`range` 形状为 `{start:{line,character}, end:{line,character}}`。 |
+
+稳定错误码（`DshExportError.code`）：`DSH_EXPORT_DISABLED`、`DSH_EXPORT_NO_SERVER`、`DSH_EXPORT_INVALID_PROMPT`、`DSH_EXPORT_INVALID_URI`、`DSH_EXPORT_OUTSIDE_WORKSPACE`、`DSH_EXPORT_TOO_LARGE`、`DSH_EXPORT_TOO_MANY_FILES`。
+
+v1 边界：
+
+- **无流式**：`ask` 只返回 `{accepted: true, sessionId}`；没有 SSE/文本增量流式接口。
+- **`addContext` 有界**：每次调用只能附加一个 URI；编辑器上下文预算仍然生效（超过 1 MiB 的文件直接拒绝而不是截断）。
+- **L2 默认关闭**：`dsh.features.exports` 关闭时 face 依然存在（第三方可依赖稳定形状），但所有方法调用都会抛 `DSH_EXPORT_DISABLED`，直到开启该设置。
+- **破坏性变更需升 major**：face 冻结为 `version: "1"`；删除方法或变更签名必须作为新的 major 版本发布。
+- **第三方开启指引**：第三方在设置中把 `dsh.features.exports` 设为 `true`（机器级），然后从 `activate()` 读取返回的 face。
 
 ## 能力与诊断
 
@@ -187,9 +208,11 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 | `dsh.features.theme-follow` | true | 内嵌 DSH iframe 跟随 VS Code 当前颜色主题（深色/浅色）（L1 功能；关闭后不附加 `dsh_theme` URL 参数、不监听主题变化） |
 | `dsh.features.changes-review` | false | 审查 DSH 提议的工作区编辑：审批弹窗、`dsh.changes` 树视图与 `vscode/changes/push` 桥接处理器（L2 功能） |
 | `dsh.features.ctrl-k` | false | 启用「用 DSH 编辑（Ctrl+K）」命令；不贡献默认键位（L2 功能） |
+| `dsh.features.ctrl-i` | false | 启用「用 DSH 文件编辑（Ctrl+I）」命令：选择 1–8 个工作区文件并以多文件上下文块发送到 DSH 对话（L2 功能） |
 | `dsh.features.lm-route` | false | 在 VS Code 语言模型聊天选择器中以 vendor `dsh` 暴露 DSH 模型（L2 功能） |
 | `dsh.lm.route` | `off` | DSH 模型路由模式：`off` = 从不注册 dsh 聊天 provider；`fixed` = 拉取一次 `/api/lm/models` 并缓存；`dynamic` = 每次打开选择器时刷新模型列表 |
 | `dsh.features.mcp-consume` | false | 允许 DSH 经桥使用 VS Code MCP 服务器（`vscode/mcp/listServers`/`listTools`/`callTool`）（L2 功能） |
+| `dsh.features.exports` | false | 启用扩展 `activate()` 返回的编程式导出 API（`ask`/`listSessions`/`addContext`）（L2 功能；关闭时调用抛 `DSH_EXPORT_DISABLED`） |
 | `dsh.keybindings.ctrlL` | false | 启用 Ctrl+L（macOS 为 Cmd+L）键位：将当前编辑器选区加入 DSH 对话（默认关闭） |
 | `dsh.multiInstance.entry` | false | 在 DSH 侧栏标题栏显示「新建实例」入口（默认关闭） |
 | `dsh.bridge.terminal` | false | 允许 DSH 经运行时桥使用 VS Code 终端（create/send/read，上限 8 个） |

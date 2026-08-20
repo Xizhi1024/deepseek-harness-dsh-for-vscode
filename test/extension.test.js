@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { activateWithDependencies, deactivate, isRetryableStartupError, FEATURE_CATALOG, callExportJournal } = require('../src/extension');
+const { activate, activateWithDependencies, deactivate, isRetryableStartupError, FEATURE_CATALOG, callExportJournal } = require('../src/extension');
 const { CONTAINER_ID, VIEW_ID } = require('../src/types');
 
 function disposable() {
@@ -99,6 +99,7 @@ function createFakeVscode(configOverrides = {}) {
       file(fsPath) { return { fsPath }; },
       joinPath(base, child) { return { fsPath: path.join(base.fsPath, child) }; },
       parse(value) { return { value, toString: () => value }; },
+      isUri(value) { return Boolean(value && typeof value === 'object' && typeof value.toString === 'function' && typeof value.scheme === 'string'); },
     },
     window: {
       activeTextEditor: null,
@@ -163,6 +164,7 @@ function createFakeVscode(configOverrides = {}) {
     workspace: {
       workspaceFolders: [],
       isTrusted: true,
+      async findFiles() { return []; },
       getConfiguration() {
         return { get: (key, fallback) => configuration[key] ?? fallback };
       },
@@ -1402,6 +1404,112 @@ test('ctrl-k L2 feature registers the Edit with DSH command only when enabled', 
   await deactivate();
 });
 
+test('ctrl-i L2 feature registers the Edit with DSH Files command only when enabled', async () => {
+  const off = createFakeVscode();
+  const offContext = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-ctrli-off-${process.pid}`) },
+    subscriptions: [],
+  };
+  await activateWithDependencies(offContext, {
+    vscode: off.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() {
+      return {
+        setSpawnEnv() {},
+        setOwnerIdentity() {},
+        cancelPending() {},
+        currentChildPid() { return null; },
+        hasOwnedChild() { return false; },
+        async stop() {},
+      };
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  assert.ok(!off.commands.has('dsh.ctrlIEdit'), 'dsh.ctrlIEdit must not be registered when the L2 feature is disabled');
+  await deactivate();
+
+  const on = createFakeVscode({ 'features.ctrl-i': true });
+  const onContext = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-ctrli-on-${process.pid}`) },
+    subscriptions: [],
+  };
+  await activateWithDependencies(onContext, {
+    vscode: on.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() {
+      return {
+        setSpawnEnv() {},
+        setOwnerIdentity() {},
+        cancelPending() {},
+        currentChildPid() { return null; },
+        hasOwnedChild() { return false; },
+        async stop() {},
+      };
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  assert.ok(on.commands.has('dsh.ctrlIEdit'), 'dsh.ctrlIEdit must be registered when the L2 feature is enabled');
+  assert.strictEqual(on.commands.size, off.commands.size + 1, 'enabling ctrl-i must add exactly one command');
+  await deactivate();
+});
+
+test('ctrl-i command is registered before ctrl-k when both L2 features are enabled', async () => {
+  const fake = createFakeVscode({ 'features.ctrl-i': true, 'features.ctrl-k': true });
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-ctrli-order-${process.pid}`) },
+    subscriptions: [],
+  };
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() {
+      return {
+        setSpawnEnv() {},
+        setOwnerIdentity() {},
+        cancelPending() {},
+        currentChildPid() { return null; },
+        hasOwnedChild() { return false; },
+        async stop() {},
+      };
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  const keys = [...fake.commands.keys()];
+  assert.ok(
+    keys.indexOf('dsh.ctrlIEdit') >= 0 && keys.indexOf('dsh.ctrlKEdit') >= 0
+      && keys.indexOf('dsh.ctrlIEdit') < keys.indexOf('dsh.ctrlKEdit'),
+    'dsh.ctrlIEdit must be registered before dsh.ctrlKEdit'
+  );
+  await deactivate();
+});
+
 test('lm-route L2 feature registers the dsh chat provider and injects the bridge token', async () => {
   const fake = createFakeVscode({ 'features.lm-route': true, 'lm.route': 'fixed' });
   const context = {
@@ -1484,6 +1592,49 @@ test('mcp-consume L2 feature registers refresh and forget-consent commands only 
 
   assert.ok(fake.commands.has('dsh.mcp.refresh'), 'dsh.mcp.refresh must be registered when enabled');
   assert.ok(fake.commands.has('dsh.mcp.forgetConsent'), 'dsh.mcp.forgetConsent must be registered when enabled');
+  await deactivate();
+});
+
+test('activate() returns the exports face with a stable v1 shape and disabled call behavior', async () => {
+  const fake = createFakeVscode();
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-exports-face-${process.pid}`) },
+    subscriptions: [],
+  };
+
+  const face = await activate(context, {
+    vscode: fake.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager() {
+      return {
+        setSpawnEnv() {},
+        setOwnerIdentity() {},
+        cancelPending() {},
+        currentChildPid() { return null; },
+        hasOwnedChild() { return false; },
+        async stop() {},
+      };
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  assert.ok(face, 'activate() must return the exports face even when dsh.features.exports is off');
+  assert.strictEqual(face.version, '1');
+  assert.strictEqual(typeof face.ask, 'function');
+  assert.strictEqual(typeof face.listSessions, 'function');
+  assert.strictEqual(typeof face.addContext, 'function');
+  await assert.rejects(
+    face.ask('hello'),
+    (err) => err && err.name === 'DshExportError' && err.code === 'DSH_EXPORT_DISABLED'
+  );
   await deactivate();
 });
 
