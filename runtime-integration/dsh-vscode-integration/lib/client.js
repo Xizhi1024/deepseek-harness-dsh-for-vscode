@@ -118,9 +118,44 @@ window.__ModuleLoader__.load({
       work.then((result) => window.parent.postMessage(result, '*'));
     }
 
+    // Theme-follow consumer: the VS Code shell stamps the initial theme on
+    // the iframe URL (dsh_theme) and pushes later changes through
+    // dshThemeChanged postMessages. Both funnel into the DSH theme service
+    // so the sidebar follows the VS Code color theme instead of the OS.
+    // The theme service is resolved through ctx.get (optional lookup): the
+    // feature degrades silently in profiles without ui-theme and never
+    // blocks this plugin's clipboard/link bridges on activation.
+    function resolveThemeService(ctx) {
+      try {
+        if (typeof ctx.get === 'function') {
+          const service = ctx.get('theme');
+          if (service && typeof service.setTheme === 'function') return service;
+          return null;
+        }
+      } catch { /* dynamic guard */ }
+      try {
+        if (ctx.theme && typeof ctx.theme.setTheme === 'function') return ctx.theme;
+      } catch { /* service not declared for this fiber */ }
+      return null;
+    }
+
+    function applyVscodeTheme(ctx, theme) {
+      if (theme !== 'dark' && theme !== 'light') return;
+      const service = resolveThemeService(ctx);
+      if (!service) return;
+      try { service.setTheme(theme); } catch { /* theme apply is best-effort */ }
+    }
+
     function onMessage(ctx, event) {
       if (event.source !== window.parent) return;
       const message = event.data;
+      if (
+        message && message.type === 'dshThemeChanged'
+        && (message.theme === 'dark' || message.theme === 'light')
+      ) {
+        applyVscodeTheme(ctx, message.theme);
+        return;
+      }
       if (
         message && message.type === 'dshWebviewReady'
         && message.channel === CHANNEL && message.version === VERSION
@@ -173,19 +208,38 @@ window.__ModuleLoader__.load({
       };
     }
 
-    function installMacPasteShortcutBridge() {
-      // VS Code intercepts Cmd+V on macOS inside nested webview iframes and
-      // never forwards it to the DSH page (microsoft/vscode#129178). Capture the
-      // key event inside the iframe and perform the paste ourselves.
+    function installMacShortcutBridge() {
+      // VS Code's native Edit menu owns Cmd+C/Cmd+X/Cmd+V on macOS and never
+      // forwards them into nested webview iframes (microsoft/vscode#129178);
+      // the workbench copy targets its own focused control, so a selection
+      // inside the DSH iframe copies nothing. Capture the key events inside
+      // the iframe and run the (bridged) execCommand ourselves.
       const platform = typeof navigator !== 'undefined' ? String(navigator.platform || navigator.userAgent || '') : '';
       if (!/Mac/i.test(platform)) return () => {};
       if (typeof document.execCommand !== 'function') return () => {};
       const onKeyDown = (event) => {
         if (event.defaultPrevented) return;
-        const isPasteShortcut = (event.metaKey || event.ctrlKey) && (event.code === 'KeyV' || event.key === 'v' || event.key === 'V');
-        if (!isPasteShortcut) return;
-        event.preventDefault();
-        document.execCommand('paste');
+        const withCmd = (event.metaKey || event.ctrlKey) && !event.altKey;
+        if (!withCmd) return;
+        const isPasteShortcut = event.code === 'KeyV' || event.key === 'v' || event.key === 'V';
+        const isCopyShortcut = event.code === 'KeyC' || event.key === 'c' || event.key === 'C';
+        const isCutShortcut = event.code === 'KeyX' || event.key === 'x' || event.key === 'X';
+        if (isPasteShortcut) {
+          event.preventDefault();
+          document.execCommand('paste');
+          return;
+        }
+        if (isCopyShortcut || isCutShortcut) {
+          // Only claim the shortcut while the selection actually lives in this
+          // document; otherwise let the host handle its own focused control.
+          const selection = window.getSelection ? window.getSelection() : null;
+          const hasSelection = Boolean(selection && String(selection));
+          if (!hasSelection) return;
+          event.preventDefault();
+          // cut fallback below only copies (no deletion) — acceptable for the
+          // chat-input use case; copy is the primary path.
+          document.execCommand(isCopyShortcut ? 'copy' : 'cut');
+        }
       };
       document.addEventListener('keydown', onKeyDown, true);
       return () => document.removeEventListener('keydown', onKeyDown, true);
@@ -196,6 +250,19 @@ window.__ModuleLoader__.load({
     // selection through the clipboard bridge; when execCommand('paste') is
     // denied (the macOS webview case), read the clipboard through the bridge
     // and insert the text ourselves.
+    // input/textarea selections are invisible to window.getSelection() in
+    // some engines; read them off the focused control first.
+    function currentSelectionText() {
+      const active = document.activeElement;
+      if (
+        active && typeof active.selectionStart === 'number' && typeof active.selectionEnd === 'number'
+        && typeof active.value === 'string' && active.selectionEnd > active.selectionStart
+      ) {
+        return active.value.slice(active.selectionStart, active.selectionEnd);
+      }
+      return window.getSelection ? String(window.getSelection()) : '';
+    }
+
     function installExecCommandFallback() {
       if (typeof document.execCommand !== 'function') return () => {};
       const native = document.execCommand.bind(document);
@@ -204,8 +271,7 @@ window.__ModuleLoader__.load({
         if (result) return result;
         if (!enabled()) return result;
         if (command === 'copy' || command === 'cut') {
-          const selection = window.getSelection ? String(window.getSelection()) : '';
-          const text = selection || (typeof value === 'string' ? value : '');
+          const text = currentSelectionText() || (typeof value === 'string' ? value : '');
           if (text) {
             request('clipboard/writeText', { text }).catch(() => {});
             return true;
@@ -245,6 +311,18 @@ window.__ModuleLoader__.load({
 
     function apply(ctx) {
       if (!enabled()) return;
+      // Initial theme from the URL the shell built for this webview.
+      const initialTheme = new URLSearchParams(window.location.search).get('dsh_theme');
+      if (initialTheme === 'dark' || initialTheme === 'light') {
+        applyVscodeTheme(ctx, initialTheme);
+      }
+      // Remember the durable DSH preference so disposal restores it (the
+      // theme service persists preference writes into DSH settings).
+      let initialPreference = null;
+      try {
+        const service = resolveThemeService(ctx);
+        initialPreference = service && service.preference;
+      } catch { /* optional */ }
       ctx.effect(() => {
         startHandshake();
         const listener = (event) => onMessage(ctx, event);
@@ -252,7 +330,7 @@ window.__ModuleLoader__.load({
         document.addEventListener('click', onClick, true);
         const restoreClipboard = installClipboardBridge();
         const restoreExecFallback = installExecCommandFallback();
-        const restoreMacPasteShortcut = installMacPasteShortcutBridge();
+        const restoreMacShortcutBridge = installMacShortcutBridge();
         window.parent.postMessage({
           type: 'dshThreadReady', channel: THREAD_CHANNEL, version: THREAD_VERSION,
         }, '*');
@@ -260,7 +338,7 @@ window.__ModuleLoader__.load({
           if (handshakeTimer) clearTimeout(handshakeTimer);
           restoreClipboard();
           restoreExecFallback();
-          restoreMacPasteShortcut();
+          restoreMacShortcutBridge();
           document.removeEventListener('click', onClick, true);
           window.removeEventListener('message', listener);
           for (const waiter of pending.values()) {
@@ -269,6 +347,12 @@ window.__ModuleLoader__.load({
           }
           pending.clear();
           threadRequests.clear();
+          if (initialPreference) {
+            const service = resolveThemeService(ctx);
+            if (service && service.preference !== initialPreference) {
+              try { service.setTheme(initialPreference); } catch { /* best-effort restore */ }
+            }
+          }
         };
       }, 'dsh-vscode-integration: browser interaction bridge');
     }

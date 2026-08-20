@@ -292,17 +292,22 @@ test('activation registers the public host surface through injected dependencies
   assert.strictEqual(context.subscriptions.length, 26);
   assert.strictEqual(ensureRuntimeCalls, 0, 'autoStart=false must not resolve the managed runtime');
 
+  // Windows drive paths are not absolute on POSIX; build platform-neutral
+  // absolute paths so the bridge gate (path.isAbsolute) is exercised the
+  // same way on every development platform.
+  const workspaceRoot = path.join(os.tmpdir(), 'dsh-extension-test-ws-' + process.pid);
+  const workspaceFile = path.join(workspaceRoot, 'file.js');
   fake.api.workspace.workspaceFolders = [
-    { uri: { fsPath: 'D:\\workspace' }, name: 'workspace', index: 0 },
+    { uri: { fsPath: workspaceRoot }, name: 'workspace', index: 0 },
   ];
 
-  await bridgeOptions.openTextDocument('D:\\workspace\\file.js');
+  await bridgeOptions.openTextDocument(workspaceFile);
   assert.deepStrictEqual(fake.shownDocuments, [{
-    document: { uri: { fsPath: 'D:\\workspace\\file.js' } },
+    document: { uri: { fsPath: workspaceFile } },
     options: { preview: false, preserveFocus: false },
   }]);
 
-  await bridgeOptions.openTextDocument('D:\\other\\shared-session.txt');
+  await bridgeOptions.openTextDocument(path.join(os.tmpdir(), 'dsh-shared-session-' + process.pid + '.txt'));
   assert.strictEqual(fake.shownDocuments.length, 2, 'shared-session paths outside the current workspace must open');
 
   await fake.commands.get('dsh.focusSidebar')();
@@ -1101,7 +1106,7 @@ test('text-document bridge opens authenticated absolute paths from shared sessio
     },
   });
 
-  await bridgeOptions.openTextDocument('D:\\other\\shared-session.txt');
+  await bridgeOptions.openTextDocument(path.join(os.tmpdir(), 'dsh-shared-session-2-' + process.pid + '.txt'));
   assert.strictEqual(fake.shownDocuments.length, 1, 'shared-session file must open in the owning VS Code window');
 
   await assert.rejects(bridgeOptions.openTextDocument('relative.txt'), /absolute path/);

@@ -23,6 +23,11 @@ function writeRuntimeFixture(storageRoot) {
   fs.writeFileSync(path.join(payloadRoot, 'bin', 'dsh.cmd'), 'entry');
   fs.writeFileSync(path.join(payloadRoot, 'bin', 'dsh.js'), 'script');
   fs.writeFileSync(path.join(payloadRoot, 'LICENSE'), 'license');
+  // The manifest marks bin/dsh.cmd executable; verifyRuntimeDirectory enforces
+  // the mode bit on POSIX, so mirror it on the fixture for cross-platform runs.
+  if (process.platform !== 'win32') {
+    fs.chmodSync(path.join(payloadRoot, 'bin', 'dsh.cmd'), 0o755);
+  }
   const files = [
     { path: 'bin/dsh.cmd', sha256: digest('entry'), size: 5, executable: true },
     { path: 'bin/dsh.js', sha256: digest('script'), size: 6, executable: false },
