@@ -3,6 +3,54 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-08-20
+
+0.7/0.8 为过渡性内部构建未单独立档，本条目汇总 0.6.0 以来的全部用户可见变更。
+0.7/0.8 were interim internal builds without their own entries; this entry consolidates all user-visible changes since 0.6.0.
+
+### Added / 新增
+
+- **MCP 服务器消费（L2，默认关闭）**：`dsh.features.mcp-consume` 汇入 DSH 配置中的 MCP 服务器——stdio/HTTP 双传输、零依赖 JSON-RPC、变量展开与同意门（consent gate）、`dsh.mcp.refresh` / `dsh.mcp.forgetConsent` 命令，桥 v3 新增 `mcp/*` 方法族。
+  MCP server consumption (L2, default off): `dsh.features.mcp-consume` mounts MCP servers from DSH config — stdio/HTTP transports, zero-dependency JSON-RPC, variable expansion with a consent gate, `dsh.mcp.refresh` / `dsh.mcp.forgetConsent` commands, and the `mcp/*` method family on bridge v3.
+
+- **DSH 模型路由（L2，默认关闭）**：`dsh.lm.route`（off/fixed/dynamic）通过桥令牌鉴权的 `/api/lm` models+chat WebRoutes，把 VS Code 侧请求路由到 DSH 模型；`dsh.features.lm-route` 提供开关。
+  DSH model routing (L2, default off): `dsh.lm.route` (off/fixed/dynamic) exposes bridge-token-authenticated `/api/lm` models+chat WebRoutes; gated by `dsh.features.lm-route`.
+
+- **可编程 Exports API（L2，默认关闭）**：`dsh.features.exports` 开启后 `activate()` 返回冻结的 v1 编程面——`ask(prompt, opts)` 入队提示、`listSessions()` 列会话、`addContext(uri, range?)` 附加上下文；含稳定错误码（`DSH_EXPORT_*`）。
+  Programmatic exports API (L2, default off): with `dsh.features.exports` enabled, `activate()` returns the frozen v1 face — `ask`, `listSessions`, `addContext` — with stable `DSH_EXPORT_*` error codes.
+
+- **callExport 桥方法（L2，默认关闭）**：`vscode/extensions/callExport`（桥 v3）让 DSH 侧经同意门调用其他扩展暴露的 exports 面，带调用日志。
+  callExport bridge method (L2, default off): `vscode/extensions/callExport` (bridge v3) lets the DSH side call other extensions' exports faces behind the consent gate, with a call journal.
+
+- **Edit with DSH Files（Ctrl+I，L2，默认关闭）**：`dsh.ctrlIEdit` 在 QuickPick 中选 1–8 个工作区文件，多文件上下文块送入 DSH 对话。
+  Edit with DSH Files (Ctrl+I, L2, default off): `dsh.ctrlIEdit` picks 1–8 workspace files and sends the multi-file context block to the DSH conversation.
+
+- **Chat participant @dsh（L2，默认关闭）**：在 VS Code 聊天视图输入 `@dsh` + 提示词，参与者解析当前工作区会话、入队提示并流式回传 DSH 文本增量；`dsh.openSessionHistory` 一键继续最近会话。不读取 `request.model`，不消耗 vscode.lm/Copilot 配额。
+  Chat participant @dsh (L2, default off): type `@dsh` + prompt in the VS Code chat view; the participant enqueues into the workspace session and streams DSH text deltas back. Never reads `request.model` nor consumes vscode.lm quota.
+
+- **Tab 补全 FIM（POC，L2，默认关闭）**：`dsh.features.tab-completion` 注册行内补全提供者，按窗口注入 `DSH_FIM_BRIDGE_TOKEN`；API Key 经 **Set DSH FIM API Key** 存入 secretStorage，绝不落 `dsh.*` 配置。
+  Tab completion FIM (POC, L2, default off): `dsh.features.tab-completion` registers an inline completion provider with a per-window bridge token; the API key lives in secretStorage via **Set DSH FIM API Key**, never in `dsh.*` settings.
+
+- **粘贴读取失败提示**：`dsh.bridge.ui` 开启时，粘贴读剪贴板失败会在界面弹出警告（静默门控与 v3 UI 相同）。
+  Paste read failure notice: with `dsh.bridge.ui` on, a failed clipboard read surfaces a UI warning.
+
+### Fixed / 修复
+
+- **macOS 嵌入 iframe 内 ⌘C/⌘X 复制剪切失效**：VS Code 原生 Edit 菜单持有 ⌘C/⌘X 且不转发进嵌套 webview iframe（microsoft/vscode#129178）；旧桥只接管了 ⌘V。快捷键桥现捕获 C/X/V，仅当选区位于本文档内才接管，且能识别 input/textarea（聊天输入框）内的选区——`window.getSelection()` 对其返回空的问题一并修复。
+  macOS ⌘C/⌘X copy/cut inside the embedded iframe: VS Code's native Edit menu owns the shortcuts and never forwards them into nested webview iframes (#129178); the old bridge only claimed ⌘V. The shortcut bridge now captures C/X/V, claims copy/cut only while the selection lives in this document, and recognizes selections inside input/textarea (the chat composer), which `window.getSelection()` misses.
+
+- **主题跟随（颜色跟随系统而非 VS Code）**：扩展端早已在 iframe URL 标记 `dsh_theme` 并转发 `dshThemeChanged`，但 DSH 端消费方缺失，DSH 主题服务仍按 `prefers-color-scheme` 跟随操作系统。DSH 侧 client 现消费两者并经 `ctx.theme.setTheme` 生效（`ctx.get('theme')` 可选查找，主题服务缺席时优雅降级，不影响剪贴板/链接桥）；卸载时恢复原 DSH 主题偏好。
+  Theme follow (colors followed the OS, not VS Code): the extension already stamped `dsh_theme` on the iframe URL and forwarded `dshThemeChanged`, but no DSH-side consumer existed, so the DSH theme service kept resolving `system` via `prefers-color-scheme`. The DSH-side client now consumes both through `ctx.theme.setTheme` (optional `ctx.get('theme')` lookup; degrades silently without ui-theme, never blocking the clipboard/link bridges) and restores the durable preference on unload.
+
+- **F5 真实运行时四轮修复**：`collectModels` 误用 llm 服务契约并吞掉 rejected promise；v3 initialize 崩溃被 void 化分发吞没；工具描述符不符合真实 ToolRuntime `register()` 契约；`/api/lm/models` 故障会击穿整个 DSH 进程——均已修复，WebRoute 处理器现具备故障隔离。
+  Four F5 real-runtime fixes: `collectModels` misused the llm service contract and dropped a rejection; a v3 initialize crash was swallowed by void-ed dispatch; tool descriptors violated the real ToolRuntime `register()` contract; a `/api/lm/models` fault crashed the whole DSH process — all fixed, WebRoute handlers are now fault-contained.
+
+- **FIM 防抖修正**：最新调用始终赢得防抖窗口，行首 no-op 取消过期的 pending 请求。
+  FIM debounce: the newest call always wins the window; a line-start no-op cancels stale pending requests.
+
+- **跨平台测试套件**：测试中的 Windows 专属绝对路径与 win32 fixture 权限位改为平台无关写法，macOS 上全量测试转绿（此前 3 败）。
+  Cross-platform test suite: Windows-only absolute paths and win32 fixture mode bits replaced with platform-neutral equivalents; the full suite is green on macOS (was 3 failures).
+
 ## [0.6.0] - 2026-08-18
 
 ### Added / 新增
