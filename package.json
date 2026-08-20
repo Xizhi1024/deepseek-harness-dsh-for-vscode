@@ -484,6 +484,12 @@
           "default": false,
           "description": "%dsh.cfg.features.mcp-consume%"
         },
+        "dsh.features.call-export": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "description": "%dsh.cfg.features.call-export%"
+        },
         "dsh.keybindings.ctrlL": {
           "type": "boolean",
           "default": false,

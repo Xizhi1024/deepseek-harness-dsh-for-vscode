@@ -184,5 +184,6 @@ test('FEATURE_CATALOG carries the frozen R25 layers', () => {
     'ctrl-k': 'L2',
     'lm-route': 'L2',
     'mcp-consume': 'L2',
+    'call-export': 'L2',
   });
 });
