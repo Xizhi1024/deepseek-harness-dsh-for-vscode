@@ -51,7 +51,7 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
   { "key": "ctrl+k", "command": "dsh.ctrlKEdit", "when": "editorTextFocus && editorHasSelection" }
   ```
   (macOS: use `"key": "cmd+k"`)
-- Commands (command palette): **Open DSH in Browser** · **New Session** · **Switch Session** · **Restart DSH Server** · **Restart DSH Server Cleanly** · **Stop DSH Server** · **Focus DSH Sidebar** · **Add File to DSH Thread** · **Add Folder to DSH Thread** · **Add to DSH Thread** · **Add Active File to DSH Context** · **Add Active Selection to DSH Context** · **Add Problems to DSH Context** · **Capabilities and Integrations** · **Diagnose** · **Clean Up Orphan DSH Servers** · **Set up DSH** · **New DSH Instance** · **DSH Changes**
+- Commands (command palette): **Open DSH in Browser** · **New Session** · **Switch Session** · **Open Session History** · **Restart DSH Server** · **Restart DSH Server Cleanly** · **Stop DSH Server** · **Focus DSH Sidebar** · **Add File to DSH Thread** · **Add Folder to DSH Thread** · **Add to DSH Thread** · **Add Active File to DSH Context** · **Add Active Selection to DSH Context** · **Add Problems to DSH Context** · **Capabilities and Integrations** · **Diagnose** · **Clean Up Orphan DSH Servers** · **Set up DSH** · **New DSH Instance** · **DSH Changes** · **Set DSH FIM API Key**
 - With `dsh.autoStart` on, the server is started at VS Code startup even if the sidebar is never opened
 - Extra surfaces: run **DSH: New DSH Instance** (or enable the sidebar title-bar entry with `dsh.multiInstance.entry`) to open another DSH panel in the editor area. All surfaces share the window's single DSH process; each panel gets its own DSH session (`dsh_session`), and closing a panel releases that session only
 
@@ -63,7 +63,23 @@ On the first activation the extension asks **“DSH is ready — set it up?”**
 
 ## Session navigation
 
-**New Session** / **Switch Session** use DSH's local session API. **Switch Session** shows a QuickPick with each root session's title, workspace path, update time, and running state; selecting one reloads the iframe with the `dsh_session` query parameter so the DSH web UI opens that session. The extension does not keep a second session tree — the DSH server remains the source of truth. **New Session** creates a session for the current workspace root and, when one already exists, reuses a blank session for the same cwd instead of creating a duplicate.
+**New Session** / **Switch Session** / **Open Session History** use DSH's local session API. **Switch Session** shows a QuickPick with each root session's title, workspace path, update time, and running state; selecting one reloads the iframe with the `dsh_session` query parameter so the DSH web UI opens that session. **Open Session History** is the same picker under the `dsh.features.chat-participant` gate, and exits with a warning when no server or no session is available. The extension does not keep a second session tree — the DSH server remains the source of truth. **New Session** creates a session for the current workspace root and, when one already exists, reuses a blank session for the same cwd instead of creating a duplicate.
+
+## Chat participant (@dsh)
+
+With `dsh.features.chat-participant` enabled (L2, default off), the extension contributes the **@dsh** participant to the VS Code chat view. Type `@dsh` followed by your prompt: the participant resolves the current workspace DSH session, enqueues the prompt (`session.prompt`, mode `queue`), and streams the DSH session's text deltas back into the chat response. Follow-ups offer up to five recent root sessions for one-click continuation.
+
+**D9 boundary**: the participant never reads `request.model` and never consumes the `vscode.lm` / Copilot quota — it talks only to the DSH-owned session API on the local loopback server.
+
+## Tab completion (FIM POC)
+
+With `dsh.features.tab-completion` enabled (L2, default off), the extension registers an inline completion provider for `file`-scheme documents and injects a per-window `DSH_FIM_BRIDGE_TOKEN` into the managed DSH child so the DSH-side vscode-fim plugin's `/api/fim` endpoint only answers this window.
+
+This is a **POC-grade** feature. If it does not meet the D13 quality bar it will be removed as a whole rather than shipped in a half-broken state.
+
+- **Model selection**: the DSH-side vscode-fim plugin owns `fimApi` / `fimBaseUrl` / `fimModel`; the extension side only selects the model through `dsh.fim.model` (machine scope).
+- **API key**: set it with the **Set DSH FIM API Key** command; it is stored in VS Code `secretStorage` (`dsh.fim.apiKey`), never in `dsh.*` configuration.
+- **Default off**: zero registration and zero spawn-env injection while the feature is disabled.
 
 ## Editor context (explicit attachment)
 
@@ -215,6 +231,9 @@ Achieving a Cursor/Claude Code-like experience requires both sides of the bridge
 | `dsh.lm.route` | `off` | DSH model routing mode: `off` = never register the dsh chat provider; `fixed` = fetch `/api/lm/models` once and cache; `dynamic` = refresh the model list on every picker open |
 | `dsh.features.mcp-consume` | false | Let DSH consume VS Code MCP servers through the bridge (`vscode/mcp/listServers`/`listTools`/`callTool`) (L2 feature) |
 | `dsh.features.exports` | false | Enable the programmatic exports API returned by the extension `activate()` face (`ask`/`listSessions`/`addContext`) (L2 feature; disabled calls throw `DSH_EXPORT_DISABLED`) |
+| `dsh.features.chat-participant` | false | Enable the **@dsh** chat participant in the VS Code chat view; consumes DSH sessions only, never the `vscode.lm`/Copilot quota (L2 feature) |
+| `dsh.features.tab-completion` | false | Enable the DSH FIM tab-completion provider for `file` documents (L2 feature; POC-grade) |
+| `dsh.fim.model` | (empty) | Machine-scoped DSH-side FIM model name used for tab completion; the upstream API key and base URL are configured in the DSH-side vscode-fim plugin |
 | `dsh.keybindings.ctrlL` | false | Enable the Ctrl+L (Cmd+L on macOS) keybinding that adds the active editor selection to the DSH conversation (off by default) |
 
 | `dsh.multiInstance.entry` | false | Show the new-instance entry in the DSH sidebar title bar (off by default) |

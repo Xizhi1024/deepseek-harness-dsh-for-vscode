@@ -51,7 +51,7 @@
   { "key": "ctrl+k", "command": "dsh.ctrlKEdit", "when": "editorTextFocus && editorHasSelection" }
   ```
   （macOS 请用 `"key": "cmd+k"`）
-- 命令（命令面板）：**在浏览器中打开 DSH** · **新建会话** · **切换会话** · **重启 DSH 服务** · **干净重启 DSH 服务** · **停止 DSH 服务** · **聚焦 DSH 侧边栏** · **将文件添加到 DSH 对话** · **将文件夹添加到 DSH 对话** · **添加到 DSH 对话** · **将活动文件添加到 DSH 上下文** · **将活动选区添加到 DSH 上下文** · **将 Problems 添加到 DSH 上下文** · **能力与集成** · **诊断** · **清理孤儿 DSH 服务** · **设置 DSH** · **新建 DSH 实例** · **DSH 变更**
+- 命令（命令面板）：**在浏览器中打开 DSH** · **新建会话** · **切换会话** · **打开会话历史** · **重启 DSH 服务** · **干净重启 DSH 服务** · **停止 DSH 服务** · **聚焦 DSH 侧边栏** · **将文件添加到 DSH 对话** · **将文件夹添加到 DSH 对话** · **添加到 DSH 对话** · **将活动文件添加到 DSH 上下文** · **将活动选区添加到 DSH 上下文** · **将 Problems 添加到 DSH 上下文** · **能力与集成** · **诊断** · **清理孤儿 DSH 服务** · **设置 DSH** · **新建 DSH 实例** · **DSH 变更** · **设置 DSH FIM API Key**
 - 附加面板：运行 **DSH: 新建 DSH 实例**（或开启 `dsh.multiInstance.entry` 显示侧栏标题栏入口）在编辑器区域打开新的 DSH 面板。所有面板共享本窗口唯一的 DSH 进程；每个面板拥有独立 DSH 会话（`dsh_session`），关闭面板仅释放该会话
 - `dsh.autoStart` 开启时，VS Code 启动即拉取服务，即使侧边栏从未打开
 
@@ -63,7 +63,23 @@
 
 ## 会话切换
 
-**新建会话** / **切换会话** 使用 DSH 本地会话 API。**切换会话** 通过 QuickPick 展示每个根会话的标题、工作区路径、更新时间与运行状态；选中后 iframe 会带上 `dsh_session` 查询参数重载，DSH Web 界面据此打开对应会话。扩展不维护第二份会话树——DSH 服务本身始终是会话数据的唯一来源。**新建会话** 会为当前工作区根目录创建会话；若同 cwd 下已存在 blank 会话，则优先复用而不是重复创建。
+**新建会话** / **切换会话** / **打开会话历史** 使用 DSH 本地会话 API。**切换会话** 通过 QuickPick 展示每个根会话的标题、工作区路径、更新时间与运行状态；选中后 iframe 会带上 `dsh_session` 查询参数重载，DSH Web 界面据此打开对应会话。**打开会话历史** 是在 `dsh.features.chat-participant` 门禁下的同一选择器；无服务或无会话时以警告优雅退出。扩展不维护第二份会话树——DSH 服务本身始终是会话数据的唯一来源。**新建会话** 会为当前工作区根目录创建会话；若同 cwd 下已存在 blank 会话，则优先复用而不是重复创建。
+
+## 聊天参与者（@dsh）
+
+开启 `dsh.features.chat-participant`（L2，默认关闭）后，扩展会向 VS Code 聊天视图贡献 **@dsh** 参与者。输入 `@dsh` 并附上你的问题：参与者会解析当前工作区的 DSH 会话，把提示词入队（`session.prompt`，mode `queue`），并把 DSH 会话的文本增量流式写回聊天回复。Follow-up 会提供最多 5 个最近的根会话，供一键继续。
+
+**D9 边界**：参与者绝不读取 `request.model`，绝不消耗 `vscode.lm` / Copilot 配额——它只与本机回环地址上的 DSH 会话 API 通信。
+
+## Tab 补全（FIM POC）
+
+开启 `dsh.features.tab-completion`（L2，默认关闭）后，扩展会为 `file` 文档注册内联补全 provider，并向扩展自管的 DSH 子进程注入每窗口 `DSH_FIM_BRIDGE_TOKEN`，使 DSH 侧 vscode-fim 插件的 `/api/fim` 端点只应答本窗口。
+
+这是 **POC 级** 功能。若达不到 D13 质量标准，将整体撤销，而不是发布半成品。
+
+- **模型自选**：DSH 侧 vscode-fim 插件负责 `fimApi` / `fimBaseUrl` / `fimModel`；扩展侧只通过 `dsh.fim.model`（机器级）选择模型。
+- **API key**：用 **设置 DSH FIM API Key** 命令写入 VS Code `secretStorage`（`dsh.fim.apiKey`），绝不进入 `dsh.*` 配置。
+- **默认关闭**：功能关闭时零注册、零 spawn-env 注入。
 
 ## 编辑器上下文（显式附加）
 
@@ -213,6 +229,9 @@ provider 状态通过 `vscode.extensions.onDidChange` 刷新，并在版本化�
 | `dsh.lm.route` | `off` | DSH 模型路由模式：`off` = 从不注册 dsh 聊天 provider；`fixed` = 拉取一次 `/api/lm/models` 并缓存；`dynamic` = 每次打开选择器时刷新模型列表 |
 | `dsh.features.mcp-consume` | false | 允许 DSH 经桥使用 VS Code MCP 服务器（`vscode/mcp/listServers`/`listTools`/`callTool`）（L2 功能） |
 | `dsh.features.exports` | false | 启用扩展 `activate()` 返回的编程式导出 API（`ask`/`listSessions`/`addContext`）（L2 功能；关闭时调用抛 `DSH_EXPORT_DISABLED`） |
+| `dsh.features.chat-participant` | false | 在 VS Code 聊天视图中启用 **@dsh** 聊天参与者；只消费 DSH 会话，绝不使用 `vscode.lm`/Copilot 配额（L2 功能） |
+| `dsh.features.tab-completion` | false | 为 `file` 文档启用 DSH FIM Tab 补全 provider（L2 功能；POC 级） |
+| `dsh.fim.model` | （空） | 机器级：Tab 补全使用的 DSH 侧 FIM 模型名；上游 API key 与 base URL 在 DSH 侧 vscode-fim 插件中配置 |
 | `dsh.keybindings.ctrlL` | false | 启用 Ctrl+L（macOS 为 Cmd+L）键位：将当前编辑器选区加入 DSH 对话（默认关闭） |
 | `dsh.multiInstance.entry` | false | 在 DSH 侧栏标题栏显示「新建实例」入口（默认关闭） |
 | `dsh.bridge.terminal` | false | 允许 DSH 经运行时桥使用 VS Code 终端（create/send/read，上限 8 个） |

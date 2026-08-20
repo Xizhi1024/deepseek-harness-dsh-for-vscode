@@ -76,7 +76,10 @@
     "onCommand:dsh.ctrlKEdit",
     "onLanguageModelChatProvider:dsh",
     "onCommand:dsh.mcp.refresh",
-    "onCommand:dsh.mcp.forgetConsent"
+    "onCommand:dsh.mcp.forgetConsent",
+    "onChatParticipant:dsh",
+    "onCommand:dsh.openSessionHistory",
+    "onCommand:dsh.fim.setApiKey"
   ],
   "extensionKind": [
     "workspace"
@@ -101,6 +104,13 @@
       {
         "vendor": "dsh",
         "displayName": "%dsh.lm.vendor%"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "dsh",
+        "name": "%dsh.participant.name%",
+        "description": "%dsh.participant.description%"
       }
     ],
     "viewsContainers": {
@@ -192,6 +202,11 @@
         "category": "%dsh.cmd.category%"
       },
       {
+        "command": "dsh.openSessionHistory",
+        "title": "%dsh.cmd.openSessionHistory%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
         "command": "dsh.capabilities",
         "title": "%dsh.cmd.capabilities%",
         "category": "%dsh.cmd.category%"
@@ -267,6 +282,11 @@
       {
         "command": "dsh.mcp.refresh",
         "title": "%dsh.cmd.mcp.refresh%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.fim.setApiKey",
+        "title": "%dsh.cmd.fim.setApiKey%",
         "category": "%dsh.cmd.category%"
       },
       {
@@ -507,6 +527,22 @@
           "default": false,
           "scope": "machine",
           "description": "%dsh.cfg.features.exports%"
+        },
+        "dsh.features.chat-participant": {
+          "type": "boolean",
+          "default": false,
+          "description": "%dsh.cfg.features.chat-participant%"
+        },
+        "dsh.features.tab-completion": {
+          "type": "boolean",
+          "default": false,
+          "description": "%dsh.cfg.features.tab-completion%"
+        },
+        "dsh.fim.model": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "%dsh.cfg.fim.model%"
         },
         "dsh.keybindings.ctrlL": {
           "type": "boolean",
