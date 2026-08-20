@@ -60,6 +60,7 @@ function createFakeVscode(configOverrides = {}) {
       file(fsPath) { return { fsPath }; },
       joinPath(base, child) { return { fsPath: path.join(base.fsPath, child) }; },
       parse(value) { return { value, toString: () => value }; },
+      isUri(value) { return Boolean(value && typeof value === 'object' && typeof value.toString === 'function' && typeof value.scheme === 'string'); },
     },
     window: {
       activeTextEditor: null,
@@ -185,5 +186,7 @@ test('FEATURE_CATALOG carries the frozen R25 layers', () => {
     'lm-route': 'L2',
     'mcp-consume': 'L2',
     'call-export': 'L2',
+    'ctrl-i': 'L2',
+    'exports': 'L2',
   });
 });

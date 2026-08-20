@@ -22,6 +22,7 @@ test('published sidebar and Webview IDs remain stable across manifest and runtim
   assert.ok(manifest.activationEvents.includes(`onView:${VIEW_ID}`));
   assert.ok(manifest.activationEvents.includes('onView:dsh.changes'));
   assert.ok(manifest.activationEvents.includes('onCommand:dsh.addFileToThread'));
+  assert.ok(manifest.activationEvents.includes('onCommand:dsh.ctrlIEdit'));
 });
 
 test('editor title exposes one persistent icon and DSH view title exposes only the gated instance entry', () => {
@@ -77,6 +78,10 @@ test('editor title exposes one persistent icon and DSH view title exposes only t
   assert.ok(
     !manifest.contributes.keybindings.some((entry) => entry.command === 'dsh.ctrlKEdit'),
     'D8 final verdict: Ctrl+K must not contribute a default keybinding'
+  );
+  assert.ok(
+    !manifest.contributes.keybindings.some((entry) => entry.command === 'dsh.ctrlIEdit'),
+    'E-asm-1 verdict: Ctrl+I must not contribute a default keybinding'
   );
   assert.deepStrictEqual(menus['editor/title/context'], [{
     command: 'dsh.addFileToThread',
@@ -139,6 +144,7 @@ test('extension-host smoke expectations cover every contributed command id', () 
     'dsh.changes.refresh',
     'dsh.changes.undo',
     'dsh.cleanupOrphans',
+    'dsh.ctrlIEdit',
     'dsh.ctrlKEdit',
     'dsh.diagnose',
     'dsh.focusSidebar',
@@ -154,6 +160,12 @@ test('extension-host smoke expectations cover every contributed command id', () 
     'dsh.newInstance',
   ].sort();
   assert.deepStrictEqual(smokeExpected, contributed);
+  const commandOrder = manifest.contributes.commands.map((entry) => entry.command);
+  assert.ok(
+    commandOrder.indexOf('dsh.ctrlIEdit') >= 0 && commandOrder.indexOf('dsh.ctrlKEdit') >= 0
+      && commandOrder.indexOf('dsh.ctrlIEdit') < commandOrder.indexOf('dsh.ctrlKEdit'),
+    'dsh.ctrlIEdit must be contributed before dsh.ctrlKEdit'
+  );
 });
 
 test('dsh.features.* configuration keys mirror the featureRegistry catalog (L1/L2 present, L0 has none)', () => {
@@ -186,6 +198,8 @@ test('dsh.features.* configuration keys mirror the featureRegistry catalog (L1/L
     assert.strictEqual(entry.default, feature.defaultEnabled, feature.id + ' default must match defaultEnabled');
   }
   assert.strictEqual(properties['dsh.features.call-export'].scope, 'machine', 'call-export must be machine-scoped');
+  assert.strictEqual(properties['dsh.features.ctrl-i'].scope, 'machine', 'ctrl-i must be machine-scoped');
+  assert.strictEqual(properties['dsh.features.exports'].scope, 'machine', 'exports must be machine-scoped');
 });
 
 test('CH1 v3 method table freezes 32 methods including extensions/callExport', () => {

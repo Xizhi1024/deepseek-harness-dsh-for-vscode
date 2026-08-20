@@ -45,6 +45,7 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 
 - `Ctrl+Alt+B` opens the auxiliary sidebar → **DeepSeek Harness (DSH)** tab
 - Opt-in `Ctrl+L` (`Cmd+L` on macOS): with `dsh.keybindings.ctrlL` enabled, pressing it in the editor adds the active selection to the DSH conversation
+- Opt-in `Ctrl+I` (`Cmd+I` on macOS): with `dsh.features.ctrl-i` enabled, run **Edit with DSH Files (Ctrl+I)**; pick 1–8 workspace files in the QuickPick and the multi-file context block is sent to the DSH conversation. No default keybinding is contributed.
 - Opt-in `Ctrl+K` (`Cmd+K` on macOS): with `dsh.features.ctrl-k` enabled, select code and run **Edit with DSH (Ctrl+K)**; type an instruction and the selection+instruction draft is sent to the DSH conversation. No default keybinding is contributed — add one yourself:
   ```json
   { "key": "ctrl+k", "command": "dsh.ctrlKEdit", "when": "editorTextFocus && editorHasSelection" }
@@ -78,6 +79,26 @@ The extension never sends editor content implicitly. The active file, selection,
 - Attachments over 1 MiB (UTF-8) are rejected instead of silently truncated; diagnostics are capped at 1000 items and 2000 chars per message; folder listings are capped at 2 levels / 500 entries.
 - Bridge `open`/`openDiff`/wire-supplied diagnostics only accept `file` URIs inside an open, trusted workspace folder — the bridge exposes no arbitrary command, URI, or file read.
 - DSH receives `vscode/contextChanged` notifications carrying revision and attachment ids only, never content. CH1 v2 adds metadata-only `selectionChanged` / `activeEditorChanged` / `diagnosticsChanged` notifications, validated against `V2_NOTIFICATION_SCHEMA` at the host boundary.
+
+## Exports API
+
+When `dsh.features.exports` is enabled, the extension's `activate()` function returns a frozen programmatic face (`version: "1"`) with three methods:
+
+| Method | Signature | Description |
+|---|---|---|
+| `ask` | `ask(prompt, opts?) → Promise<{accepted: true, sessionId}>` | Enqueue a prompt into the current workspace session. `prompt` is a non-empty string of at most 100000 characters; `opts.sessionId` (defaults to the current workspace session), `opts.mode` (`"queue"` or `"steer"`), `opts.signal` (AbortSignal). |
+| `listSessions` | `listSessions(opts?) → Promise<Array<object>>` | List DSH sessions through the session API; `opts.signal` is forwarded. |
+| `addContext` | `addContext(uri, range?) → Promise<{id, kind, uri}>` | Attach one `file://` URI (string or `vscode.Uri`) to the current context. A trailing `/` routes to a folder attachment; `range` is `{start:{line,character}, end:{line,character}}` for file attachments. |
+
+Stable error codes (`DshExportError.code`): `DSH_EXPORT_DISABLED`, `DSH_EXPORT_NO_SERVER`, `DSH_EXPORT_INVALID_PROMPT`, `DSH_EXPORT_INVALID_URI`, `DSH_EXPORT_OUTSIDE_WORKSPACE`, `DSH_EXPORT_TOO_LARGE`, `DSH_EXPORT_TOO_MANY_FILES`.
+
+v1 boundaries:
+
+- **No streaming**: `ask` returns `{accepted: true, sessionId}` only; there is no SSE/text-delta streaming surface.
+- **`addContext` is bounded**: one URI per call; editor-context budgets still apply (files over 1 MiB are rejected instead of truncated).
+- **L2 default off**: the face exists with `dsh.features.exports` off so third parties can depend on the stable shape, but every method call throws `DSH_EXPORT_DISABLED` until the setting is enabled.
+- **Breaking changes require a major version**: the face is frozen at `version: "1"`; method removal/signature changes must ship as a new major.
+- **Third-party enablement**: consumers set `dsh.features.exports` to `true` (machine scope) in settings, then read the returned face from `activate()`.
 
 ## Capabilities & diagnostics
 
@@ -189,9 +210,11 @@ Achieving a Cursor/Claude Code-like experience requires both sides of the bridge
 | `dsh.features.theme-follow` | true | Follow the VS Code active color theme (dark/light) in the embedded DSH iframe (L1 feature, off = no `dsh_theme` URL param and no theme listener) |
 | `dsh.features.changes-review` | false | Review workspace edits proposed by DSH: approval prompts, the `dsh.changes` tree view, and the `vscode/changes/push` bridge handler (L2 feature) |
 | `dsh.features.ctrl-k` | false | Enable the **Edit with DSH (Ctrl+K)** command; no default keybinding is contributed (L2 feature) |
+| `dsh.features.ctrl-i` | false | Enable the **Edit with DSH Files (Ctrl+I)** command that picks 1–8 workspace files and sends them as a multi-file context block (L2 feature) |
 | `dsh.features.lm-route` | false | Expose DSH models to the VS Code language-model chat picker as vendor `dsh` (L2 feature) |
 | `dsh.lm.route` | `off` | DSH model routing mode: `off` = never register the dsh chat provider; `fixed` = fetch `/api/lm/models` once and cache; `dynamic` = refresh the model list on every picker open |
 | `dsh.features.mcp-consume` | false | Let DSH consume VS Code MCP servers through the bridge (`vscode/mcp/listServers`/`listTools`/`callTool`) (L2 feature) |
+| `dsh.features.exports` | false | Enable the programmatic exports API returned by the extension `activate()` face (`ask`/`listSessions`/`addContext`) (L2 feature; disabled calls throw `DSH_EXPORT_DISABLED`) |
 | `dsh.keybindings.ctrlL` | false | Enable the Ctrl+L (Cmd+L on macOS) keybinding that adds the active editor selection to the DSH conversation (off by default) |
 
 | `dsh.multiInstance.entry` | false | Show the new-instance entry in the DSH sidebar title bar (off by default) |

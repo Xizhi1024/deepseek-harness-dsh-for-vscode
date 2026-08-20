@@ -53,13 +53,16 @@
   "dsh.cmd.changes.refresh": "Refresh Changes",
   "dsh.cmd.changes.focus": "Focus DSH Changes",
   "dsh.cmd.ctrlKEdit": "Edit with DSH (Ctrl+K)",
+  "dsh.cmd.ctrlIEdit": "Edit with DSH Files (Ctrl+I)",
   "dsh.cmd.mcp.refresh": "Refresh MCP Servers",
   "dsh.cmd.mcp.forgetConsent": "Forget MCP Server Consent",
   "dsh.lm.vendor": "DSH",
   "dsh.cfg.features.changes-review": "Review workspace edits proposed by DSH: approval prompts, the dsh.changes tree view, and the vscode/changes/push bridge handler. Off by default.",
   "dsh.cfg.features.ctrl-k": "Enable the Edit with DSH (Ctrl+K) command that sends the active selection and an instruction to the DSH conversation. Off by default; no keybinding is contributed.",
+  "dsh.cfg.features.ctrl-i": "Enable the Edit with DSH Files (Ctrl+I) command that lets you pick 1-8 workspace files and sends them as a multi-file context block to the DSH conversation. Off by default; no keybinding is contributed.",
   "dsh.cfg.features.lm-route": "Expose DSH models to the VS Code language-model chat picker (vendor dsh). Off by default.",
   "dsh.cfg.lm.route": "DSH model routing mode. off = never register the dsh chat provider; fixed = fetch /api/lm/models once and cache; dynamic = refresh the model list on every picker open.",
   "dsh.cfg.features.mcp-consume": "Let DSH consume VS Code MCP servers through the bridge (vscode/mcp/listServers|listTools|callTool). Off by default.",
-  "dsh.cfg.features.call-export": "Let DSH call exported methods of installed VS Code extensions through the bridge (vscode/extensions/callExport). Off by default; activation and invocation share this consent gate."
+  "dsh.cfg.features.call-export": "Let DSH call exported methods of installed VS Code extensions through the bridge (vscode/extensions/callExport). Off by default; activation and invocation share this consent gate.",
+  "dsh.cfg.features.exports": "Enable the programmatic exports API returned by the extension activate() face (ask/listSessions/addContext). Off by default; calls throw DSH_EXPORT_DISABLED until enabled."
 }

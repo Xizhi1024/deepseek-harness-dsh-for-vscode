@@ -72,6 +72,7 @@
     "onCommand:dsh.changes.undo",
     "onCommand:dsh.changes.refresh",
     "onCommand:dsh.changes.focus",
+    "onCommand:dsh.ctrlIEdit",
     "onCommand:dsh.ctrlKEdit",
     "onLanguageModelChatProvider:dsh",
     "onCommand:dsh.mcp.refresh",
@@ -251,6 +252,11 @@
       {
         "command": "dsh.changes.focus",
         "title": "%dsh.cmd.changes.focus%",
+        "category": "%dsh.cmd.category%"
+      },
+      {
+        "command": "dsh.ctrlIEdit",
+        "title": "%dsh.cmd.ctrlIEdit%",
         "category": "%dsh.cmd.category%"
       },
       {
@@ -464,6 +470,12 @@
           "default": false,
           "description": "%dsh.cfg.features.ctrl-k%"
         },
+        "dsh.features.ctrl-i": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "description": "%dsh.cfg.features.ctrl-i%"
+        },
         "dsh.features.lm-route": {
           "type": "boolean",
           "default": false,
@@ -489,6 +501,12 @@
           "default": false,
           "scope": "machine",
           "description": "%dsh.cfg.features.call-export%"
+        },
+        "dsh.features.exports": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "description": "%dsh.cfg.features.exports%"
         },
         "dsh.keybindings.ctrlL": {
           "type": "boolean",
