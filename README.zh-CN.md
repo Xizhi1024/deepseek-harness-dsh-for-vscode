@@ -4,6 +4,13 @@
 
 把本地 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）Web 界面嵌入 VS Code 辅助侧边栏（右侧栏，与 Copilot Chat 同排）。默认情况下，每个 VS Code 窗口都会以当前工作区为 cwd 单独启动并持有一个 `dsh web` 子进程，再以紧凑的全屏 iframe 渲染。
 
+## 🚨 **已知严重问题（0.9.2–0.9.3）：DSH 运行时低于 0.1.0-rc.7 时托管启动全部失败**
+
+> [!WARNING]
+> **0.9.2 起扩展给每次托管的 `dsh web` 启动都传了 `--no-open`，而该旗标自 `@deepseek-ai/dsh` ≥ 0.1.0-rc.7 才存在。** 在更老的运行时（如 0.1.0-rc.6）上，CLI 会以 `error: unknown option '--no-open'` 立即退出——所有托管拉起当场失败，侧栏永远起不来，扩展还会在候选端口（3080/3081/3082）间反复重试。报错可在扩展 `globalStorage` 下的 spawn 日志（`dsh-server-*.log`）中看到。
+>
+> **修复 / 绕过**：升级运行时——`npm i -g @deepseek-ai/dsh@0.1.1-rc.1`（任何 ≥ 0.1.0-rc.7 均可），或改装 ≤ 0.9.1 的扩展版本。下一版将按运行时版本门控该旗标。
+
 ## **VS CODE 交互保证（0.9.0）**
 
 **在扩展自管的 DSH 会话中，模型输出的“复制”**与嵌入页面内的原生 ⌘C/⌘X/⌘V（Ctrl+C/X/V）**——包括聊天输入框内的选区——均使用 VS Code 剪贴板**；嵌入页面跟随 VS Code 明暗主题而非操作系统；`Read …` 文件（包括共享旧会话中位于当前工作区之外的绝对路径）在拥有该 DSH 进程的 VS Code 窗口中打开，HTTP/HTTPS 链接在 VS Code Simple Browser 中打开。Markdown 文件不再回退到 Typora 等 Windows 默认关联程序。在编辑器正文右键，无需选中文字即可“将文件添加到 DSH 对话”，选中代码后也可“添加到 DSH 对话”；两者都只向当前 DSH 草稿追加紧凑的文件名/行号 Markdown 链接，不粘贴代码正文；消息渲染后点击链接，会在所属 VS Code 窗口重新打开并选中该附件。扩展绝不会自动发送。**

@@ -4,6 +4,13 @@
 
 Embeds the local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) web UI in the VS Code auxiliary sidebar (right rail, alongside Copilot Chat). By default, every VS Code window starts and owns one `dsh web` child with the current workspace as cwd, then renders it in a compact full-screen iframe.
 
+## 🚨 **KNOWN CRITICAL ISSUE (0.9.2–0.9.3): managed startup fails on DSH runtime < 0.1.0-rc.7**
+
+> [!WARNING]
+> **Since 0.9.2 the extension passes `--no-open` on every managed `dsh web` launch, but that flag only exists in `@deepseek-ai/dsh` ≥ 0.1.0-rc.7.** On older runtimes (e.g. 0.1.0-rc.6) the CLI rejects the unknown option and exits immediately — every managed spawn dies with `error: unknown option '--no-open'`, the sidebar can never start, and the extension keeps retrying across candidate ports (3080/3081/3082). The error is visible in the spawn logs under the extension's `globalStorage` (`dsh-server-*.log`).
+>
+> **Fix / workaround:** upgrade the runtime — `npm i -g @deepseek-ai/dsh@0.1.1-rc.1` (anything ≥ 0.1.0-rc.7 works) — or install an extension build ≤ 0.9.1. The next release gates the flag on the runtime version.
+
 ## **VS CODE INTERACTION GUARANTEE (0.9.0)**
 
 **In an extension-owned DSH session, model-output Copy **and native ⌘C/⌘X/⌘V (Ctrl+C/X/V) inside the embedded page** use the VS Code clipboard—including selections inside the chat composer—, `Read …` files—including absolute paths from shared older sessions outside the current workspace—open in the exact owning VS Code window, and HTTP/HTTPS links open in VS Code Simple Browser. The embedded page follows the VS Code color theme (light/dark) instead of the OS. Markdown files no longer fall through to Windows file associations such as Typora. Right-click the editor body to add either the whole file (`Add File to DSH Thread`, no selection required) or the current selection (`Add to DSH Thread`); both append only a compact Markdown file/link to the active DSH draft—never the selected source text. Clicking the rendered link reopens that approved file/selection in the owning VS Code window. Nothing is ever auto-sent.**
