@@ -350,7 +350,7 @@ Key behaviors:
 - Remote (WSL / Remote-SSH): `vscode.env.asExternalUri` port forwarding
 - Browser commands use the same externalized URL as the iframe, including remote sessions and connection-error fallback pages
 - Only the iframe URL gains the `dsh_embed=vscode` compact-layout marker; browser URLs remain unmodified
-- Workspace switch: rebind the DSH session through the workspace registry without killing or restarting the owned child (PID stays the same)
+- Workspace switch: rebind the DSH session through the workspace registry without killing or restarting the owned child (PID stays the same); the sidebar iframe reloads with the fresh `dsh_session` param and the DSH-side consumer switches the visible session via `sessions.open()` once the list mirror is ready
 - `onStartupFinished` activation: with `dsh.autoStart` on, the server starts at VS Code startup (null-safe when no webview is open)
 - With the default `onVscodeExit` policy, extension deactivation cancels pending startup, waits for the serialized lifecycle queue, and tree-kills any child that appeared; closing one VS Code window does not affect another window's child
 - Lifecycle transitions (connect / stop / workspace rebind / config reconcile) run through one serialized queue, so a dispose arriving during connect cannot kill a process a rebind just started

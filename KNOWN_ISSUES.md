@@ -1,7 +1,7 @@
 # Known Issues / 问题记录
 
-> 更新日期：2026-08-20 · 对应版本：**0.9.0** · 当前**无未修复已知问题**
-> Updated 2026-08-20 · tracks release **0.9.0** · **no open known issues**
+> 更新日期：2026-08-20 · 对应版本：**0.9.3** · 当前**无未修复已知问题**
+> Updated 2026-08-20 · tracks release **0.9.3** · **no open known issues**
 
 历史问题与修复索引（复现细节见 [CHANGELOG.md](CHANGELOG.md) 与 [docs/dev/](docs/dev/)）：
 Past issues and their fixes (details in the changelog and dev notes):
@@ -12,6 +12,7 @@ Past issues and their fixes (details in the changelog and dev notes):
 | 2 | 工作区之外的文件无法添加到对话 / files outside the workspace could not be attached | 0.6.0 |
 | 3 | macOS 嵌入侧栏内 ⌘C/⌘X 复制剪切失效（VS Code Edit 菜单不转发进嵌套 iframe，microsoft/vscode#129178；旧桥只接管了 ⌘V） / ⌘C/⌘X copy-cut dead inside the embedded iframe on macOS | 0.9.0 |
 | 4 | 颜色跟随操作系统而非 VS Code 主题（扩展端 dsh_theme/dshThemeChanged 链路早已就绪，DSH 端消费方缺失，主题服务仍按 prefers-color-scheme 解析 system）/ colors followed the OS instead of the VS Code theme — the DSH-side consumer was missing | 0.9.0 |
+| 5 | 切换 VS Code 工作区后侧栏不跟随：扩展端经工作区注册表重绑并以 `?dsh_session=` 重载 iframe，但 DSH Web 端只恢复自己持久化的当前会话、无任何 dsh_session 消费方 / after a workspace switch the sidebar kept the old conversation: the DSH web app restores its own persisted current session and nothing consumed dsh_session | 0.9.3 |
 
 ## 验收提示 / Verification notes（issue 3/4）
 
@@ -21,6 +22,13 @@ Past issues and their fixes (details in the changelog and dev notes):
   Verify ⌘C with a selection over message text, and again with a selection inside the chat composer.
 - 主题验收：切换 VS Code 亮/暗主题，DSH 侧栏应实时跟随；卸载/禁用扩展后 DSH 恢复其自身主题偏好。
   Verify theme-follow by toggling the VS Code light/dark theme; on dispose the DSH preference is restored.
+
+## 验收提示 / Verification notes（issue 5）
+
+- 修复同样位于 DSH 侧 `dsh-vscode-integration/client.js`，扩展每次激活时同步进所选 DSH home；**升级扩展后必须完全退出并重启 VS Code**（⌘Q），并重启 DSH 实例使新 client.js 生效。
+  The fix likewise ships in the DSH-side `dsh-vscode-integration/client.js` re-synced on every activation; fully quit and restart VS Code after upgrading, and restart the DSH instance.
+- 验收：打开文件夹 A → 侧栏绑定 A 的会话；`File → Open Folder` 切到文件夹 B（或多根工作区里把活动编辑器移到另一根）→ 侧栏应重载并自动切到 B 的空白会话，会话工具的工作区根随之为 B；自管 DSH 子进程 PID 全程不变。
+  Verify by opening folder A, then `File → Open Folder` to folder B (or focusing an editor from another multi-root folder): the sidebar reloads onto B's blank session, tool sandboxes root at B, and the owned child PID never changes.
 
 ## 内部开发文档 / Internal dev notes
 

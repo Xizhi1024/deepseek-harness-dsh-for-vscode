@@ -3,6 +3,13 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2026-08-20
+
+### Fixed / 修复
+
+- **工作区切换后侧栏不跟随（dsh_session 无消费方）**：扩展端早已通过工作区注册表把新 VS Code 工作区重绑到对应 DSH 会话，并以 `?dsh_session=<id>` 重新加载侧栏 iframe；但 DSH Web 端启动时恢复的是**自己持久化的当前会话**，官方客户端没有任何代码消费 `dsh_session` 参数——于是切工作区后侧栏仍停留在旧工作区的对话。与 0.9.0 主题跟随（issue #4）同病：扩展端就绪、DSH 端消费方缺失。现于 `dsh-vscode-integration/client.js` 新增会话跟随消费方：等目标会话进入 sessions 列表镜像（异步加载，100ms 轮询上限 5s）后经 `sessions.open()` 切换——与用户点击会话行完全同路径；目标已是当前会话则不动、无参数/旧版 DSH 无 `sessions.open` 时静默降级、effect dispose 即停。已加 6 项回归测试（出现即切、无参不动、已是当前不重开、dispose 后不再导航、旧版降级、无 sessions 服务不抛错）。
+  Workspace switch left the sidebar behind (no dsh_session consumer): the extension side already rebound the new VS Code workspace through the workspace registry and reloaded the sidebar iframe with `?dsh_session=<id>`; but the DSH web app restores its own persisted current session on boot and no official client consumed the param — so after switching workspaces the sidebar kept showing the previous workspace's conversation. Same disease as the 0.9.0 theme-follow fix (issue #4): extension side ready, DSH-side consumer missing. `dsh-vscode-integration/client.js` now ships a session-follow consumer that waits for the target session to enter the sessions list mirror (async load; 100ms polling, 5s cap) and switches via `sessions.open()` — the exact path of a user click on the session row. No-ops when the target is already current; degrades silently without the param or on older builds lacking `sessions.open`; disposal stops the loop. Six regression tests cover the matrix.
+
 ## [0.9.2] - 2026-08-20
 
 ### Fixed / 修复

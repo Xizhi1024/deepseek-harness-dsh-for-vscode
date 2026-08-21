@@ -347,7 +347,7 @@ v3 桥已覆盖原路线图的大半——终端、任务、调试 启动/停止
 - 远程（WSL / Remote-SSH）：`vscode.env.asExternalUri` 端口转发
 - 浏览器命令与 iframe 使用同一个 externalized URL，远程会话和连接失败页同样适用
 - 仅 iframe URL 增加 `dsh_embed=vscode` 紧凑布局标记；浏览器 URL 不作修改
-- 工作区切换：经工作区注册表重绑 DSH 会话，不 kill、不重启自管子进程（PID 保持不变）
+- 工作区切换：经工作区注册表重绑 DSH 会话，不 kill、不重启自管子进程（PID 保持不变）；侧栏 iframe 以新 `dsh_session` 参数重载，DSH 端消费方等待会话列表就绪后经 `sessions.open()` 自动切到新工作区的会话
 - `onStartupFinished` 激活：`dsh.autoStart` 开启时 VS Code 启动即拉取服务（未打开 webview 时同样安全）
 - 默认 `onVscodeExit` 策略下，扩展停用会取消待启动操作、等待串行生命周期队列结算，并树杀期间可能刚出现的子进程；关闭一个 VS Code 窗口不会影响另一个窗口的子进程
 - 生命周期流转（连接 / 停止 / 工作区重绑 / 配置协调）统一走一条串行队列，连接期间到来的视图销毁不会误杀刚重绑拉起的进程

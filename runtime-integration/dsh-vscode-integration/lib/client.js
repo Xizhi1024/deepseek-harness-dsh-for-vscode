@@ -310,6 +310,55 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // Session-follow consumer: the VS Code shell reloads this iframe with a
+    // fresh dsh_session query param whenever the bound workspace changes
+    // (folder switch, multi-root editor move, session navigation commands).
+    // The DSH web app restores its own persisted current session on boot and
+    // no official client consumes the param, so without this bridge the
+    // sidebar keeps showing the previous workspace's conversation after the
+    // switch. Wait for the target session to appear in the list mirror (the
+    // session list loads asynchronously), then route it through
+    // sessions.open() exactly like a user click on the session row.
+    function startEmbeddedSessionFollow(ctx) {
+      const target = new URLSearchParams(window.location.search).get('dsh_session');
+      if (!target) return () => {};
+      if (!ctx.sessions || typeof ctx.sessions.open !== 'function') return () => {};
+      if (!ctx.sessions.list || typeof ctx.sessions.list.getSnapshot !== 'function') return () => {};
+      let disposed = false;
+      let timer = null;
+      const attempt = (remaining) => {
+        if (disposed) return;
+        let snapshot = null;
+        try {
+          snapshot = ctx.sessions.list.getSnapshot();
+        } catch {
+          // A broken snapshot store must never break activation.
+          return;
+        }
+        if (snapshot && snapshot.byId && snapshot.byId[target] !== undefined) {
+          if (snapshot.current !== target) {
+            try {
+              ctx.sessions.open(target);
+            } catch {
+              // select() can race list refreshes; the next reload retries.
+            }
+          }
+          return;
+        }
+        if (remaining > 0) {
+          timer = setTimeout(() => attempt(remaining - 1), 100);
+        }
+      };
+      attempt(50);
+      return () => {
+        disposed = true;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+      };
+    }
+
     function apply(ctx) {
       if (!enabled()) return;
       // Initial theme from the URL the shell built for this webview.
@@ -326,6 +375,7 @@ window.__ModuleLoader__.load({
       } catch { /* optional */ }
       ctx.effect(() => {
         startHandshake();
+        const stopSessionFollow = startEmbeddedSessionFollow(ctx);
         const listener = (event) => onMessage(ctx, event);
         window.addEventListener('message', listener);
         document.addEventListener('click', onClick, true);
@@ -337,6 +387,7 @@ window.__ModuleLoader__.load({
         }, '*');
         return () => {
           if (handshakeTimer) clearTimeout(handshakeTimer);
+          stopSessionFollow();
           restoreClipboard();
           restoreExecFallback();
           restoreMacShortcutBridge();
