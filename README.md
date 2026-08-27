@@ -1,15 +1,21 @@
-# DeepSeek Harness(dsh) for VS Code
+# DSH for VS Code
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
 Embeds the local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) web UI in the VS Code auxiliary sidebar (right rail, alongside Copilot Chat). By default, every VS Code window starts and owns one `dsh web` child with the current workspace as cwd, then renders it in a compact full-screen iframe.
 
-## 🚨 **KNOWN CRITICAL ISSUE (0.9.2–0.9.3): managed startup fails on DSH runtime < 0.1.0-rc.7**
+## ✨ **What's new in 1.0.0**
 
-> [!WARNING]
-> **Since 0.9.2 the extension passes `--no-open` on every managed `dsh web` launch, but that flag only exists in `@deepseek-ai/dsh` ≥ 0.1.0-rc.7.** On older runtimes (e.g. 0.1.0-rc.6) the CLI rejects the unknown option and exits immediately — every managed spawn dies with `error: unknown option '--no-open'`, the sidebar can never start, and the extension keeps retrying across candidate ports (3080/3081/3082). The error is visible in the spawn logs under the extension's `globalStorage` (`dsh-server-*.log`).
+> [!NOTE]
+> **Fixed: managed startup no longer breaks on DSH runtimes older than 0.1.0-rc.7.** The `--no-open` flag is now gated on the runtime version, and a runtime that still rejects it is automatically retried once without the flag — the sidebar starts instead of silently dying.
 >
-> **Fix / workaround:** upgrade the runtime — `npm i -g @deepseek-ai/dsh@0.1.1-rc.1` (anything ≥ 0.1.0-rc.7 works) — or install an extension build ≤ 0.9.1. The next release gates the flag on the runtime version.
+> **Windows: DSH is found in far more places.** Discovery now also scans PATH shims (`dsh.cmd` / `dsh.ps1`) and the pnpm / yarn / scoop / volta global layouts, so installations outside the classic npm layout are picked up automatically — no settings required.
+>
+> **New settings:** `dsh.executablePath` (package dir, `lib/bin.js`, or a Windows shim — your choice wins over auto-detection), `dsh.launch.method` (`auto` / `managed` / `command`), `dsh.launch.command`, and `dsh.extraArgs` (extra CLI flags appended to every managed launch).
+>
+> **Connection watchdog:** once the sidebar is connected, the service endpoint is monitored; if it stops answering (crash, sleep/resume, port hijack), the sidebar shows a connection-lost page with one-click Retry instead of a dead frame.
+>
+> **Smarter reuse:** when the configured port is silent but a `dsh web` is already running on another port of this machine, the extension discovers it from the process list and binds to it.
 
 ## **VS CODE INTERACTION GUARANTEE (0.9.0)**
 
@@ -46,7 +52,7 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 - Dev: open this repo → `F5` → **Run Extension**
 - Verify: `npm ci` → `npm run check:w0` → `npm run test:extension-host`
 - Secret scan: `npm run test:secrets` scans the source/docs that would enter the VSIX (never `node_modules`, `.git`, or `.vscode-test`) and exits 1 on hardcoded bridge tokens, `Authorization: Bearer` credentials, API keys, private keys, or password literals; example/test fixtures are released with an explicit `// allow-secret-scan` comment.
-- Package: `npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.9.2.vsix`
+- Package: `npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension dsh-vs-sidebar-1.0.0.vsix`
 
 ## Usage
 

@@ -1,15 +1,21 @@
-# DeepSeek Harness(dsh) for VS Code
+# DSH for VS Code
 
 [简体中文](README.zh-CN.md) · [English](README.md)
 
 把本地 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）Web 界面嵌入 VS Code 辅助侧边栏（右侧栏，与 Copilot Chat 同排）。默认情况下，每个 VS Code 窗口都会以当前工作区为 cwd 单独启动并持有一个 `dsh web` 子进程，再以紧凑的全屏 iframe 渲染。
 
-## 🚨 **已知严重问题（0.9.2–0.9.3）：DSH 运行时低于 0.1.0-rc.7 时托管启动全部失败**
+## ✨ **1.0.0 更新亮点**
 
-> [!WARNING]
-> **0.9.2 起扩展给每次托管的 `dsh web` 启动都传了 `--no-open`，而该旗标自 `@deepseek-ai/dsh` ≥ 0.1.0-rc.7 才存在。** 在更老的运行时（如 0.1.0-rc.6）上，CLI 会以 `error: unknown option '--no-open'` 立即退出——所有托管拉起当场失败，侧栏永远起不来，扩展还会在候选端口（3080/3081/3082）间反复重试。报错可在扩展 `globalStorage` 下的 spawn 日志（`dsh-server-*.log`）中看到。
+> [!NOTE]
+> **修复：DSH 运行时低于 0.1.0-rc.7 时托管启动不再失败。** `--no-open` 现在按运行时版本门控；仍拒绝该旗标的老运行时会自动去掉参数原端口重试一次——侧栏正常启动，不再静默死亡。
 >
-> **修复 / 绕过**：升级运行时——`npm i -g @deepseek-ai/dsh@0.1.1-rc.1`（任何 ≥ 0.1.0-rc.7 均可），或改装 ≤ 0.9.1 的扩展版本。下一版将按运行时版本门控该旗标。
+> **Windows：DSH 发现范围大幅扩大。** 自动发现新增 PATH shim 扫描（`dsh.cmd` / `dsh.ps1`）与 pnpm / yarn / scoop / volta 全局布局——npm 经典布局之外的安装方式也能零配置识别。
+>
+> **新设置：** `dsh.executablePath`（包目录、`lib/bin.js` 或 Windows shim 文件，配置后优先于自动发现）、`dsh.launch.method`（`auto` / `managed` / `command`）、`dsh.launch.command`、`dsh.extraArgs`（附加到每次托管启动的额外 CLI 参数）。
+>
+> **连接看门狗：** 侧栏连接后持续监测服务端点；一旦失联（崩溃、休眠唤醒、端口被占），侧栏显示连接丢失页并支持一键重试，不再留一块死白框。
+>
+> **更聪明的复用：** 配置端口静默而机器上别的端口已有 `dsh web` 在跑时，扩展会从进程列表发现并直接绑定它。
 
 ## **VS CODE 交互保证（0.9.0）**
 
@@ -46,7 +52,7 @@
 - 开发调试：打开本仓库 → `F5` → **Run Extension**
 - 验证：`npm ci` → `npm run check:w0` → `npm run test:extension-host`
 - 密钥扫描：`npm run test:secrets` 扫描将进入 VSIX 的源码/文档（不扫 `node_modules`、`.git`、`.vscode-test`），命中硬编码桥接 token、`Authorization: Bearer` 凭据、API key、私钥或密码字面量时以 1 退出；示例/测试 fixture 使用显式 `// allow-secret-scan` 注释放行。
-- 打包安装：`npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension deepseek-harness-dsh-for-vscode-0.9.2.vsix`
+- 打包安装：`npm i -g @vscode/vsce && vsce package --no-dependencies` → `code --install-extension dsh-vs-sidebar-1.0.0.vsix`
 
 ## 使用
 

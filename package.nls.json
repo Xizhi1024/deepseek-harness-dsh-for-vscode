@@ -1,5 +1,5 @@
 {
-  "dsh.displayName": "DeepSeek Harness(dsh) for VS Code",
+  "dsh.displayName": "DSH for VS Code",
   "dsh.ext.description": "Embed the local DeepSeek Harness (DSH) web UI into the VS Code auxiliary sidebar.",
   "dsh.cfg.title": "DeepSeek Harness(dsh) for VS Code",
   "dsh.cfg.port": "Port to probe / start the DSH web server.",
@@ -11,6 +11,10 @@
   "dsh.cfg.closePolicy": "When to stop the extension-owned DSH server. onVscodeExit (default): stop only when VS Code exits. onViewClose: also stop when the sidebar view is closed. never: never stop automatically — use the Stop DSH Server command. A reused (non-owned) instance is never stopped.",
   "dsh.cfg.local.packageRoot": "Optional absolute path to the official @deepseek-ai/dsh package root. Empty = detect the global npm installation automatically.",
   "dsh.cfg.local.nodePath": "Optional absolute path to the Node.js executable used to launch the official DSH package. Empty = detect Node.js automatically.",
+  "dsh.cfg.executablePath": "Optional absolute path to the dsh executable: the package directory, its lib/bin.js entrypoint, or a Windows shim (dsh.cmd / dsh.ps1). Empty = detect automatically. Takes precedence over automatic discovery.",
+  "dsh.cfg.launch.method": "How DSH is launched. auto (default): resolve the installed official package, then fall back to the dsh command from PATH. managed: only the installed package. command: only the dsh command from PATH (see dsh.launch.command).",
+  "dsh.cfg.launch.command": "The dsh command used when dsh.launch.method is command (or the auto fallback). A name resolved from PATH, default dsh.",
+  "dsh.cfg.extraArgs": "Extra CLI arguments appended to every extension-owned dsh web launch (e.g. [\"--patch\", \"C:\\overlay.yml\"]). The extension-owned --host/--port/--profile flags always come first.",
   "dsh.cfg.runtime.manifestUrl": "Optional HTTPS runtime release manifest (schemaVersion 1, artifacts with embedded manifests). Empty = use the locally installed official npm DSH; non-empty = opt into verified managed-runtime provisioning.",
   "dsh.cfg.runtime.version": "Optional managed-runtime version pin; used only when dsh.runtime.manifestUrl is configured.",
   "dsh.cfg.features.clipboard-bridge": "Embedded copy/paste bridge between the DSH iframe and the VS Code clipboard.",

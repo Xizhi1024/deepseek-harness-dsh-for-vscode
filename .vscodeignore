@@ -8,6 +8,8 @@
 docs/**
 ci/**
 .agents/**
+Dockerfile.ci
+PROMO.md
 
 # --- VS Code dev config（含 launch.json，可能含机器相关路径）/ dev config ---
 .vscode/**
