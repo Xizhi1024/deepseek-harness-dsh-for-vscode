@@ -3,6 +3,13 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-08-28
+
+### Fixed / 修复
+
+- **FIM 路由从未被同步进 DSH home（1.0.1 回归）**：`src/dshIntegration.js` 的 `INTEGRATION_FILES` 清单漏列 `lib/fimRoutes.js`——扩展每次激活同步插件时永远不带这个文件，DSH 侧 `/api/fim` 路由无从挂载，Tab 补全服务端形同虚设。现已加入清单，并在升级后首次激活时自动补齐运行副本。
+  The plugin sync list omitted `lib/fimRoutes.js`, so the DSH-side `/api/fim` route never materialized; the file list now includes it and the running copy self-heals on the next activation.
+
 ## [1.0.1] - 2026-08-28
 
 ### Added / 新增

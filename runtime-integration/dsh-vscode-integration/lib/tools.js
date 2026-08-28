@@ -324,12 +324,13 @@ function descriptorFor(method) {
     name: toolNameFor(method),
     description: entry.description,
     parameters: entry.parameters,
-    // ToolRuntime.register() contract: render must be a function
-    // (args, value) => lossless JSON, and the schema subset has no
-    // 'json' type — an empty schema means "any JSON value".
+    // ToolRuntime.register() contract: render must return an array of content
+    // blocks (e.g. [{ type: 'text', text }]). Returning a bare string makes
+    // result.content a non-array and dsh-tools' commit() crashes the whole
+    // daemon with `result.content.some is not a function`.
     output: {
       schema: {},
-      render: (args, value) => JSON.stringify(value, null, 2),
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
   };
 }

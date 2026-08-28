@@ -11,6 +11,7 @@ const INTEGRATION_FILES = Object.freeze([
   'lib/client.js',
   'lib/tools.js',
   'lib/lmRoute.js',
+  'lib/fimRoutes.js',
 ]);
 
 function requireAbsolute(value, label) {

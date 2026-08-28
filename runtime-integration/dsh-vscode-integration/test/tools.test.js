@@ -61,6 +61,14 @@ function assertToolRuntimeContract(tool) {
     || (output.presentationMeta !== undefined && typeof output.presentationMeta !== 'function')) {
     throw new TypeError(`tool "${tool.name}" must declare output { schema, render, presentationMeta? }`);
   }
+  // The real runtime puts render()'s return value into result.content verbatim
+  // and later calls content.some(...) in dsh-tools commit(); a non-array (e.g.
+  // a bare string) crashes the whole daemon with
+  // `result.content.some is not a function`.
+  const rendered = output.render({}, {});
+  if (!Array.isArray(rendered) || rendered.length === 0 || rendered.some((block) => block === null || typeof block !== 'object' || typeof block.type !== 'string')) {
+    throw new TypeError(`tool "${tool.name}" output.render must return content blocks [{ type, ... }], got ${JSON.stringify(rendered)}`);
+  }
   assertSchemaSubset(output.schema, `${tool.name} output.schema`);
   if (tool.parameters !== undefined) {
     assertSchemaSubset(tool.parameters, `${tool.name} parameters`);
