@@ -3,6 +3,48 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - Unreleased
+
+> ⚠️ **迁移提示 / Migration note**：变更评审语义重排——`vscode/changes/push` 现在只把编辑记入变更树（**pending**，不落盘），在树中点 **Accept** 才真正写入文件；**Undo** 对 pending 条目直接丢弃、对已接受条目按快照整文件还原。1.0.x journal 里的旧条目以 legacy 标记显示。
+> Change review semantics reworked: `vscode/changes/push` now records edits into the changes tree as **pending** without touching disk; **Accept** in the tree applies them; **Undo** discards pending entries outright and restores accepted ones from whole-file snapshots. Entries from 1.0.x journals render with a legacy marker.
+
+### Added / 新增
+
+- *[暂缓 Deferred to the next drop]* 全源变更追踪（journal v2 + watcher 兜底）与工具层拦截（`dsh.changes.mode`）——本分支未落地；C2 的 P0 spike 已在本仓库外部预答（DSH 运行时 `ctx.on('tools/pre-execute')` 异步 waterfall + `ctx.tools.guard()`，见 PLAN-1.1.0-REMAINING.md）。
+  *[Deferred]* Full-source change tracking (journal v2 + watcher) and tool-layer interception (`dsh.changes.mode`) are NOT in this drop; the C2 spike is pre-answered externally (see PLAN-1.1.0-REMAINING.md).
+- **MCP env 密钥联动 secretStorage**：MCP server 需要 env 密钥时先查 VS Code secretStorage 同名 key，命中免问；key 名含 KEY/TOKEN/SECRET 时输入框密码化，问完回存。
+  MCP env secrets now check VS Code secretStorage first (same-name key skips the prompt); secret-looking keys prompt with password masking and are stored back into secretStorage.
+- *[暂缓 Deferred]* 调试器断点桥（`vscode/debug/listBreakpoints|addBreakpoints|removeBreakpoints`）——本分支未落地，见 PLAN-1.1.0-REMAINING.md。
+  *[Deferred]* Debugger breakpoint bridge — not in this drop; see PLAN-1.1.0-REMAINING.md.
+- **回复路径 linkify**：聊天消息里的 `file:///...` 与工作区相对路径（含 `:line`）可点击，经 text-document 桥在本窗口打开。
+  Clickable file links in chat replies: `file:///...` and workspace-relative paths (with `:line`) open in the current window via the text-document bridge.
+- **主视图入口三层**：视图标题栏"在编辑器中打开"图标 + 编辑器标题栏 DSH 图标 + `Ctrl+Alt+N` 新实例（`dsh.multiInstance.entry` 默认开）。
+  Three entries to the main view: view-title open-in-editor icon, editor-title DSH icon, and `Ctrl+Alt+N` for a new instance (`dsh.multiInstance.entry` defaults on).
+- *[暂缓 Deferred]* Diagnose 改版（QuickPick 分区）与 Onboarding 改版（profile 下拉/Tab 补全三并一步）——本分支未落地，见 PLAN-1.1.0-REMAINING.md。
+  *[Deferred]* Diagnose revamp and onboarding revamp — not in this drop; see PLAN-1.1.0-REMAINING.md.
+
+### Fixed / 修复
+
+- **终端回读**：桥创建的终端现在订阅 `onDidWriteTerminalData` 写入 ring buffer，`sendText` 后的输出可被 read 读回。
+  Terminal readback: bridged terminals subscribe to `onDidWriteTerminalData` into the ring buffer, so output after `sendText` is readable.
+- **dshVersion 探测**：本地 DSH 包 version 读取的失败路径补全，兼容性 WARN 消除，theme/toolsV3 门控恢复正确。
+  dshVersion probing: local DSH package version read failure paths fixed — no more unknown compatibility WARN, theme/toolsV3 gating restored.
+- **MCP forget**：改为下拉选择 consent 记录（零输入），并修复 forget 后复调不再询问 consent 的 bug。
+  MCP forget: now a QuickPick over consent records (zero typing), fixing the bug where a post-forget invocation was not re-prompted for consent.
+- *[暂缓 Deferred]* @dsh 参与者会话治理（会话复用/标题/双前缀/流式）——本分支未落地，见 PLAN-1.1.0-REMAINING.md。
+  *[Deferred]* @dsh participant session hygiene — not in this drop; see PLAN-1.1.0-REMAINING.md.
+- **findFiles 防护**：桥 handler 加 5s 超时 + 默认 exclude（node_modules/.git/dist/out），超时返回带提示的空结果。
+  findFiles guard: 5s timeout + default excludes (node_modules/.git/dist/out); timeouts return an empty result with a hint.
+- **undo 反向区间**：已接受条目的 undo 改用快照整文件替换式 WorkspaceEdit，规避多 edit 行号漂移导致的拒绝。
+  Undo for accepted entries now uses whole-file snapshot replacement WorkspaceEdits, avoiding rejections from range drift across multiple edits.
+
+### Changed / 变更
+
+- **状态栏可点击**（toggle 侧边栏）+ 实际端口 ≠ 配置端口时 tooltip 标注；设置变更（`dsh.fim.*`/`features.*`/`bridge.*`）弹 "Restart now?" 提示。
+  Clickable status bar item (toggles the sidebar) with the actual port annotated in the tooltip on conflict downgrade; setting changes now offer a "Restart now?" prompt.
+- **Ctrl+L 默认开启**（仅加草稿不发送）；Ctrl+K 保持 opt-in，onboarding 提供一键启用项。
+  Ctrl+L defaults on (add draft only, low risk); Ctrl+K stays opt-in with a one-click enable item in onboarding.
+
 ## [1.0.2] - 2026-08-28
 
 ### Fixed / 修复
