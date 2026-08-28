@@ -5,6 +5,7 @@ import net from 'node:net';
 import { createBridgeTools } from './tools.js';
 import { createLmRoutes } from './lmRoute.js';
 import { createFimRoutes } from './fimRoutes.js';
+import { createLinkRoutes, editorOpenViaBridge } from './linkRoutes.js';
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
@@ -383,6 +384,24 @@ function apply(ctx) {
     const fim = createFimRoutes({ env: process.env, ctx });
     return () => fim.dispose();
   }, 'dsh-vscode-integration: /api/fim route');
+
+  // B3 (issue #6): same-origin open-link route for reply-path linkify. The
+  // browser client POSTs { path, line, col }; this side resolves relative
+  // paths against the child cwd (the VS Code workspace root) and opens via
+  // the existing channels: openThroughBridge (textDocumentBridge, gated by
+  // the extension's dsh.features.editor-links) or, when a line was clicked,
+  // the v3 vscode/editor/open method for the selection. No route mounts when
+  // the editor-links env is absent (feature off).
+  ctx.effect(() => {
+    const links = createLinkRoutes({
+      env: process.env,
+      ctx,
+      net,
+      openImpl: openThroughBridge,
+      editorOpenImpl: ({ params }) => editorOpenViaBridge({ env: process.env, net, params }),
+    });
+    return () => links.dispose();
+  }, 'dsh-vscode-integration: /api/vscode/open-link route');
 }
 
 export {

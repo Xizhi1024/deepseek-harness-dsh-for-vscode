@@ -359,6 +359,210 @@ window.__ModuleLoader__.load({
       };
     }
 
+    // B3 (issue #6): reply-path linkify. Recognizes two clickable forms in
+    // rendered message text — file:/// URLs (including Windows drive form
+    // file:///D:/...) and workspace-relative paths with an optional :line or
+    // :line:col suffix — wraps them in <a class="dsh-vscode-file-link">, and
+    // POSTs the parsed target to the same-origin /api/vscode/open-link route
+    // registered by this package's host side, which opens the file in the
+    // owning VS Code window. The pure extraction helpers are exposed on
+    // module.exports.__linkify for unit tests (no DOM required).
+    const LINKIFY_EXTENSIONS = new Set([
+      '.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.mts', '.cts', '.json', '.jsonc',
+      '.md', '.markdown', '.mdx', '.py', '.pyi', '.rs', '.go', '.java', '.c', '.h',
+      '.cc', '.cpp', '.hpp', '.cs', '.rb', '.php', '.swift', '.kt', '.kts', '.sh',
+      '.bash', '.zsh', '.fish', '.ps1', '.psm1', '.yml', '.yaml', '.toml', '.ini',
+      '.cfg', '.conf', '.env', '.css', '.scss', '.less', '.html', '.htm', '.vue',
+      '.svelte', '.astro', '.sql', '.lua', '.pl', '.pm', '.r', '.m', '.mm', '.dart',
+      '.ex', '.exs', '.erl', '.hs', '.clj', '.cljs', '.scala', '.gradle', '.xml',
+      '.svg', '.txt', '.log', '.lock',
+    ]);
+    const LINKIFY_TOKEN_RE = /[A-Za-z0-9_.\-\/:@%~+]+/g;
+    const LINKIFY_MAX_TEXT = 100000;
+    const LINKIFY_MAX_NODES_PER_SCAN = 2000;
+    const LINKIFY_SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'A', 'BUTTON', 'TEXTAREA', 'INPUT', 'SELECT', 'OPTION', 'NOSCRIPT']);
+    const LINKIFY_OPEN_URL = '/api/vscode/open-link';
+
+    function splitLineSuffix(token) {
+      // Try the :line:col form first: a single greedy optional group would
+      // swallow ':3' into the path of 'x.ts:3:9' and keep only the column.
+      const both = /^(.+):(\d{1,7}):(\d{1,7})$/.exec(token);
+      if (both) {
+        return { path: both[1], line: Number(both[2]), col: Number(both[3]) };
+      }
+      const one = /^(.+):(\d{1,7})$/.exec(token);
+      if (one) {
+        return { path: one[1], line: Number(one[2]), col: undefined };
+      }
+      return { path: token, line: undefined, col: undefined };
+    }
+
+    function parseFileUrlTarget(token) {
+      if (!token.startsWith('file:///')) return null;
+      const split = splitLineSuffix(token.slice('file://'.length));
+      // file:///D:/x.js keeps the drive form; file:///home/u/x.js keeps the
+      // leading slash so POSIX paths stay absolute.
+      const rawPath = /^\/[A-Za-z]:(?:[\\/].*)?$/.test(split.path) ? split.path.slice(1) : split.path;
+      let decoded;
+      try { decoded = decodeURIComponent(rawPath); } catch { return null; }
+      if (decoded.length === 0 || decoded.length > 4096 || decoded.includes('\u0000')) return null;
+      return { kind: 'file-url', path: decoded, line: split.line, col: split.col };
+    }
+
+    function parseWorkspacePathTarget(token) {
+      if (token.includes('://') || token.startsWith('file:')) return null;
+      if (token.startsWith('/') || token.startsWith('\\')) return null;
+      if (/^[A-Za-z]:[\\/]/.test(token)) return null; // absolute drive path: only file:/// form is linked
+      if (token.startsWith('www.') || token.includes('@')) return null;
+      const split = splitLineSuffix(token);
+      const raw = split.path;
+      if (raw.length === 0 || raw.length > 4096) return null;
+      const hasSeparator = raw.includes('/') || raw.includes('\\');
+      const segments = raw.split(/[\\/]+/).filter((segment) => segment.length > 0);
+      if (segments.length === 0) return null;
+      for (const segment of segments) {
+        if (!/^[A-Za-z0-9@._+][A-Za-z0-9@._+\-.]*$/.test(segment)) return null;
+      }
+      const basename = segments[segments.length - 1];
+      const dot = basename.lastIndexOf('.');
+      const hasKnownExtension = dot > 0 && LINKIFY_EXTENSIONS.has(basename.slice(dot).toLowerCase());
+      // Anti-false-positive rule: link only path-shaped text — a known source
+      // extension on the basename, OR a separator plus at least one dotted
+      // segment (so plain English like "and/or" or "node:fs" never links).
+      const hasDottedSegment = segments.some((segment) => segment.indexOf('.', 1) !== -1);
+      if (!hasKnownExtension && !(hasSeparator && hasDottedSegment)) return null;
+      return { kind: 'workspace-path', path: raw, line: split.line, col: split.col };
+    }
+
+    function extractLinkTargets(text) {
+      if (typeof text !== 'string' || text.length === 0 || text.length > LINKIFY_MAX_TEXT) return [];
+      const targets = [];
+      LINKIFY_TOKEN_RE.lastIndex = 0;
+      let match;
+      while ((match = LINKIFY_TOKEN_RE.exec(text)) !== null) {
+        const token = match[0];
+        const target = parseFileUrlTarget(token) || parseWorkspacePathTarget(token);
+        if (target) {
+          targets.push({
+            start: match.index,
+            end: match.index + token.length,
+            kind: target.kind,
+            path: target.path,
+            line: target.line,
+            col: target.col,
+          });
+        }
+      }
+      return targets;
+    }
+
+    function linkifyTextNode(node) {
+      const parent = node.parentNode;
+      if (!parent || typeof parent.replaceChild !== 'function') return;
+      // Never link text that already lives inside a link/button (this also
+      // stops the observer from re-wrapping our own anchors' text).
+      const owner = node.parentElement;
+      if (owner && typeof owner.closest === 'function' && owner.closest('a,button')) return;
+      const text = node.nodeValue;
+      const targets = extractLinkTargets(text);
+      if (targets.length === 0) return;
+      const fragment = document.createDocumentFragment();
+      let cursor = 0;
+      for (const target of targets) {
+        if (target.start > cursor) {
+          fragment.appendChild(document.createTextNode(text.slice(cursor, target.start)));
+        }
+        const anchor = document.createElement('a');
+        anchor.setAttribute('class', 'dsh-vscode-file-link');
+        anchor.setAttribute('role', 'link');
+        anchor.setAttribute('tabindex', '0');
+        anchor.setAttribute('data-dsh-link-path', target.path);
+        if (target.line !== undefined) anchor.setAttribute('data-dsh-link-line', String(target.line));
+        if (target.col !== undefined) anchor.setAttribute('data-dsh-link-col', String(target.col));
+        anchor.textContent = text.slice(target.start, target.end);
+        fragment.appendChild(anchor);
+        cursor = target.end;
+      }
+      if (cursor < text.length) {
+        fragment.appendChild(document.createTextNode(text.slice(cursor)));
+      }
+      parent.replaceChild(fragment, node);
+    }
+
+    function scanElementTree(root) {
+      let budget = LINKIFY_MAX_NODES_PER_SCAN;
+      const visit = (node) => {
+        if (budget <= 0) return;
+        budget -= 1;
+        if (node.nodeType === 3) {
+          linkifyTextNode(node);
+          return;
+        }
+        if (node.nodeType !== 1) return;
+        if (LINKIFY_SKIP_TAGS.has(node.tagName)) return;
+        if (typeof node.getAttribute === 'function') {
+          try {
+            if (node.getAttribute('contenteditable') === 'true') return;
+          } catch { /* attribute access is best-effort */ }
+        }
+        const children = node.childNodes || [];
+        for (let index = 0; index < children.length; index += 1) visit(children[index]);
+      };
+      visit(root);
+    }
+
+    function onLinkifyClick(event) {
+      if (event.defaultPrevented || event.button !== 0) return;
+      const target = event.target;
+      const element = target && typeof target.closest === 'function'
+        ? target.closest('a.dsh-vscode-file-link')
+        : null;
+      if (!element) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const path = element.getAttribute('data-dsh-link-path') || '';
+      if (path.length === 0) return;
+      const line = Number(element.getAttribute('data-dsh-link-line')) || undefined;
+      const col = Number(element.getAttribute('data-dsh-link-col')) || undefined;
+      fetch(LINKIFY_OPEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-DSH-VSCode-Linkify': '1' },
+        body: JSON.stringify({ path, line, col }),
+      }).catch(() => {
+        // Opening is best-effort; a failed click must never break the page.
+      });
+    }
+
+    function installReplyLinkify() {
+      if (typeof document.createElement !== 'function') return () => {};
+      if (typeof document.createDocumentFragment !== 'function') return () => {};
+      if (!document.body || typeof window.MutationObserver !== 'function') return () => {};
+      if (typeof fetch !== 'function') return () => {};
+      const style = document.createElement('style');
+      style.textContent = 'a.dsh-vscode-file-link{cursor:pointer;text-decoration:underline;text-underline-offset:2px}a.dsh-vscode-file-link:hover{opacity:.85}';
+      (document.head || document.body).appendChild(style);
+      // One initial pass over already-rendered messages; afterwards only new
+      // subtrees are post-processed (no whole-page rescans).
+      scanElementTree(document.body);
+      const observer = new window.MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const node of mutation.addedNodes || []) {
+            if (node.nodeType === 3) linkifyTextNode(node);
+            else if (node.nodeType === 1) scanElementTree(node);
+          }
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      document.addEventListener('click', onLinkifyClick, true);
+      return () => {
+        observer.disconnect();
+        document.removeEventListener('click', onLinkifyClick, true);
+        if (style.parentNode && typeof style.parentNode.removeChild === 'function') {
+          style.parentNode.removeChild(style);
+        }
+      };
+    }
+
     function apply(ctx) {
       if (!enabled()) return;
       // Initial theme from the URL the shell built for this webview.
@@ -382,6 +586,7 @@ window.__ModuleLoader__.load({
         const restoreClipboard = installClipboardBridge();
         const restoreExecFallback = installExecCommandFallback();
         const restoreMacShortcutBridge = installMacShortcutBridge();
+        const stopReplyLinkify = installReplyLinkify();
         window.parent.postMessage({
           type: 'dshThreadReady', channel: THREAD_CHANNEL, version: THREAD_VERSION,
         }, '*');
@@ -391,6 +596,7 @@ window.__ModuleLoader__.load({
           restoreClipboard();
           restoreExecFallback();
           restoreMacShortcutBridge();
+          stopReplyLinkify();
           document.removeEventListener('click', onClick, true);
           window.removeEventListener('message', listener);
           for (const waiter of pending.values()) {
@@ -412,6 +618,14 @@ window.__ModuleLoader__.load({
     module.exports.apply = apply;
     module.exports.inject = ['conversation', 'sessions'];
     module.exports.name = 'dsh-vscode-integration';
+    // Pure linkify helpers exposed for unit tests (extract targets from plain
+    // text; no DOM involved). Not consumed by the DSH module loader.
+    module.exports.__linkify = {
+      extractLinkTargets,
+      parseFileUrlTarget,
+      parseWorkspacePathTarget,
+      splitLineSuffix,
+    };
     return module.exports;
   },
 });
