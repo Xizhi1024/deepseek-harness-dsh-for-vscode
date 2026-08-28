@@ -10,7 +10,7 @@ const {
   ChangeTrackerError,
   MAX_EDITS,
   MAX_EDIT_TEXT_BYTES,
-  buildInverseWorkspaceEdit,
+  buildSnapshotRestoreEdit,
   buildWorkspaceEdit,
   createChangeTracker,
   positionAfterText,
@@ -164,34 +164,43 @@ test('positionAfterText advances lines for LF and ignores CR in CRLF', () => {
   assert.deepStrictEqual(positionAfterText('a\r\nb', { line: 0, character: 0 }), { line: 1, character: 1 });
 });
 
-test('buildInverseWorkspaceEdit replays insert/replace/delete/create from before snapshots', () => {
-  const vscode = fakeVscode({ docs: { 'file:///ws/b.js': 'BEFORE' } });
+test('B1: buildSnapshotRestoreEdit replaces whole files from before snapshots and reverses creates', async () => {
+  const vscode = fakeVscode({ docs: { 'file:///ws/b.js': 'CURRENT-B' } });
   const entry = {
     edits: [
       { ...edits.insert, uri: 'file:///ws/a.js' },
       { ...edits.replace, uri: 'file:///ws/b.js' },
-      { ...edits.delete, uri: 'file:///ws/c.js' },
       { ...edits.create, uri: 'file:///ws/new.md' },
     ],
-    before: [{ uri: 'file:///ws/b.js', text: 'BEFORE' }, { uri: 'file:///ws/c.js', text: 'ORIGINAL' }],
+    before: [
+      { uri: 'file:///ws/a.js', text: 'ORIGINAL-A' },
+      { uri: 'file:///ws/b.js', text: 'BEFORE-B' },
+      { uri: 'file:///ws/new.md', text: null },
+    ],
   };
-  const inverse = buildInverseWorkspaceEdit(entry, vscode);
-  assert.deepStrictEqual(inverse.operations.map((op) => op.type), [
-    'delete',
-    'replace',
-    'insert',
-    'deleteFile',
-  ]);
+  const restore = await buildSnapshotRestoreEdit(entry, vscode);
+  assert.deepStrictEqual(restore.operations.map((op) => op.type), ['replace', 'replace', 'deleteFile']);
+  // One whole-document replace per file: range spans (0,0) to the end of
+  // the CURRENT text, payload is the exact before bytes.
+  const replaceA = restore.operations[0];
+  assert.strictEqual(replaceA.uri, 'file:///ws/a.js');
+  assert.strictEqual(replaceA.text, 'ORIGINAL-A');
+  // docs has no a.js entry, so its current text reads back as empty.
   assert.deepStrictEqual(
-    { line: inverse.operations[0].range.start.line, character: inverse.operations[0].range.start.character },
-    { line: 1, character: 0 },
+    { line: replaceA.range.end.line, character: replaceA.range.end.character },
+    { line: 0, character: 0 },
+  );
+  const replaceB = restore.operations[1];
+  assert.strictEqual(replaceB.text, 'BEFORE-B');
+  assert.deepStrictEqual(
+    { line: replaceB.range.start.line, character: replaceB.range.start.character },
+    { line: 0, character: 0 },
   );
   assert.deepStrictEqual(
-    { line: inverse.operations[0].range.end.line, character: inverse.operations[0].range.end.character },
-    { line: 1, character: 1 },
+    { line: replaceB.range.end.line, character: replaceB.range.end.character },
+    { line: 0, character: 'CURRENT-B'.length },
   );
-  assert.strictEqual(inverse.operations[1].text, 'BEFORE');
-  assert.strictEqual(inverse.operations[2].text, 'ORIGINAL');
+  assert.strictEqual(restore.operations[2].uri, 'file:///ws/new.md');
 });
 
 test('journal persists to globalStorage/changes/journal.json with session isolation', async (t) => {
@@ -205,7 +214,7 @@ test('journal persists to globalStorage/changes/journal.json with session isolat
   assert.deepStrictEqual(before, [{ uri: 'file:///ws/a.js', text: 'before-a' }]);
   await tracker.applyEdits(normalized);
   const entry = await tracker.record({ sessionId: 's-1', label: 'add x', edits: normalized.map((edit) => ({ ...edit, uri: String(edit.uri) })), before });
-  assert.strictEqual(entry.status, 'applied');
+  assert.strictEqual(entry.status, 'pending', 'B1: pushes land in the journal as pending, not on disk');
   assert.strictEqual(entry.sessionId, 's-1');
 
   const reopened = createChangeTracker({ storageUri: { fsPath: root }, vscode });
@@ -216,7 +225,7 @@ test('journal persists to globalStorage/changes/journal.json with session isolat
   assert.ok(fs.existsSync(path.join(root, 'changes', 'journal.json')));
 });
 
-test('undo falls back to journal replay and marks the entry undone', async (t) => {
+test('B1: undo discards a pending entry with zero on-disk effect', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-changes-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
@@ -226,10 +235,82 @@ test('undo falls back to journal replay and marks the entry undone', async (t) =
   const before = await tracker.snapshotBefore(normalized);
   const entry = await tracker.record({ edits: normalized.map((edit) => ({ ...edit, uri: String(edit.uri) })), before });
   const result = await tracker.undo(entry.id);
-  assert.deepStrictEqual(result, { undone: true, method: 'journal-replay', changeId: entry.id });
-  assert.strictEqual(tracker.get(entry.id).status, 'undone');
+  assert.deepStrictEqual(result, { undone: true, method: 'discard', changeId: entry.id });
+  assert.strictEqual(tracker.get(entry.id).status, 'discarded');
+  assert.strictEqual(vscode.applied.length, 0, 'discarding a pending entry must never touch the editor');
   const second = await tracker.undo(entry.id);
   assert.deepStrictEqual(second, { undone: false, reason: 'already-undone', changeId: entry.id });
+});
+
+test('B1: undo of an accepted entry snapshot-restores whole files', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-changes-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const vscode = fakeVscode({ docs: { 'file:///ws/a.js': 'current-a' } });
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const normalized = validateWireEdits([edits.insert], vscode);
+  const before = await tracker.snapshotBefore(normalized);
+  const entry = await tracker.record({ edits: normalized.map((edit) => ({ ...edit, uri: String(edit.uri) })), before });
+  await tracker.accept(entry.id);
+  assert.strictEqual(vscode.applied.length, 1, 'accept applies the pending edits');
+  const result = await tracker.undo(entry.id);
+  assert.deepStrictEqual(result, { undone: true, method: 'snapshot-restore', changeId: entry.id });
+  assert.strictEqual(tracker.get(entry.id).status, 'undone');
+  const restore = vscode.applied[1];
+  assert.strictEqual(restore.operations.length, 1);
+  assert.strictEqual(restore.operations[0].type, 'replace');
+  assert.strictEqual(restore.operations[0].uri, 'file:///ws/a.js');
+  assert.strictEqual(restore.operations[0].text, 'current-a', 'undo puts the exact before-accept snapshot bytes back');
+  assert.deepStrictEqual(
+    { line: restore.operations[0].range.end.line, character: restore.operations[0].range.end.character },
+    { line: 0, character: 'current-a'.length },
+    'the restore range spans the whole current document',
+  );
+});
+
+test('B1: accept applies pending edits and keeps pending on applyEdit rejection', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-changes-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const vscode = fakeVscode({ docs: { 'file:///ws/a.js': 'before-a' } });
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const normalized = validateWireEdits([edits.insert], vscode);
+  const entry = await tracker.record({ edits: normalized.map((edit) => ({ ...edit, uri: String(edit.uri) })) });
+  const result = await tracker.accept(entry.id);
+  assert.deepStrictEqual(result, { accepted: true, changeId: entry.id });
+  assert.strictEqual(tracker.get(entry.id).status, 'accepted');
+
+  const rejected = fakeVscode({ docs: {}, applyResult: false });
+  const tracker2 = createChangeTracker({ vscode: rejected });
+  const entry2 = await tracker2.record({ edits: normalized.map((edit) => ({ ...edit, uri: String(edit.uri) })) });
+  await assert.rejects(
+    tracker2.accept(entry2.id),
+    (error) => error.bridgeCode === 'VSCODE_EDIT_REJECTED',
+  );
+  assert.strictEqual(tracker2.get(entry2.id).status, 'pending', 'failed accept keeps the entry pending');
+});
+
+test('B1: accept of a legacy applied entry is a no-op; undo snapshot-restores it', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-changes-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const vscode = fakeVscode({ docs: { 'file:///ws/a.js': 'current-a' } });
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const normalized = validateWireEdits([edits.insert], vscode);
+  // Simulate a 1.0.x journal entry that was already written to disk.
+  const entry = await tracker.record({
+    status: 'applied',
+    edits: normalized.map((edit) => ({ ...edit, uri: String(edit.uri) })),
+    before: [{ uri: 'file:///ws/a.js', text: 'before-a' }],
+  });
+  const result = await tracker.accept(entry.id);
+  assert.deepStrictEqual(result, { accepted: true, changeId: entry.id, noOp: true });
+  assert.strictEqual(vscode.applied.length, 0, 'legacy accept must not re-apply already-on-disk edits');
+  assert.strictEqual(tracker.get(entry.id).status, 'accepted');
+
+  const undone = await tracker.undo(entry.id);
+  assert.deepStrictEqual(undone, { undone: true, method: 'snapshot-restore', changeId: entry.id });
+  assert.strictEqual(vscode.applied[0].operations[0].text, 'before-a');
 });
 
 test('undo prefers the checkpoint rollback seam when provided', async (t) => {
@@ -240,12 +321,32 @@ test('undo prefers the checkpoint rollback seam when provided', async (t) => {
   const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
   const normalized = validateWireEdits([edits.insert], vscode);
   const entry = await tracker.record({ edits: normalized.map((edit) => ({ ...edit, uri: String(edit.uri) })) });
+  await tracker.accept(entry.id);
   const result = await tracker.undo(entry.id, {
     checkpointRollback: async () => ({ rolledBack: true }),
   });
   assert.deepStrictEqual(result, { undone: true, method: 'checkpoint', changeId: entry.id, rolledBack: true });
   assert.strictEqual(tracker.get(entry.id).status, 'undone');
-  assert.strictEqual(vscode.applied.length, 0, 'checkpoint path must not apply an inverse edit');
+  assert.strictEqual(vscode.applied.length, 1, 'only the accept edit was applied; checkpoint path adds none');
+});
+
+test('B1: checkpointRollback is not consulted for pending entries (discard wins)', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-changes-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const vscode = fakeVscode({ docs: { 'file:///ws/a.js': 'before-a' } });
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const normalized = validateWireEdits([edits.insert], vscode);
+  const entry = await tracker.record({ edits: normalized.map((edit) => ({ ...edit, uri: String(edit.uri) })) });
+  let checkpointCalls = 0;
+  const result = await tracker.undo(entry.id, {
+    checkpointRollback: async () => {
+      checkpointCalls += 1;
+      return { rolledBack: true };
+    },
+  });
+  assert.deepStrictEqual(result, { undone: true, method: 'discard', changeId: entry.id });
+  assert.strictEqual(checkpointCalls, 0, 'pending entries are discarded before any checkpoint seam runs');
 });
 
 test('applyEdits surfaces VS Code rejection as VSCODE_EDIT_REJECTED', async () => {
@@ -257,7 +358,7 @@ test('applyEdits surfaces VS Code rejection as VSCODE_EDIT_REJECTED', async () =
     (error) => error.bridgeCode === 'VSCODE_EDIT_REJECTED',
   );
 });
-test('construction tolerates a facade without applyEdit; applyEdits/undo degrade to VSCODE_EDIT_UNAVAILABLE', async () => {
+test('B1: construction tolerates a facade without applyEdit; accept degrades to VSCODE_EDIT_UNAVAILABLE, pending undo still works', async () => {
   const base = fakeVscode();
   const vscode = {
     Uri: base.Uri,
@@ -278,7 +379,10 @@ test('construction tolerates a facade without applyEdit; applyEdits/undo degrade
   );
   const entry = await tracker.record({ edits: normalized.map((edit) => ({ ...edit, uri: String(edit.uri) })) });
   await assert.rejects(
-    tracker.undo(entry.id),
+    tracker.accept(entry.id),
     (error) => error.bridgeCode === 'VSCODE_EDIT_UNAVAILABLE',
   );
+  // Discarding a pending entry never touches applyEdit, so it must work.
+  const discarded = await tracker.undo(entry.id);
+  assert.deepStrictEqual(discarded, { undone: true, method: 'discard', changeId: entry.id });
 });

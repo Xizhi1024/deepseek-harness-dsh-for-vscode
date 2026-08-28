@@ -2484,8 +2484,27 @@ function registerFeatureCommands(context, featureOk) {
           }));
         }
       }),
-      vscode.commands.registerCommand("dsh.changes.accept", (entry) => changeTree.accept(entry || {})),
-      vscode.commands.registerCommand("dsh.changes.undo", (entry) => changeTree.undo(entry || {})),
+      // B1: Accept applies the edits (only disk-writing path); Undo discards
+      // pending entries or snapshot-restores accepted ones. Both surface
+      // applyEdit failures instead of failing silently.
+      vscode.commands.registerCommand("dsh.changes.accept", async (entry) => {
+        try {
+          return await changeTree.accept(entry || {});
+        } catch (error) {
+          vscode.window.showErrorMessage(loc("Change accept failed: {message}", {
+            message: error && error.message ? error.message : String(error),
+          }));
+        }
+      }),
+      vscode.commands.registerCommand("dsh.changes.undo", async (entry) => {
+        try {
+          return await changeTree.undo(entry || {});
+        } catch (error) {
+          vscode.window.showErrorMessage(loc("Change undo failed: {message}", {
+            message: error && error.message ? error.message : String(error),
+          }));
+        }
+      }),
       vscode.commands.registerCommand("dsh.changes.refresh", () => changeTree.refresh())
     );
   }

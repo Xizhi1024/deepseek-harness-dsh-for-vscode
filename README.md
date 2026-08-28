@@ -19,6 +19,7 @@ Embeds the full DSH web UI in the VS Code auxiliary sidebar: every window automa
 | VS Code | ≥ 1.106, desktop only; remote / virtual / untrusted workspaces not supported |
 | DSH CLI | `npm i -g @deepseek-ai/dsh`, ≥ 0.1.0-rc.7 recommended (older runtimes auto-retry degraded, some features limited) |
 | Node.js | auto-detected; set `dsh.local.nodePath` for non-standard locations |
+| Windows + WSL | when the workspace lives in WSL, set the default terminal profile to a **Windows** shell (PowerShell/cmd) — a WSL default profile makes extension-host terminals and the terminal bridge unreliable; Diagnose warns when it detects a WSL default terminal |
 
 ## 📦 Install
 

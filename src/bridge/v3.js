@@ -24,6 +24,8 @@ const MAX_PROGRESS = 2;
 const PROGRESS_AUTO_END_MS = 120000;
 const CONFIRM_TIMEOUT_MS = 120000;
 const CALL_EXPORT_TIMEOUT_MS = 30000;
+const FIND_FILES_TIMEOUT_MS = 5000;
+const DEFAULT_FIND_FILES_EXCLUDE = '**/{node_modules,.git,dist,out}/**';
 
 function v3Error(bridgeCode, message) {
   const error = new Error(message);
@@ -281,14 +283,30 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
   }
 
   // ---- workspace / window ---------------------------------------------------
+  // B4/U8: never forward an unbounded query to a huge workspace. The caller's
+  // exclude wins when supplied; otherwise a default exclude keeps
+  // node_modules/.git/dist/out out of the scan, and a hard timeout returns a
+  // model-visible empty result instead of hanging the bridge.
   handlers['vscode/workspace/findFiles'] = async (params) => {
     if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'findFiles params must be an object');
     const include = requireString(params.include, 'include');
-    const exclude = typeof params.exclude === 'string' && params.exclude.length > 0 ? params.exclude : undefined;
+    const exclude = typeof params.exclude === 'string' && params.exclude.length > 0
+      ? params.exclude
+      : DEFAULT_FIND_FILES_EXCLUDE;
     const requested = Number.isInteger(params.maxResults) && params.maxResults > 0 ? params.maxResults : MAX_FIND_FILES;
     const maxResults = Math.min(requested, MAX_FIND_FILES);
-    const uris = await vscode.workspace.findFiles(include, exclude, maxResults);
-    return { files: (Array.isArray(uris) ? uris : []).map((uri) => String(uri)).slice(0, maxResults), capped: uris.length >= maxResults };
+    const outcome = await Promise.race([
+      Promise.resolve(vscode.workspace.findFiles(include, exclude, maxResults)).then((uris) => ({ uris, timedOut: false })),
+      new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ uris: null, timedOut: true }), FIND_FILES_TIMEOUT_MS);
+        if (timer.unref) timer.unref();
+      }),
+    ]);
+    if (outcome.timedOut) {
+      return { files: [], capped: false, timedOut: true };
+    }
+    const uris = Array.isArray(outcome.uris) ? outcome.uris : [];
+    return { files: uris.map((uri) => String(uri)).slice(0, maxResults), capped: uris.length >= maxResults, timedOut: false };
   };
 
   // ---- user-visible surfaces (consent-gated: dsh.bridge.ui) -----------------
@@ -628,9 +646,8 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
 
       if (mode === 'session' && sessionId.length > 0 && sessionApprovals.has(sessionId)) {
         const before = await tracker.snapshotBefore(edits);
-        await tracker.applyEdits(edits);
         const entry = await tracker.record({ sessionId, label, edits: stringifyEdits(edits), before });
-        return { applied: true, approved: true, changeIds: [entry.id] };
+        return { applied: false, approved: true, pending: true, changeIds: [entry.id] };
       }
 
       const files = new Set(edits.map((edit) => String(edit.uri))).size;
@@ -651,10 +668,11 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
         };
       }
 
+      // B1: approval only journals the change as pending; the tree's Accept
+      // command is what writes it to disk (tracker.applyEdits).
       const before = await tracker.snapshotBefore(edits);
-      await tracker.applyEdits(edits);
       const entry = await tracker.record({ sessionId, label, edits: stringifyEdits(edits), before });
-      return { applied: true, approved: true, changeIds: [entry.id] };
+      return { applied: false, approved: true, pending: true, changeIds: [entry.id] };
     };
   }
 
@@ -696,6 +714,8 @@ function stringifyEdits(edits) {
 module.exports = {
   CALL_EXPORT_TIMEOUT_MS,
   CONFIRM_TIMEOUT_MS,
+  DEFAULT_FIND_FILES_EXCLUDE,
+  FIND_FILES_TIMEOUT_MS,
   MAX_FIND_FILES,
   MAX_PROGRESS,
   MAX_TERMINALS,

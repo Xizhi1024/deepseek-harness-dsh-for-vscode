@@ -89,6 +89,15 @@ function createChangeTree({
     return [];
   }
 
+  // B1: status descriptions localized for the surfaces a user scans -
+  // pending entries carry the ⟳ marker, legacy 1.0.x 'applied' entries are
+  // flagged as already on disk.
+  function statusDescription(status) {
+    if (status === 'pending') return '\u27f3 ' + loc('pending review');
+    if (status === 'applied') return loc('applied (legacy)');
+    return status;
+  }
+
   function getTreeItem(element) {
     if (!element) return null;
     if (element.type === 'session') {
@@ -100,7 +109,7 @@ function createChangeTree({
     }
     const item = new vscode.TreeItem(element.label || element.id, 0);
     item.id = element.id;
-    item.description = element.status;
+    item.description = statusDescription(element.status);
     item.contextValue = 'dsh.changes.entry';
     item.command = {
       command: 'dsh.changes.openDiff',
@@ -173,10 +182,12 @@ function createChangeTree({
     return { opened: true };
   }
 
+  // B1: Accept is the only disk-writing path (tracker.accept applies the
+  // edits). Legacy 'applied' entries become a bookkeeping no-op there.
   async function accept(entry) {
-    tracker.updateStatus(entry.id, 'accepted');
+    const result = await tracker.accept(entry.id);
     refresh();
-    return { accepted: true, changeId: entry.id };
+    return result;
   }
 
   async function undo(entry) {

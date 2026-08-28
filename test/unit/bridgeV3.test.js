@@ -259,7 +259,7 @@ test('changes/push is gated by dsh.features.changes-review', () => {
   assert.ok(typeof on['vscode/changes/push'] === 'function', 'changes/push mounts when the feature is enabled');
 });
 
-test('changes/push applies after Allow Once and returns applied:true', async () => {
+test('changes/push journals as pending after Allow Once and does not touch disk (B1)', async () => {
   const fake = fakeVscode();
   fake.api.window.showWarningMessage = async () => 'Allow Once';
   const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.changes-review': true }) });
@@ -267,10 +267,12 @@ test('changes/push applies after Allow Once and returns applied:true', async () 
     label: 'demo',
     edits: [{ kind: 'insert', uri: 'file:///ws/a.js', at: { line: 0, character: 0 }, text: 'x' }],
   });
-  assert.strictEqual(result.applied, true);
+  assert.strictEqual(result.aproved === undefined, true); // no typo field
+  assert.strictEqual(result.applied, false, 'B1: push no longer writes to disk');
   assert.strictEqual(result.approved, true);
+  assert.strictEqual(result.pending, true);
   assert.strictEqual(result.changeIds.length, 1);
-  assert.strictEqual(fake.appliedEdits.length, 1);
+  assert.strictEqual(fake.appliedEdits.length, 0, 'B1: nothing is applied until the tree Accept command');
 });
 
 test('changes/push returns model-visible not-approved on rejection', async () => {
@@ -302,7 +304,7 @@ test('changes/push session approval skips the next modal for the same session', 
   assert.strictEqual(first.approved, true);
   assert.strictEqual(second.approved, true);
   assert.strictEqual(asks, 1, 'session approval must skip the second modal');
-  assert.strictEqual(fake.appliedEdits.length, 2);
+  assert.strictEqual(fake.appliedEdits.length, 0, 'B1: both pushes journal as pending; disk writes happen on Accept');
 });
 
 test('changes/push rejects edits outside the workspace', async () => {

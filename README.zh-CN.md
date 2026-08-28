@@ -19,6 +19,7 @@
 | VS Code | ≥ 1.106，仅桌面版；不支持远程 / 虚拟 / 不受信任工作区 |
 | DSH CLI | `npm i -g @deepseek-ai/dsh`，建议 ≥ 0.1.0-rc.7（更老的运行时会自动降级重试，但部分功能受限） |
 | Node.js | 自动发现；非标准位置设 `dsh.local.nodePath` |
+| Windows + WSL | 工作区在 WSL 内时，请把默认终端配置设为 **Windows** shell（PowerShell/cmd）——WSL 默认终端会让扩展宿主终端与终端桥不稳定；Diagnose 检测到 WSL 默认终端时会提示 |
 
 ## 📦 安装
 

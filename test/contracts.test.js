@@ -79,6 +79,11 @@ test('editor title exposes one persistent icon and DSH view title exposes only t
     key: 'ctrl+l',
     mac: 'cmd+l',
     when: 'config.dsh.keybindings.ctrlL && editorTextFocus'
+  }, {
+    command: 'dsh.ctrlKEdit',
+    key: 'ctrl+k',
+    mac: 'cmd+k',
+    when: 'config.dsh.features.ctrl-k && editorTextFocus'
   }]);
 
   // A5/U6: the changes tree has welcome content for its empty state.
@@ -96,9 +101,31 @@ test('editor title exposes one persistent icon and DSH view title exposes only t
     true,
     'dsh.multiInstance.entry defaults to true (U13)'
   );
-  assert.ok(
-    !manifest.contributes.keybindings.some((entry) => entry.command === 'dsh.ctrlKEdit'),
-    'D8 final verdict: Ctrl+K must not contribute a default keybinding'
+  // B5/U3 supersedes the D8 verdict: Ctrl+K stays opt-in, but enabling the
+  // feature must be the single interaction that also activates the key. The
+  // binding is contributed once, permanently gated by a config when-clause —
+  // opt-in is guaranteed by the gate (default false), not by absence.
+  const ctrlKBinding = manifest.contributes.keybindings.find(
+    (entry) => entry.command === 'dsh.ctrlKEdit'
+  );
+  assert.ok(ctrlKBinding, 'B5: dsh.ctrlKEdit must contribute a when-gated Ctrl+K keybinding');
+  assert.strictEqual(ctrlKBinding.key, 'ctrl+k');
+  assert.strictEqual(
+    ctrlKBinding.when,
+    'config.dsh.features.ctrl-k && editorTextFocus',
+    'opt-in contract: the Ctrl+K binding must stay gated behind config.dsh.features.ctrl-k'
+  );
+  assert.strictEqual(
+    manifest.contributes.configuration.properties['dsh.features.ctrl-k'].default,
+    false,
+    'ctrl-k remains opt-in (default off); the when-clause keeps the binding inert until enabled'
+  );
+  // B5/U3: Ctrl+L defaults to on — low risk, it only adds the selection as a
+  // draft to the conversation and never sends anything by itself.
+  assert.strictEqual(
+    manifest.contributes.configuration.properties['dsh.keybindings.ctrlL'].default,
+    true,
+    'B5/U3: dsh.keybindings.ctrlL defaults to true'
   );
   assert.ok(
     !manifest.contributes.keybindings.some((entry) => entry.command === 'dsh.ctrlIEdit'),

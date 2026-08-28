@@ -319,6 +319,12 @@
         "key": "ctrl+l",
         "mac": "cmd+l",
         "when": "config.dsh.keybindings.ctrlL && editorTextFocus"
+      },
+      {
+        "command": "dsh.ctrlKEdit",
+        "key": "ctrl+k",
+        "mac": "cmd+k",
+        "when": "config.dsh.features.ctrl-k && editorTextFocus"
       }
     ],
     "menus": {
@@ -595,7 +601,7 @@
         },
         "dsh.keybindings.ctrlL": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "%dsh.cfg.keybindings.ctrlL%"
         },
         "dsh.multiInstance.entry": {

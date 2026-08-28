@@ -4,10 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 /**
- * R14S1 change journal: persists applied bridge WorkspaceEdits in
- * `context.globalStorageUri/changes/journal.json`, snapshots the affected
- * document text before each push, and supports Undo via a checkpoint seam with
- * a WorkspaceEdit-inversion fallback.
+ * R14S1 change journal: persists bridge WorkspaceEdits as pending entries
+ * in `context.globalStorageUri/changes/journal.json`, snapshots the affected
+ * document text before each push, and supports Accept (the only disk-writing
+ * path) plus Undo via a checkpoint seam with a snapshot whole-file restore
+ * fallback.
  *
  * The module deliberately has no VS Code UI dependencies: it is created in L0
  * with no side effects and the TreeView/commands layer (L2) reads the same
@@ -199,41 +200,52 @@ function buildWorkspaceEdit(edits, vscode) {
 }
 
 /**
- * Build the inverse WorkspaceEdit for a journal entry using its `before`
- * snapshots (journal-replay fallback).
+ * B1: build a snapshot whole-file restore WorkspaceEdit for an accepted
+ * journal entry. For every `before` snapshot the CURRENT document text is
+ * read and a single full-document-range replace puts the exact pre-change
+ * bytes back — unlike the retired incremental inverse this cannot be rejected
+ * for overlapping ranges after multiple edits shifted line numbers. A `null`
+ * snapshot (the file did not exist before, e.g. the target of a `create`
+ * edit) is reversed as a deleteFile.
  *
  * @param {object} entry - Journal entry with edits and before snapshots.
  * @param {object} vscode - VS Code facade.
- * @returns {object} A new WorkspaceEdit that undoes the entry.
+ * @returns {Promise<object>} A new WorkspaceEdit that restores the entry.
  */
-function buildInverseWorkspaceEdit(entry, vscode) {
+async function buildSnapshotRestoreEdit(entry, vscode) {
   if (!isRecord(entry) || !Array.isArray(entry.edits)) {
     throw new ChangeTrackerError('VSCODE_INVALID_CHANGE', 'Change entry is missing its edits');
   }
   if (!vscode || typeof vscode.WorkspaceEdit !== 'function') {
-    throw new TypeError('buildInverseWorkspaceEdit requires vscode.WorkspaceEdit');
+    throw new TypeError('buildSnapshotRestoreEdit requires vscode.WorkspaceEdit');
   }
   const beforeByUri = new Map();
   for (const snapshot of Array.isArray(entry.before) ? entry.before : []) {
     if (snapshot && typeof snapshot.uri === 'string') beforeByUri.set(snapshot.uri, snapshot);
   }
+  const createUriStrings = new Set(
+    entry.edits
+      .filter((edit) => edit && edit.kind === 'create')
+      .map((edit) => (typeof edit.uri === 'string' ? edit.uri : String(edit.uri))),
+  );
   const workspaceEdit = new vscode.WorkspaceEdit();
-  for (const edit of entry.edits) {
-    const uri = typeof edit.uri === 'string' ? vscode.Uri.parse(edit.uri) : edit.uri;
-    const uriString = typeof edit.uri === 'string' ? edit.uri : String(edit.uri);
-    const before = beforeByUri.get(uriString);
-    if (edit.kind === 'insert') {
-      const end = positionAfterText(edit.text || '', edit.at);
-      workspaceEdit.delete(uri, positionToRange(edit.at, end, vscode));
-    } else if (edit.kind === 'replace') {
-      const original = before && typeof before.text === 'string' ? before.text : '';
-      workspaceEdit.replace(uri, positionToRange(edit.range.start, edit.range.end, vscode), original);
-    } else if (edit.kind === 'delete') {
-      const original = before && typeof before.text === 'string' ? before.text : '';
-      workspaceEdit.insert(uri, new vscode.Position(edit.range.start.line, edit.range.start.character), original);
-    } else if (edit.kind === 'create') {
-      workspaceEdit.deleteFile(uri, { recursive: false, ignoreIfNotExists: true });
+  for (const [uriString, snapshot] of beforeByUri) {
+    const uri = vscode.Uri.parse(uriString);
+    if (typeof snapshot.text !== 'string') {
+      if (createUriStrings.has(uriString)) {
+        workspaceEdit.deleteFile(uri, { recursive: false, ignoreIfNotExists: true });
+      }
+      continue;
     }
+    let current = '';
+    try {
+      const document = await vscode.workspace.openTextDocument(uri);
+      current = typeof document.getText === 'function' ? document.getText() : '';
+    } catch {
+      current = '';
+    }
+    const end = positionAfterText(current, { line: 0, character: 0 });
+    workspaceEdit.replace(uri, positionToRange({ line: 0, character: 0 }, end, vscode), snapshot.text);
   }
   return workspaceEdit;
 }
@@ -348,22 +360,65 @@ function createChangeTracker({
   }
 
   /**
-   * Record one applied change batch in the journal.
+   * B1: re-parse stored journal edits (uri serialized as string) back into
+   * Uri objects so buildWorkspaceEdit can replay them through applyEdit.
+   */
+  function reviveStoredEdits(storedEdits) {
+    if (!Array.isArray(storedEdits)) return [];
+    return storedEdits.map((edit) => (
+      edit && typeof edit.uri === 'string' ? { ...edit, uri: vscode.Uri.parse(edit.uri) } : edit
+    ));
+  }
+
+  /**
+   * B1: Accept one pending change - the ONLY path that writes the edits to
+   * disk. Legacy journal entries (status 'applied', written by 1.0.x) are
+   * already on disk: accept is a bookkeeping no-op that moves them to
+   * 'accepted'. On failure the entry stays 'pending'.
+   *
+   * @param {string} changeId - Entry id.
+   * @returns {Promise<object>} Accept result.
+   */
+  async function accept(changeId) {
+    const entry = get(changeId);
+    if (!entry) {
+      throw new ChangeTrackerError('VSCODE_CHANGE_NOT_FOUND', 'Unknown change id: ' + changeId);
+    }
+    if (entry.status === 'accepted') {
+      return { accepted: true, changeId, alreadyAccepted: true };
+    }
+    if (entry.status === 'applied') {
+      updateStatus(changeId, 'accepted');
+      return { accepted: true, changeId, noOp: true };
+    }
+    if (entry.status === 'undone' || entry.status === 'discarded') {
+      throw new ChangeTrackerError('VSCODE_INVALID_CHANGE', 'Change ' + changeId + ' is ' + entry.status + ' and cannot be accepted');
+    }
+    await applyEdits(reviveStoredEdits(entry.edits));
+    updateStatus(changeId, 'accepted');
+    return { accepted: true, changeId };
+  }
+
+  /**
+   * Record one change batch in the journal (B1: default status 'pending' -
+   * pushes no longer write to disk until Accept).
    *
    * @param {object} options - Entry payload.
    * @param {string} [options.sessionId] - DSH session id for grouping.
    * @param {string} [options.label] - Display label.
    * @param {Array<object>} options.edits - Normalized edits.
    * @param {Array<object>} options.before - Before snapshots.
+   * @param {string} [options.status] - Entry status (B1 default 'pending';
+   *   'applied' only survives for legacy journal entries).
    * @returns {Promise<object>} The persisted entry.
    */
-  async function record({ sessionId = '', label = '', edits = [], before = [] }) {
+  async function record({ sessionId = '', label = '', edits = [], before = [], status = 'pending' }) {
     const entry = {
       id: nextId(),
       sessionId,
       label,
       at: now(),
-      status: 'applied',
+      status,
       edits,
       before,
     };
@@ -403,9 +458,11 @@ function createChangeTracker({
   }
 
   /**
-   * Undo one applied change. Prefers the checkpoint rollback seam when a
-   * `checkpointRollback` function is supplied; otherwise it builds the inverse
-   * WorkspaceEdit from the `before` snapshots.
+   * B1: Undo one change. Pending entries were never written to disk, so
+   * undo discards them outright ('discarded', zero on-disk effect).
+   * Accepted entries (and legacy 'applied' ones) are restored: the
+   * checkpoint rollback seam wins when supplied, otherwise a snapshot
+   * whole-file replacement WorkspaceEdit (buildSnapshotRestoreEdit).
    *
    * @param {string} changeId - Entry id.
    * @param {object} [options] - Undo options.
@@ -417,8 +474,12 @@ function createChangeTracker({
     if (!entry) {
       throw new ChangeTrackerError('VSCODE_CHANGE_NOT_FOUND', 'Unknown change id: ' + changeId);
     }
-    if (entry.status === 'undone') {
+    if (entry.status === 'undone' || entry.status === 'discarded') {
       return { undone: false, reason: 'already-undone', changeId };
+    }
+    if (entry.status === 'pending') {
+      updateStatus(changeId, 'discarded');
+      return { undone: true, method: 'discard', changeId };
     }
     if (typeof checkpointRollback === 'function') {
       const checkpointResult = await checkpointRollback(changeId, entry.sessionId || '');
@@ -430,18 +491,19 @@ function createChangeTracker({
     if (typeof vscode.workspace.applyEdit !== 'function') {
       throw new ChangeTrackerError('VSCODE_EDIT_UNAVAILABLE', 'This VS Code facade cannot apply workspace edits');
     }
-    const inverse = buildInverseWorkspaceEdit(entry, vscode);
-    const applied = await vscode.workspace.applyEdit(inverse);
+    const restore = await buildSnapshotRestoreEdit(entry, vscode);
+    const applied = await vscode.workspace.applyEdit(restore);
     if (!applied) {
       throw new ChangeTrackerError('VSCODE_EDIT_REJECTED', 'VS Code declined the undo workspace edit');
     }
     updateStatus(changeId, 'undone');
-    return { undone: true, method: 'journal-replay', changeId };
+    return { undone: true, method: 'snapshot-restore', changeId };
   }
 
   return Object.freeze({
+    accept,
     applyEdits,
-    buildInverseWorkspaceEdit,
+    buildSnapshotRestoreEdit,
     buildWorkspaceEdit,
     get,
     list,
@@ -459,7 +521,7 @@ module.exports = {
   MAX_EDITS,
   MAX_EDIT_TEXT_BYTES,
   MAX_LABEL_CHARS,
-  buildInverseWorkspaceEdit,
+  buildSnapshotRestoreEdit,
   buildWorkspaceEdit,
   createChangeTracker,
   positionAfterText,

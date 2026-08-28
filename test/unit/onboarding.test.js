@@ -512,6 +512,55 @@ test('profile input validates inline and keeps the box open on invalid input', a
   assert.ok(next.control.title.includes('Auto-start'));
 });
 
+test('B5: ctrl-k appears with a description and one checkbox enables the feature + binds Ctrl+K', async () => {
+  const host = makeFakeVscode();
+  const featureSwitches = [
+    ...FEATURE_SWITCHES,
+    { id: 'ctrl-k', label: 'Edit with DSH (Ctrl+K)', defaultEnabled: false },
+  ];
+  // Everything except ctrl-k already sits at its target value (off), so the
+  // only possible write from the feature step is the ctrl-k toggle itself.
+  const settings = {
+    'features.clipboard-bridge': false,
+    'features.thread-attachment': false,
+    'features.editor-links': false,
+    'features.statusbar-basic': false,
+    'features.theme-follow': false,
+  };
+  const workspace = makeWorkspaceAdapter(host, settings, featureSwitches);
+  const context = {
+    globalState: { get: () => undefined, async update() {} },
+  };
+
+  const promise = runOnboardingWizard({ context, workspace });
+
+  await skipScreen(host); // profile
+  await skipScreen(host); // auto-start
+  await skipScreen(host); // close policy
+  await skipScreen(host); // watchdog & roadmap
+  const featureScreen = host.uiCalls.shift();
+  assert.strictEqual(featureScreen.kind, 'pick');
+  const ctrlKItem = featureScreen.control.items.find((item) => item.id === 'ctrl-k');
+  assert.ok(ctrlKItem, 'ctrl-k must appear in the feature step');
+  assert.strictEqual(ctrlKItem.picked, false, 'ctrl-k is opt-in: never pre-picked');
+  assert.ok(
+    typeof ctrlKItem.description === 'string' && ctrlKItem.description.includes('Ctrl+K'),
+    'the ctrl-k item must carry a description explaining that it also activates the Ctrl+K keybinding'
+  );
+  // One interaction: checking the single ctrl-k box.
+  featureScreen.control.selectedItems = [ctrlKItem];
+  featureScreen.control._accept();
+  await tick();
+  await acceptPick(host, 0); // summary confirms
+
+  const result = await promise;
+  assert.strictEqual(result.completed, true);
+  assert.ok(result.changed.includes('features.ctrl-k'));
+  assert.deepStrictEqual(workspace.updateRecord, [
+    { key: 'features.ctrl-k', value: true },
+  ], 'checking ctrl-k once must write exactly features.ctrl-k=true — the when-gated keybinding activates with it');
+});
+
 test('activation registers dsh.onboarding last and the command re-opens the wizard', async () => {
   const fake = makeFakeVscode({ extraConfig: { autoStart: false } });
   const globalStateValue = 'never';

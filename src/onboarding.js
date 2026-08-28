@@ -167,12 +167,33 @@ async function infoStep(vscode, loc) {
   });
 }
 
+/**
+ * B5/U3: per-feature QuickPick descriptions for the feature step. Only
+ * ctrl-k carries one in this iteration — it is the opt-in feature whose
+ * checkbox is also the one-click "enable + bind key" interaction: the
+ * dsh.ctrlKEdit keybinding in package.json is gated by the when-clause
+ * "config.dsh.features.ctrl-k && editorTextFocus", so writing the setting
+ * to true activates Ctrl+K in editors with no second step. The item
+ * description must say so, otherwise the checkbox looks like a plain
+ * feature toggle with no keybinding attached.
+ */
+const FEATURE_DESCRIPTIONS = {
+  'ctrl-k':
+    'Inline edit with DSH: select code, press Ctrl+K (Cmd+K), type an instruction. Checking this box enables the feature and activates the Ctrl+K keybinding in editors; it stays off otherwise.',
+};
+
 async function featureStep(vscode, loc, getSetting, featureSwitches) {
   const currentValues = {};
   const items = (featureSwitches || []).map((feature) => {
     const current = getSetting('features.' + feature.id, feature.defaultEnabled !== false) !== false;
     currentValues[feature.id] = current;
-    return { id: feature.id, label: loc(feature.label), picked: current };
+    const description = FEATURE_DESCRIPTIONS[feature.id];
+    return {
+      id: feature.id,
+      label: loc(feature.label),
+      ...(description ? { description: loc(description) } : {}),
+      picked: current,
+    };
   });
   const next = { ...currentValues };
   const selected = await showQuickPick(vscode, {
