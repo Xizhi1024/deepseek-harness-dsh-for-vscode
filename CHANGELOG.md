@@ -25,8 +25,8 @@ All notable changes to this project are documented here, following [Keep a Chang
 
 ### Fixed / 修复
 
-- **终端回读**：桥创建的终端现在订阅 `onDidWriteTerminalData` 写入 ring buffer，`sendText` 后的输出可被 read 读回。
-  Terminal readback: bridged terminals subscribe to `onDidWriteTerminalData` into the ring buffer, so output after `sendText` is readable.
+- **终端回读**：桥创建的终端在宿主暴露该提案时订阅 `onDidWriteTerminalData`（proposed API，try/catch 安全探测——未启用提案的宿主上属性访问本身会抛 "CANNOT use API proposal"，曾致激活失败）写入 ring buffer；`sendText` 后的输出可被 read 读回；提案不可用的宿主优雅降级为仅 sendText 回显。
+  Terminal readback: bridged terminals subscribe to `onDidWriteTerminalData` (a proposed API, probed safely — on hosts without the proposal the property access itself throws "CANNOT use API proposal", which once broke activation) into the ring buffer when available; hosts without the proposal degrade gracefully to the sendText echo only.
 - **dshVersion 探测**：本地 DSH 包 version 读取的失败路径补全，兼容性 WARN 消除，theme/toolsV3 门控恢复正确。
   dshVersion probing: local DSH package version read failure paths fixed — no more unknown compatibility WARN, theme/toolsV3 gating restored.
 - **MCP forget**：改为下拉选择 consent 记录（零输入），并修复 forget 后复调不再询问 consent 的 bug。

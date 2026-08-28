@@ -161,8 +161,21 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
     // terminal/read sees process output (echo, command results) and not
     // only the text this bridge itself sent. The event is terminal-scoped;
     // only entries whose Terminal instance matches are captured.
-    if (typeof vscode.window.onDidWriteTerminalData === 'function') {
-      vscode.window.onDidWriteTerminalData((event) => {
+    //
+    // terminalDataWriteEvent is a PROPOSED VS Code API: on hosts where the
+    // proposal is not enabled for this extension the property is a getter
+    // that THROWS "CANNOT use API proposal" on mere access — so probing with
+    // typeof is not safe. The only safe probe is a try/catch; when it is
+    // unavailable the ring keeps capturing sendText only (graceful degrade).
+    let onTerminalData = null;
+    try {
+      const candidate = vscode.window.onDidWriteTerminalData;
+      if (typeof candidate === 'function') onTerminalData = candidate;
+    } catch {
+      onTerminalData = null; // proposal not enabled on this host — degrade
+    }
+    if (onTerminalData) {
+      onTerminalData((event) => {
         if (!event || typeof event.data !== 'string') return;
         for (const entry of terminals.values()) {
           if (event.terminal === entry.terminal) capture(entry, event.data);

@@ -189,6 +189,30 @@ test('A8: terminal/read mirrors real output captured through onDidWriteTerminalD
   assert.ok(!read.text.includes('LEAK'), 'other terminals output stays out');
 });
 
+test('A8 regression: a throwing proposed-API getter must not break handler construction', () => {
+  // terminalDataWriteEvent is a PROPOSED API: hosts that have not enabled the
+  // proposal for this extension install a getter on vscode.window that throws
+  // "CANNOT use API proposal: terminalDataWriteEvent" on mere property access.
+  // Handler construction (and thus activation) must survive that probe.
+  const api = {
+    window: {
+      createTerminal() { return { name: 'x', sendText() {} }; },
+    },
+    workspace: {},
+  };
+  Object.defineProperty(api.window, 'onDidWriteTerminalData', {
+    enumerable: true,
+    get() {
+      throw new Error("Extension 'Xizhi1024.dsh-vs-sidebar' CANNOT use API proposal: terminalDataWriteEvent.");
+    },
+  });
+  let handlers;
+  assert.doesNotThrow(() => {
+    handlers = createV3Handlers({ vscode: api, getFlag: flags({ 'bridge.terminal': true }) });
+  }, 'probing the proposed API must degrade, never throw');
+  assert.strictEqual(typeof handlers['vscode/terminal/create'], 'function', 'terminal bridge still mounts (sendText ring only)');
+});
+
 test('tasks list filters to workspace-declared tasks and run executes exactly those', async () => {
   const fake = fakeVscode();
   const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags() });
