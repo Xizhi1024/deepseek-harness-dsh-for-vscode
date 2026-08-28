@@ -170,7 +170,7 @@ async function infoStep(vscode, loc) {
 async function featureStep(vscode, loc, getSetting, featureSwitches) {
   const currentValues = {};
   const items = (featureSwitches || []).map((feature) => {
-    const current = getSetting('features.' + feature.id, true) !== false;
+    const current = getSetting('features.' + feature.id, feature.defaultEnabled !== false) !== false;
     currentValues[feature.id] = current;
     return { id: feature.id, label: loc(feature.label), picked: current };
   });

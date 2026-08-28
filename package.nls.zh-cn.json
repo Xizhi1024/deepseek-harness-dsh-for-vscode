@@ -61,7 +61,7 @@
   "dsh.lm.vendor": "DSH",
   "dsh.participant.name": "DSH",
   "dsh.participant.description": "在 VS Code 聊天视图中询问本地 DeepSeek Harness (DSH)。默认关闭；开启 dsh.features.chat-participant 后可用。",
-  "dsh.cfg.features.changes-review": "审查 DSH 提议的工作区编辑：审批弹窗、dsh.changes 树视图与 vscode/changes/push 桥接处理器。默认关闭。",
+  "dsh.cfg.features.changes-review": "审查 DSH 提议的工作区编辑：审批弹窗、dsh.changes 树视图与 vscode/changes/push 桥接处理器。默认开启（推荐）；每次编辑仍需显式批准。",
   "dsh.cfg.features.ctrl-k": "启用「用 DSH 编辑（Ctrl+K）」命令：把当前选区与指令发送到 DSH 对话。默认关闭；不贡献默认键位。",
   "dsh.cfg.features.ctrl-i": "启用「用 DSH 文件编辑（Ctrl+I）」命令：选择 1-8 个工作区文件并以多文件上下文块发送到 DSH 对话。默认关闭；不贡献默认键位。",
   "dsh.cfg.features.lm-route": "在 VS Code 语言模型聊天选择器中暴露 DSH 模型（vendor 为 dsh）。默认关闭。",
@@ -69,7 +69,7 @@
   "dsh.cfg.features.mcp-consume": "允许 DSH 经桥使用 VS Code MCP 服务器（vscode/mcp/listServers|listTools|callTool）。默认关闭。",
   "dsh.cfg.features.call-export": "允许 DSH 经桥调用已安装 VS Code 扩展的导出方法（vscode/extensions/callExport）。默认关闭；激活与调用共用此授权开关。",
   "dsh.cfg.features.exports": "启用扩展 activate() 返回的编程式导出 API（ask/listSessions/addContext）。默认关闭；关闭时调用抛 DSH_EXPORT_DISABLED。",
-  "dsh.cfg.features.chat-participant": "在 VS Code 聊天视图中启用 @dsh 聊天参与者。默认关闭；参与者只消费 DSH 会话，绝不使用 vscode.lm/Copilot 配额。",
+  "dsh.cfg.features.chat-participant": "在 VS Code 聊天视图中启用 @dsh 聊天参与者。默认开启（推荐）；参与者只消费 DSH 会话，绝不使用 vscode.lm/Copilot 配额。",
   "dsh.cfg.features.tab-completion": "为 file 文档启用 DSH FIM Tab 补全 provider。默认关闭；POC 级功能。",
   "dsh.cfg.fim.model": "Tab 补全使用的 DSH 侧 FIM 模型名。上游 API key 与 base URL 在 DSH 侧 vscode-fim 插件中配置，绝不在此配置。"
 }

@@ -1023,26 +1023,26 @@ const FEATURE_CATALOG = [
   { id: 'editor-links', label: 'Editor links (Read…)', layer: 'L1', defaultEnabled: true, core: false, setup: setupEditorLinks },
   { id: 'statusbar-basic', label: 'Status bar indicator', layer: 'L1', defaultEnabled: true, core: false, setup: setupStatusbarBasic },
   { id: 'theme-follow', label: 'Theme follow (dark/light)', layer: 'L1', defaultEnabled: true, core: false, setup: setupThemeFollow },
-  { id: 'changes-review', label: 'Changes review (DSH workspace edits)', layer: 'L2', defaultEnabled: false, core: false, setup: setupChangesReview },
+  { id: 'changes-review', label: 'Changes review (DSH workspace edits)', layer: 'L2', defaultEnabled: true, core: false, setup: setupChangesReview },
   { id: 'ctrl-k', label: 'Edit with DSH (Ctrl+K)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCtrlK },
   { id: 'lm-route', label: 'DSH model routing', layer: 'L2', defaultEnabled: false, core: false, setup: setupLmRoute },
   { id: 'mcp-consume', label: 'MCP servers', layer: 'L2', defaultEnabled: false, core: false, setup: setupMcpConsume },
   { id: 'call-export', label: 'Call extension exports (vscode/extensions/callExport)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCallExport },
   { id: 'ctrl-i', label: 'Edit with DSH files (Ctrl+I, keybinding not bound)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCtrlI },
   { id: 'exports', label: 'Programmatic exports API (activate() return face)', layer: 'L2', defaultEnabled: false, core: false, setup: setupExports },
-  { id: 'chat-participant', label: 'Chat participant @dsh', layer: 'L2', defaultEnabled: false, core: false, setup: setupChatParticipant },
+  { id: 'chat-participant', label: 'Chat participant @dsh', layer: 'L2', defaultEnabled: true, core: false, setup: setupChatParticipant },
   { id: 'tab-completion', label: 'Tab completion (FIM POC)', layer: 'L2', defaultEnabled: false, core: false, setup: setupTabCompletion },
 ];
 
 /**
  * C2 onboarding: the implemented feature switches the wizard can toggle.
- * L0 features are never configurable and L2 features do not exist yet, so
- * only the L1 `dsh.features.*` switches are offered (the plan's full list is
- * covered by a roadmap placeholder step — declared deviation).
+ * L0 features are never configurable; every L1/L2 `dsh.features.*` switch is
+ * offered, pre-picked from the catalog's defaultEnabled (the recommended
+ * preset: changes-review and chat-participant default to on).
  */
 const ONBOARDING_FEATURE_SWITCHES = FEATURE_CATALOG
   .filter((feature) => feature.layer !== 'L0')
-  .map((feature) => ({ id: feature.id, label: feature.label }));
+  .map((feature) => ({ id: feature.id, label: feature.label, defaultEnabled: feature.defaultEnabled }));
 
 /**
  * C2 onboarding: the workspace adapter passed to runOnboardingWizard. It
@@ -1314,6 +1314,23 @@ async function setupCoreSidebar({ context, services }) {
     },
   });
   services.editorContext = editorContext;
+  // R14S1 guard: `dsh.changes` is declared unconditionally in package.json
+  // (gated by a `when` visibility clause), but the real provider is only
+  // mounted by the L2 changes-review feature. Always register an empty
+  // fallback provider at L0 so a partially failed activation — or a window
+  // where the when-clause lags behind the config — never renders VS Code's
+  // "no registered data provider" placeholder. When changes-review is on,
+  // createChangeTree re-registers the real provider for the same view id and
+  // this fallback is superseded (re-registration replaces).
+  try {
+    const fallbackChangesProvider = vscode.window.registerTreeDataProvider('dsh.changes', {
+      getChildren: () => [],
+      getTreeItem: () => null,
+    });
+    context.subscriptions.push(fallbackChangesProvider);
+  } catch {
+    // older facades without registerTreeDataProvider simply skip the guard
+  }
   const rawChangeTracker = injectedDependencies.changeTracker
     || createChangeTracker({ storageUri: context.globalStorageUri, vscode });
   // Wrap record so a later L2 change tree can reveal newly arrived entries

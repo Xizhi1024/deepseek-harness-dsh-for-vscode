@@ -248,7 +248,7 @@ test('E-asm-2 chat participant contribution, activation events, and FIM config a
 
   const properties = manifest.contributes.configuration.properties;
   assert.strictEqual(properties['dsh.features.chat-participant'].type, 'boolean');
-  assert.strictEqual(properties['dsh.features.chat-participant'].default, false);
+  assert.strictEqual(properties['dsh.features.chat-participant'].default, true);
   assert.strictEqual(properties['dsh.features.tab-completion'].type, 'boolean');
   assert.strictEqual(properties['dsh.features.tab-completion'].default, false);
   assert.strictEqual(properties['dsh.fim.model'].type, 'string');

@@ -2,7 +2,7 @@
   "name": "dsh-vs-sidebar",
   "displayName": "%dsh.displayName%",
   "description": "%dsh.ext.description%",
-  "version": "0.9.2",
+  "version": "0.9.4",
   "publisher": "Xizhi1024",
   "license": "MIT",
   "pricing": "Free",
@@ -132,7 +132,8 @@
         {
           "type": "tree",
           "id": "dsh.changes",
-          "name": "%dsh.view.changes%"
+          "name": "%dsh.view.changes%",
+          "when": "config.dsh.features.changes-review"
         }
       ]
     },
@@ -482,7 +483,7 @@
         },
         "dsh.features.changes-review": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "%dsh.cfg.features.changes-review%"
         },
         "dsh.features.ctrl-k": {
@@ -530,7 +531,7 @@
         },
         "dsh.features.chat-participant": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "%dsh.cfg.features.chat-participant%"
         },
         "dsh.features.tab-completion": {

@@ -4,6 +4,45 @@
 
 Embeds the local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) web UI in the VS Code auxiliary sidebar (right rail, alongside Copilot Chat). By default, every VS Code window starts and owns one `dsh web` child with the current workspace as cwd, then renders it in a compact full-screen iframe.
 
+[![Version](https://img.shields.io/badge/Marketplace-DSH%20for%20VS%20Code-4D6BFE)](https://marketplace.visualstudio.com/items?itemName=Xizhi1024.dsh-vs-sidebar) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+## ✨ Features
+
+**Ready out of the box (zero configuration):**
+
+| Capability | What you get |
+|---|---|
+| 🖥️ Embedded DSH sidebar | Every VS Code window owns one `dsh web` child rendered full-screen in the auxiliary sidebar (`Ctrl+Alt+B`); shared DSH home means all your modules, skills and sessions are right there |
+| 📋 Native clipboard | Copy buttons and native ⌘C/⌘X/⌘V (Ctrl+C/X/V) inside the embedded page — including selections in the chat composer — use the VS Code clipboard |
+| 🔗 Editor-grade links | `Read …` files open in the exact owning VS Code window; HTTP(S) links open in Simple Browser; the embedded page follows the VS Code color theme |
+| 📎 Explicit context attachment | Right-click a file / selection / folder / Problems → **Add to DSH Thread** appends a compact Markdown link to the DSH draft — source text is never pasted, nothing is ever auto-sent |
+| 🧭 Session management | New / Switch / History commands driven by DSH's own session API — the DSH server stays the source of truth |
+
+**Recommended — on by default since 0.9.4:**
+
+| Capability | What you get |
+|---|---|
+| ✅ DSH Changes review | Workspace edits pushed by DSH appear in the **DSH Changes** tree with open-diff / accept / undo actions and an approval prompt before any file is touched |
+| ✅ @dsh chat participant | Type `@dsh` + prompt in the VS Code chat view: it resolves the current workspace session, enqueues the prompt and streams the DSH session's replies back — never touches Copilot quota |
+
+**Advanced, opt-in:** Edit with DSH (`Ctrl+K` / `Ctrl+I`), model routing into the VS Code LM picker, MCP consumption, terminal / UI / editor-read bridges, FIM tab completion, and a frozen programmatic exports API — every capability that executes or mutates anything stays behind an explicit consent switch (see the developer sections below).
+
+## 🚀 Quick start (5 minutes)
+
+```bash
+# 1. One-time: install the DSH CLI (≥ 0.1.0-rc.7 recommended)
+npm install -g @deepseek-ai/dsh
+# 2. Install the extension from the Marketplace
+code --install-extension Xizhi1024.dsh-vs-sidebar
+```
+
+3. Press `Ctrl+Alt+B` — the sidebar starts DSH and loads the web UI (auto-start is on by default).
+4. Select code in the editor → right-click **Add to DSH Thread** → the sidebar draft receives a compact `file:line` link; press Enter to send.
+5. Type `@dsh` in the VS Code Chat view and ask anything — the reply streams from your local DSH session, not Copilot.
+6. Let DSH propose an edit through the bridge: the change lands in the **DSH Changes** view for diff / accept / undo — nothing is written without your approval.
+
+![Add selected VS Code ranges to a DSH conversation as compact links](media/add-to-dsh-thread-example-en.png)
+
 ## 🚨 **KNOWN CRITICAL ISSUE (0.9.2–0.9.3): managed startup fails on DSH runtime < 0.1.0-rc.7**
 
 > [!WARNING]
@@ -11,15 +50,15 @@ Embeds the local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 >
 > **Fix / workaround:** upgrade the runtime — `npm i -g @deepseek-ai/dsh@0.1.1-rc.1` (anything ≥ 0.1.0-rc.7 works) — or install an extension build ≤ 0.9.1. The next release gates the flag on the runtime version.
 
+---
+
+# 📐 For developers
+
+Everything below documents the implementation contracts, bridge surface, security model and configuration in detail.
+
 ## **VS CODE INTERACTION GUARANTEE (0.9.0)**
 
 **In an extension-owned DSH session, model-output Copy **and native ⌘C/⌘X/⌘V (Ctrl+C/X/V) inside the embedded page** use the VS Code clipboard—including selections inside the chat composer—, `Read …` files—including absolute paths from shared older sessions outside the current workspace—open in the exact owning VS Code window, and HTTP/HTTPS links open in VS Code Simple Browser. The embedded page follows the VS Code color theme (light/dark) instead of the OS. Markdown files no longer fall through to Windows file associations such as Typora. Right-click the editor body to add either the whole file (`Add File to DSH Thread`, no selection required) or the current selection (`Add to DSH Thread`); both append only a compact Markdown file/link to the active DSH draft—never the selected source text. Clicking the rendered link reopens that approved file/selection in the owning VS Code window. Nothing is ever auto-sent.**
-
-## Selection-link example
-
-Select one or more code ranges, right-click **Add to DSH Thread**, and the DSH draft receives compact file-and-line Markdown links instead of pasted source code. The screenshot shows two selections queued in the same draft.
-
-![Add selected VS Code ranges to a DSH conversation as compact links](media/add-to-dsh-thread-example-en.png)
 
 ## 🚨 **IMPORTANT: ISOLATED MODE CAN MAKE ALL EXISTING MODULES APPEAR TO DISAPPEAR**
 
@@ -43,6 +82,7 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 
 ## Install
 
+- Marketplace (recommended): search **DSH** (publisher Xizhi1024) in the Extensions view, or `code --install-extension Xizhi1024.dsh-vs-sidebar`
 - Dev: open this repo → `F5` → **Run Extension**
 - Verify: `npm ci` → `npm run check:w0` → `npm run test:extension-host`
 - Secret scan: `npm run test:secrets` scans the source/docs that would enter the VSIX (never `node_modules`, `.git`, or `.vscode-test`) and exits 1 on hardcoded bridge tokens, `Authorization: Bearer` credentials, API keys, private keys, or password literals; example/test fixtures are released with an explicit `// allow-secret-scan` comment.
@@ -63,7 +103,7 @@ Starting `dsh web` with VS Code when `dsh.autoStart=true` is intentional. Runtim
 - Extra surfaces: run **DSH: New DSH Instance** (or enable the sidebar title-bar entry with `dsh.multiInstance.entry`) to open another DSH panel in the editor area. All surfaces share the window's single DSH process; each panel gets its own DSH session (`dsh_session`), and closing a panel releases that session only
 - Model routing (L2, off by default): set `dsh.lm.route` to `fixed` or `dynamic` (with `dsh.features.lm-route`) and DSH models appear in the VS Code language-model chat picker as vendor `dsh`, served through bridge-token-authenticated `/api/lm` routes — never through Copilot quota
 - MCP consumption (L2, off by default): with `dsh.features.mcp-consume` enabled, DSH can use the VS Code-side MCP servers configured in the DSH profile through `vscode/mcp/*` bridge methods; every server/tool call passes the consent gate (**DSH: Refresh MCP Servers** / **DSH: Forget MCP Consent**)
-- Changes review (L2, off by default): with `dsh.features.changes-review` enabled, workspace edits pushed by DSH appear in the **DSH Changes** tree with open-diff / accept / undo actions and approval prompts before any file is touched
+- Changes review (L2, **on by default since 0.9.4**): workspace edits pushed by DSH appear in the **DSH Changes** tree with open-diff / accept / undo actions and approval prompts before any file is touched (disable with `dsh.features.changes-review: false`)
 
 > **Restart DSH Server Cleanly** disables every non-core (non-`@deepseek-ai/*`, non-embed) plugin in the active profile via `vscode-clean.overlay.yml` before restarting. When startup fails with `HEALTH_TIMEOUT` or `SPAWN_EXITED_EARLY`, the status page offers a **Restart-Clean** entry; in clean mode it shows a banner with **Restart-normal**, which restarts with the normal embed overlay. A startup that exits early while a `--patch` overlay is in effect automatically retries exactly once without the patch (recorded in Diagnose).
 
@@ -77,7 +117,7 @@ On the first activation the extension asks **“DSH is ready — set it up?”**
 
 ## Chat participant (@dsh)
 
-With `dsh.features.chat-participant` enabled (L2, default off), the extension contributes the **@dsh** participant to the VS Code chat view. Type `@dsh` followed by your prompt: the participant resolves the current workspace DSH session, enqueues the prompt (`session.prompt`, mode `queue`), and streams the DSH session's text deltas back into the chat response. Follow-ups offer up to five recent root sessions for one-click continuation.
+With `dsh.features.chat-participant` enabled (L2, **on by default since 0.9.4**), the extension contributes the **@dsh** participant to the VS Code chat view. Type `@dsh` followed by your prompt: the participant resolves the current workspace DSH session, enqueues the prompt (`session.prompt`, mode `queue`), and streams the DSH session's text deltas back into the chat response. Follow-ups offer up to five recent root sessions for one-click continuation.
 
 **D9 boundary**: the participant never reads `request.model` and never consumes the `vscode.lm` / Copilot quota — it talks only to the DSH-owned session API on the local loopback server.
 
@@ -214,7 +254,7 @@ The v3 bridge now covers much of the original roadmap — terminals, tasks, debu
 | `dsh.features.editor-links` | true | Open DSH Read… and draft attachment links in this VS Code window (L1 feature, off = text document bridge is not started) |
 | `dsh.features.statusbar-basic` | true | Basic DSH status indicator in the status bar (L1 feature, off = the L0 `$(error)` fallback still surfaces on failure) |
 | `dsh.features.theme-follow` | true | Follow the VS Code active color theme (dark/light) in the embedded DSH iframe (L1 feature, off = no `dsh_theme` URL param and no theme listener) |
-| `dsh.features.changes-review` | false | Review workspace edits proposed by DSH: approval prompts, the `dsh.changes` tree view, and the `vscode/changes/push` bridge handler (L2 feature) |
+| `dsh.features.changes-review` | true | Review workspace edits proposed by DSH (on by default since 0.9.4): approval prompts, the `dsh.changes` tree view, and the `vscode/changes/push` bridge handler (L2 feature) |
 | `dsh.features.ctrl-k` | false | Enable the **Edit with DSH (Ctrl+K)** command; no default keybinding is contributed (L2 feature) |
 | `dsh.features.ctrl-i` | false | Enable the **Edit with DSH Files (Ctrl+I)** command that picks 1–8 workspace files and sends them as a multi-file context block (L2 feature) |
 | `dsh.features.lm-route` | false | Expose DSH models to the VS Code language-model chat picker as vendor `dsh` (L2 feature) |
@@ -222,7 +262,7 @@ The v3 bridge now covers much of the original roadmap — terminals, tasks, debu
 | `dsh.features.mcp-consume` | false | Let DSH consume VS Code MCP servers through the bridge (`vscode/mcp/listServers`/`listTools`/`callTool`) (L2 feature) |
 | `dsh.features.exports` | false | Enable the programmatic exports API returned by the extension `activate()` face (`ask`/`listSessions`/`addContext`) (L2 feature; disabled calls throw `DSH_EXPORT_DISABLED`) |
 | `dsh.features.call-export` | false | Let DSH call other extensions' exports faces through `vscode/extensions/callExport` behind the consent gate, with a call journal (L2 feature, machine scope) |
-| `dsh.features.chat-participant` | false | Enable the **@dsh** chat participant in the VS Code chat view; consumes DSH sessions only, never the `vscode.lm`/Copilot quota (L2 feature) |
+| `dsh.features.chat-participant` | true | Enable the **@dsh** chat participant (on by default since 0.9.4); in the VS Code chat view; consumes DSH sessions only, never the `vscode.lm`/Copilot quota (L2 feature) |
 | `dsh.features.tab-completion` | false | Enable the DSH FIM tab-completion provider for `file` documents (L2 feature; POC-grade) |
 | `dsh.fim.model` | (empty) | Machine-scoped DSH-side FIM model name used for tab completion; the upstream API key and base URL are configured in the DSH-side vscode-fim plugin |
 | `dsh.keybindings.ctrlL` | false | Enable the Ctrl+L (Cmd+L on macOS) keybinding that adds the active editor selection to the DSH conversation (off by default) |

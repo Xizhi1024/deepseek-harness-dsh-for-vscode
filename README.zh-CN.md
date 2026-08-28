@@ -4,6 +4,45 @@
 
 把本地 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）Web 界面嵌入 VS Code 辅助侧边栏（右侧栏，与 Copilot Chat 同排）。默认情况下，每个 VS Code 窗口都会以当前工作区为 cwd 单独启动并持有一个 `dsh web` 子进程，再以紧凑的全屏 iframe 渲染。
 
+[![Marketplace](https://img.shields.io/badge/Marketplace-DSH%20for%20VS%20Code-4D6BFE)](https://marketplace.visualstudio.com/items?itemName=Xizhi1024.dsh-vs-sidebar) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+## ✨ 功能亮点
+
+**开箱即用（零配置）：**
+
+| 能力 | 你能得到什么 |
+|---|---|
+| 🖥️ 嵌入式 DSH 侧边栏 | 每个 VS Code 窗口持有一个专属 `dsh web` 子进程，全屏渲染在辅助侧边栏（`Ctrl+Alt+B`）；共享 DSH 主目录，原有模块/技能/会话全部可用 |
+| 📋 原生剪贴板 | 嵌入页面内的复制按钮与原生 ⌘C/⌘X/⌘V（含聊天输入框选区）全部走 VS Code 剪贴板 |
+| 🔗 编辑器级链接 | `Read …` 文件在所属 VS Code 窗口打开；HTTP(S) 链接走 Simple Browser；页面颜色跟随 VS Code 主题 |
+| 📎 显式上下文附加 | 右键文件/选区/文件夹/Problems → **添加到 DSH 对话**，草稿只收到紧凑 Markdown 链接——绝不粘贴源码、绝不自动发送 |
+| 🧭 会话管理 | 新建/切换/历史命令直连 DSH 本地会话 API，DSH 服务始终是唯一事实源 |
+
+**推荐开启——0.9.4 起默认启用：**
+
+| 能力 | 你能得到什么 |
+|---|---|
+| ✅ DSH 变更评审 | DSH 推送的工作区编辑进入 **DSH 变更** 树，提供 diff 查看 / 接受 / 撤销，写文件前必须审批 |
+| ✅ @dsh 聊天参与者 | 在 VS Code 聊天视图输入 `@dsh` + 提问：自动解析当前工作区会话、入队提示词并流式回传 DSH 回复——绝不消耗 Copilot 配额 |
+
+**高级能力（可选）：**用 DSH 编辑（`Ctrl+K` / `Ctrl+I`）、模型路由进 VS Code LM 选择器、MCP 消费、终端/UI/编辑器读取桥、FIM Tab 补全、冻结的程序化 exports API——一切可执行/可变更的能力都挂在显式同意开关后（详见下方开发者章节）。
+
+## 🚀 五分钟上手
+
+```bash
+# 1. 一次性安装 DSH CLI（建议 ≥ 0.1.0-rc.7）
+npm install -g @deepseek-ai/dsh
+# 2. 从 Marketplace 安装扩展
+code --install-extension Xizhi1024.dsh-vs-sidebar
+```
+
+3. 按 `Ctrl+Alt+B`——侧边栏自动启动 DSH 并加载 Web 界面（默认自动启动）。
+4. 在编辑器选中代码 → 右键 **添加到 DSH 对话** → 侧边栏草稿收到紧凑的 `文件:行号` 链接；回车发送。
+5. 在 VS Code 聊天视图输入 `@dsh` 随便问——回复来自本地 DSH 会话，不走 Copilot。
+6. 让 DSH 经桥提议一次编辑：变更进入 **DSH 变更** 视图待 diff / 接受 / 撤销——未经批准不会写任何文件。
+
+![将 VS Code 选区以紧凑链接添加到 DSH 对话](media/add-to-dsh-thread-example.png)
+
 ## 🚨 **已知严重问题（0.9.2–0.9.3）：DSH 运行时低于 0.1.0-rc.7 时托管启动全部失败**
 
 > [!WARNING]
@@ -11,15 +50,15 @@
 >
 > **修复 / 绕过**：升级运行时——`npm i -g @deepseek-ai/dsh@0.1.1-rc.1`（任何 ≥ 0.1.0-rc.7 均可），或改装 ≤ 0.9.1 的扩展版本。下一版将按运行时版本门控该旗标。
 
+---
+
+# 📐 面向开发者
+
+以下章节详细描述实现契约、桥接面、安全模型与完整配置。
+
 ## **VS CODE 交互保证（0.9.0）**
 
 **在扩展自管的 DSH 会话中，模型输出的“复制”**与嵌入页面内的原生 ⌘C/⌘X/⌘V（Ctrl+C/X/V）**——包括聊天输入框内的选区——均使用 VS Code 剪贴板**；嵌入页面跟随 VS Code 明暗主题而非操作系统；`Read …` 文件（包括共享旧会话中位于当前工作区之外的绝对路径）在拥有该 DSH 进程的 VS Code 窗口中打开，HTTP/HTTPS 链接在 VS Code Simple Browser 中打开。Markdown 文件不再回退到 Typora 等 Windows 默认关联程序。在编辑器正文右键，无需选中文字即可“将文件添加到 DSH 对话”，选中代码后也可“添加到 DSH 对话”；两者都只向当前 DSH 草稿追加紧凑的文件名/行号 Markdown 链接，不粘贴代码正文；消息渲染后点击链接，会在所属 VS Code 窗口重新打开并选中该附件。扩展绝不会自动发送。**
-
-## 选区链接示例
-
-选中一个或多个代码范围，右键选择 **添加到 DSH 对话**，DSH 草稿会收到紧凑的文件名/行号 Markdown 链接，而不是粘贴代码正文。下图演示了在同一草稿中连续附加两个选区。
-
-![将 VS Code 选区以紧凑链接添加到 DSH 对话](media/add-to-dsh-thread-example.png)
 
 ## 🚨 **重要警告：隔离模式会让原有模块看起来全部“消失”**
 
@@ -43,6 +82,7 @@
 
 ## 安装
 
+- Marketplace（推荐）：在扩展视图搜索 **DSH**（发布者 Xizhi1024），或 `code --install-extension Xizhi1024.dsh-vs-sidebar`
 - 开发调试：打开本仓库 → `F5` → **Run Extension**
 - 验证：`npm ci` → `npm run check:w0` → `npm run test:extension-host`
 - 密钥扫描：`npm run test:secrets` 扫描将进入 VSIX 的源码/文档（不扫 `node_modules`、`.git`、`.vscode-test`），命中硬编码桥接 token、`Authorization: Bearer` 凭据、API key、私钥或密码字面量时以 1 退出；示例/测试 fixture 使用显式 `// allow-secret-scan` 注释放行。
@@ -63,10 +103,7 @@
 - `dsh.autoStart` 开启时，VS Code 启动即拉取服务，即使侧边栏从未打开
 - 模型路由（L2，默认关闭）：`dsh.lm.route` 设为 `fixed` 或 `dynamic`（配合 `dsh.features.lm-route`）后，DSH 模型以 vendor `dsh` 出现在 VS Code 语言模型选择器，经桥令牌鉴权的 `/api/lm` 路由提供服务——绝不消耗 Copilot 配额
 - MCP 消费（L2，默认关闭）：开启 `dsh.features.mcp-consume` 后，DSH 可经 `vscode/mcp/*` 桥方法使用 DSH profile 中配置的 VS Code 侧 MCP 服务器；每个服务器/工具调用都要过同意门（**DSH: 刷新 MCP 服务器** / **DSH: 忘记 MCP 同意**）
-- 变更评审（L2，默认关闭）：开启 `dsh.features.changes-review` 后，DSH 推送的工作区编辑进入 **DSH 变更** 树，提供 diff 查看 / 接受 / 撤销，写文件前需审批
-- 模型路由（L2，默认关闭）：`dsh.lm.route` 设为 `fixed` 或 `dynamic`（配合 `dsh.features.lm-route`）后，DSH 模型以 vendor `dsh` 出现在 VS Code 语言模型选择器，经桥令牌鉴权的 `/api/lm` 路由提供服务——绝不消耗 Copilot 配额
-- MCP 消费（L2，默认关闭）：开启 `dsh.features.mcp-consume` 后，DSH 可经 `vscode/mcp/*` 桥方法使用 DSH profile 中配置的 VS Code 侧 MCP 服务器；每个服务器/工具调用都要过同意门（**DSH: 刷新 MCP 服务器** / **DSH: 忘记 MCP 同意**）
-- 变更评审（L2，默认关闭）：开启 `dsh.features.changes-review` 后，DSH 推送的工作区编辑进入 **DSH 变更** 树，提供 diff 查看 / 接受 / 撤销，写文件前需审批
+- 变更评审（L2，**0.9.4 起默认开启**）：DSH 推送的工作区编辑进入 **DSH 变更** 树，提供 diff 查看 / 接受 / 撤销，写文件前需审批（可用 `dsh.features.changes-review: false` 关闭）
 
 > **干净重启 DSH 服务** 会在重启前通过 `vscode-clean.overlay.yml` 禁用活动 profile 中所有非核心（非 `@deepseek-ai/*`、非 embed）插件。当启动以 `HEALTH_TIMEOUT` 或 `SPAWN_EXITED_EARLY` 失败时，状态页提供 **Restart-Clean** 入口；干净模式下会显示带 **Restart-normal** 的横幅，后者以正常 embed overlay 重启。当 `--patch` overlay 生效期间发生提前退出时，会自动不带该 patch 重试恰好一次（记录在 Diagnose 中）。
 
@@ -80,7 +117,7 @@
 
 ## 聊天参与者（@dsh）
 
-开启 `dsh.features.chat-participant`（L2，默认关闭）后，扩展会向 VS Code 聊天视图贡献 **@dsh** 参与者。输入 `@dsh` 并附上你的问题：参与者会解析当前工作区的 DSH 会话，把提示词入队（`session.prompt`，mode `queue`），并把 DSH 会话的文本增量流式写回聊天回复。Follow-up 会提供最多 5 个最近的根会话，供一键继续。
+开启 `dsh.features.chat-participant`（L2，**0.9.4 起默认开启**）后，扩展会向 VS Code 聊天视图贡献 **@dsh** 参与者。输入 `@dsh` 并附上你的问题：参与者会解析当前工作区的 DSH 会话，把提示词入队（`session.prompt`，mode `queue`），并把 DSH 会话的文本增量流式写回聊天回复。Follow-up 会提供最多 5 个最近的根会话，供一键继续。
 
 **D9 边界**：参与者绝不读取 `request.model`，绝不消耗 `vscode.lm` / Copilot 配额——它只与本机回环地址上的 DSH 会话 API 通信。
 
@@ -215,7 +252,7 @@ v3 桥已覆盖原路线图的大半——终端、任务、调试 启动/停止
 | `dsh.features.editor-links` | true | 在本 VS Code 窗口中打开 DSH 的 `Read …` 与草稿附件链接（L1 功能；关闭后不启动文本文档桥） |
 | `dsh.features.statusbar-basic` | true | 状态栏中的基础 DSH 状态指示（L1 功能；关闭后失败时仍会以 L0 `$(error)` 兜底呈现） |
 | `dsh.features.theme-follow` | true | 内嵌 DSH iframe 跟随 VS Code 当前颜色主题（深色/浅色）（L1 功能；关闭后不附加 `dsh_theme` URL 参数、不监听主题变化） |
-| `dsh.features.changes-review` | false | 审查 DSH 提议的工作区编辑：审批弹窗、`dsh.changes` 树视图与 `vscode/changes/push` 桥接处理器（L2 功能） |
+| `dsh.features.changes-review` | true | 审查 DSH 提议的工作区编辑（0.9.4 起默认开启）：审批弹窗、`dsh.changes` 树视图与 `vscode/changes/push` 桥接处理器（L2 功能） |
 | `dsh.features.ctrl-k` | false | 启用「用 DSH 编辑（Ctrl+K）」命令；不贡献默认键位（L2 功能） |
 | `dsh.features.ctrl-i` | false | 启用「用 DSH 文件编辑（Ctrl+I）」命令：选择 1–8 个工作区文件并以多文件上下文块发送到 DSH 对话（L2 功能） |
 | `dsh.features.lm-route` | false | 在 VS Code 语言模型聊天选择器中以 vendor `dsh` 暴露 DSH 模型（L2 功能） |
@@ -223,7 +260,7 @@ v3 桥已覆盖原路线图的大半——终端、任务、调试 启动/停止
 | `dsh.features.mcp-consume` | false | 允许 DSH 经桥使用 VS Code MCP 服务器（`vscode/mcp/listServers`/`listTools`/`callTool`）（L2 功能） |
 | `dsh.features.exports` | false | 启用扩展 `activate()` 返回的编程式导出 API（`ask`/`listSessions`/`addContext`）（L2 功能；关闭时调用抛 `DSH_EXPORT_DISABLED`） |
 | `dsh.features.call-export` | false | 允许 DSH 经同意门调用其他扩展的 exports 面（`vscode/extensions/callExport`），带调用日志（L2 功能，机器作用域） |
-| `dsh.features.chat-participant` | false | 在 VS Code 聊天视图中启用 **@dsh** 聊天参与者；只消费 DSH 会话，绝不使用 `vscode.lm`/Copilot 配额（L2 功能） |
+| `dsh.features.chat-participant` | true | 在 VS Code 聊天视图中启用 **@dsh** 聊天参与者（0.9.4 起默认开启）；只消费 DSH 会话，绝不使用 `vscode.lm`/Copilot 配额（L2 功能） |
 | `dsh.features.tab-completion` | false | 为 `file` 文档启用 DSH FIM Tab 补全 provider（L2 功能；POC 级） |
 | `dsh.fim.model` | （空） | 机器级：Tab 补全使用的 DSH 侧 FIM 模型名；上游 API key 与 base URL 在 DSH 侧 vscode-fim 插件中配置 |
 | `dsh.keybindings.ctrlL` | false | 启用 Ctrl+L（macOS 为 Cmd+L）键位：将当前编辑器选区加入 DSH 对话（默认关闭） |
