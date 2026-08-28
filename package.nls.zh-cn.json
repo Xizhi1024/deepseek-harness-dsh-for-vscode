@@ -1,5 +1,5 @@
 {
-  "dsh.displayName": "DSH for VS Code",
+  "dsh.displayName": "DeepSeek Harness(dsh) for VS Code",
   "dsh.ext.description": "将本地 DeepSeek Harness (DSH) Web 界面嵌入 VS Code 辅助侧边栏。",
   "dsh.cfg.title": "DeepSeek Harness(dsh) for VS Code",
   "dsh.cfg.port": "探测 / 启动 DSH Web 服务的端口。",

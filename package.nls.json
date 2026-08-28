@@ -1,5 +1,5 @@
 {
-  "dsh.displayName": "DSH for VS Code",
+  "dsh.displayName": "DeepSeek Harness(dsh) for VS Code",
   "dsh.ext.description": "Embed the local DeepSeek Harness (DSH) web UI into the VS Code auxiliary sidebar.",
   "dsh.cfg.title": "DeepSeek Harness(dsh) for VS Code",
   "dsh.cfg.port": "Port to probe / start the DSH web server.",
