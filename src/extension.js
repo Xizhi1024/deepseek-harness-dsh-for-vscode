@@ -1536,6 +1536,9 @@ async function setupCoreSidebar({ context, services }) {
         consentGate: mcpConsentGate,
         spawn,
         logger: (line) => appendDiagnostic(line),
+        // C3 zero-typing: same-name env keys resolve from the extension host
+        // secret storage before any prompt (facade-less tests pass undefined).
+        secretStorage: (context && context.secrets) || null,
       });
     } catch (error) {
       appendDiagnostic(`mcp-consume support degraded: ${error && error.message ? error.message : String(error)}`);

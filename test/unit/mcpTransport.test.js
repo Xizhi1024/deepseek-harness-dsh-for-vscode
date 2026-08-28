@@ -189,3 +189,86 @@ test('mcp manager truncates oversized callTool results to 1 MiB', async () => {
   assert.ok(JSON.stringify(result).length <= 1024 * 1024 + 200);
   manager.dispose();
 });
+
+// ---- C3: MCP env keys resolve from secretStorage first (zero typing) -------
+
+function memorySecrets(initial = {}) {
+  const store = { ...initial };
+  return {
+    store,
+    async get(key) { return store[key]; },
+    async set(key, value) { store[key] = value; },
+    async delete(key) { delete store[key]; },
+  };
+}
+
+function serverNeedingKey(key) {
+  return [{
+    source: 'user',
+    servers: [{ name: 'demo', type: 'stdio', command: 'node', args: [], env: { [key]: '${input:' + key + '}' } }],
+  }];
+}
+
+const { isSecretKeyName } = require('../../src/mcp/manager');
+
+test('C3: a same-name secretStorage hit skips the prompt entirely', async () => {
+  const prompts = [];
+  const fake = { window: { async showInputBox(options) { prompts.push(options); return 'typed'; } } };
+  const secrets = memorySecrets({ OPENAI_API_KEY: 'stored-key' });
+  const manager = createMcpManager({
+    vscode: fake,
+    env: {},
+    getSources: async () => serverNeedingKey('OPENAI_API_KEY'),
+    consentGate: consentingGate(),
+    spawn: () => fakeChild(),
+    secretStorage: secrets,
+  });
+  const list = await manager.listServers();
+  assert.strictEqual(list.servers[0].state, 'ready', 'env expanded from secretStorage');
+  assert.strictEqual(prompts.length, 0, 'no prompt when the secret store already knows the key');
+  manager.dispose();
+});
+
+test('C3: a miss prompts password-masked for KEY/TOKEN/SECRET names and stores back', async () => {
+  const prompts = [];
+  const fake = { window: { async showInputBox(options) { prompts.push(options); return 'typed-once'; } } };
+  const secrets = memorySecrets();
+  const manager = createMcpManager({
+    vscode: fake,
+    env: {},
+    getSources: async () => serverNeedingKey('GITHUB_TOKEN'),
+    consentGate: consentingGate(),
+    spawn: () => fakeChild(),
+    secretStorage: secrets,
+  });
+  const list = await manager.listServers();
+  assert.strictEqual(list.servers[0].state, 'ready');
+  assert.strictEqual(prompts.length, 1);
+  assert.strictEqual(prompts[0].password, true, 'credential-looking keys prompt masked');
+  assert.strictEqual(secrets.store.GITHUB_TOKEN, 'typed-once', 'the answered value is persisted for next time');
+  manager.dispose();
+});
+
+test('C3: non-secret key names prompt unmasked; isSecretKeyName covers the usual substrings', async () => {
+  const prompts = [];
+  const fake = { window: { async showInputBox(options) { prompts.push(options); return 'v'; } } };
+  const manager = createMcpManager({
+    vscode: fake,
+    env: {},
+    getSources: async () => serverNeedingKey('REGION'),
+    consentGate: consentingGate(),
+    spawn: () => fakeChild(),
+    secretStorage: memorySecrets(),
+  });
+  const list = await manager.listServers();
+  assert.strictEqual(list.servers[0].state, 'ready');
+  assert.strictEqual(prompts[0].password, false, 'REGION is not masked');
+  manager.dispose();
+
+  assert.strictEqual(isSecretKeyName('OPENAI_API_KEY'), true);
+  assert.strictEqual(isSecretKeyName('github-token'), true);
+  assert.strictEqual(isSecretKeyName('Client_Secret'), true);
+  assert.strictEqual(isSecretKeyName('DB_PASSWORD'), true);
+  assert.strictEqual(isSecretKeyName('region'), false);
+  assert.strictEqual(isSecretKeyName(''), false);
+});
