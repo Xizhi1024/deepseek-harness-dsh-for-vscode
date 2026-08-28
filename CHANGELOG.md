@@ -3,6 +3,65 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-08-28
+
+### Added / 新增
+
+- **FIM Tab 补全服务端补齐（`/api/fim`）**：此前 tab-completion 只有扩展侧客户端——每次补全请求打到 DSH 后 404 静默返回空。1.0.1 在 DSH 侧 `dsh-vscode-integration` 插件内实现 `POST /api/fim`：Bearer 桥令牌鉴权（timing-safe）、调用 OpenAI 兼容 completions 上游（DeepSeek-Coder FIM 模板，可用 `DSH_FIM_TEMPLATE` 覆盖）、流式增量以客户端约定的 `data: {"text":...}` + `[DONE]` 帧回传、8s 上游超时、全程故障围栏（WebRoute 内异常绝不逃逸）。
+  FIM tab completion previously shipped a client only — every request 404'd silently. 1.0.1 implements the missing `POST /api/fim` inside the DSH-side integration plugin: timing-safe bearer auth, an OpenAI-compatible completions upstream (DeepSeek-Coder FIM template, overridable via `DSH_FIM_TEMPLATE`), streamed deltas re-emitted in the client's `data: {"text":...}` + `[DONE]` frame format, an 8s upstream timeout, and full fault containment.
+- **新设置 `dsh.fim.baseUrl`**（machine scope）：上游 FIM 端点完整 URL，与 `Set DSH FIM API Key`（secretStorage）一起经 spawn env 注入（`DSH_FIM_BASE_URL`/`DSH_FIM_API_KEY`）；两者齐备并重启 DSH 服务后 Tab 补全真正可用，缺失时 `/api/fim` 返回带指引的 503。
+  New `dsh.fim.baseUrl` setting (machine scope): full upstream FIM endpoint URL, injected alongside the secretStorage API key into the DSH spawn env; tab completion becomes actually usable once both are set and the DSH server restarted, otherwise /api/fim answers a guided 503.
+
+### Changed / 变更
+
+- **README 精简为产品视角**：一句话定位 + 能力 bullet + 兼容性 + 安装 + 使用 + 配置表，删除全部面向开发者的长文（交互保证/隔离模式/桥接矩阵/exports/错误码/FAQ/实现原理）。
+  READMEs slimmed to a product-first structure: one-line pitch, capability bullets, compatibility, install, usage, and the config table; all developer-facing long-form sections removed.
+
+## [1.0.0] - 2026-08-28
+
+合并 0.9.4（视图修复 + 推荐预设 + README 展示优先重构）与 feature/1.0.0（启动与自愈大改），版本统一为 1.0.0。
+Merges 0.9.4 (view fix + recommended preset + showcase-first READMEs) with feature/1.0.0 (launch & self-healing overhaul); unified version 1.0.0.
+
+### Fixed / 修复
+
+- **--no-open 按运行时版本门控**：低于 0.1.0-rc.7 的 DSH 运行时不再因未知旗标导致托管启动必死；仍拒绝该旗标的老运行时会自动去掉它重试（serverNoOpenSelfHeal）。
+  `--no-open` is now gated on the runtime version; older runtimes that still reject the flag retry without it automatically.
+- （继承 0.9.4）`dsh.changes` 视图「无数据提供程序」占位错误：`when` 可见性门控 + L0 常驻 fallback provider。
+  (from 0.9.4) the `dsh.changes` "no registered data provider" placeholder: `when` visibility gate + an always-registered L0 fallback provider.
+
+### Added / 新增
+
+- **Windows 发现范围扩大**：自动发现新增 PATH shim 扫描（`dsh.cmd` / `dsh.ps1`）与 pnpm/yarn 全局目录（`shimResolver` / `processDiscovery`）。
+  Windows discovery now scans PATH shims (`dsh.cmd` / `dsh.ps1`) and pnpm/yarn global directories.
+- **可配置启动**：新设置 `dsh.executablePath`（包目录、`lib/bin.js` 或 Windows shim 文件，优先于自动发现）与启动方式解析（`launchMethodResolver`）。
+  Configurable launch: new `dsh.executablePath` setting (package dir, `lib/bin.js`, or a Windows shim; takes precedence over discovery) plus a launch-method resolver.
+- **连接看门狗**：侧栏连接后持续监测服务端点；失联（崩溃、休眠唤醒、端口被占）时显示连接丢失页并支持一键重试，不再留死白框。
+  Connection watchdog: the service endpoint is monitored once the sidebar connects; on loss the sidebar shows a reconnect page instead of a dead frame.
+- **更智能的复用**：配置端口静默但其它端口已有 `dsh web` 在跑时自动复用。
+  Smarter reuse: a silent configured port falls back to an already-running `dsh web` on another port.
+- （继承 0.9.4）推荐预设：`dsh.features.changes-review` 与 `dsh.features.chat-participant` 默认开启。
+  (from 0.9.4) recommended preset: changes-review and @dsh chat-participant default to on.
+
+### Changed / 变更
+
+- （继承 0.9.4）README 重构为功能展示优先（功能亮点 / 五分钟上手 / 面向开发者分隔）；内部实现笔记与规划文档移出仓库。
+  (from 0.9.4) READMEs restructured showcase-first; internal impl notes and planning docs removed from the repository.
+
+## [0.9.4] - 2026-08-27
+
+### Fixed / 修复
+
+- **`dsh.changes` 视图报「没有可提供视图数据的已注册数据提供程序」**：该 tree 视图在 `package.json` 中无条件声明，但数据提供程序只在 `dsh.features.changes-review` 开启时挂载，默认配置下每个用户都会看到 VS Code 的占位错误。现在 ① 视图加了 `when: config.dsh.features.changes-review` 可见性门控；② L0 阶段始终注册一个空 fallback provider，即使部分激活失败也不再出现占位错误（changes-review 开启时真 provider 重新注册并取代 fallback）。
+  The `dsh.changes` tree view was declared unconditionally in `package.json` but its data provider was only mounted when `dsh.features.changes-review` was on, so every default install showed VS Code's "no registered data provider" placeholder. Now (1) the view carries a `when: config.dsh.features.changes-review` visibility gate and (2) an empty fallback provider is always registered at L0, so a partially failed activation never renders the placeholder either (the real provider re-registers and supersedes the fallback when changes-review is on).
+
+### Changed / 变更
+
+- **推荐预设：两个安全的 L2 特性默认开启**——`dsh.features.changes-review`（DSH 变更评审：每次写文件前仍需显式审批）与 `dsh.features.chat-participant`（@dsh 聊天参与者：只消费 DSH 会话，绝不使用 Copilot 配额）自 0.9.4 起默认 `true`，首装用户 5 分钟内即可体验变更评审树与 @dsh 流式对话。显式设为 `false` 的用户不受影响；onboarding 向导的预勾选改用目录真实默认值（顺带修复了向导把未显式设置的开关一律视为开启的旧问题）。
+  Recommended preset: two safe L2 features now default to on — `dsh.features.changes-review` (every file write still needs explicit approval) and `dsh.features.chat-participant` (DSH sessions only, never Copilot quota). Existing users who explicitly set them to false are unaffected; the onboarding wizard now pre-picks real catalog defaults (also fixing the old bug that treated every unset switch as on).
+
+- **README 重构为「功能展示优先」**：两份 README 顶部新增功能亮点（开箱即用 / 推荐开启 / 高级可选三档）、五分钟上手与 Marketplace 安装入口，原实现细节章节整体移入「面向开发者」分隔线下；同时修复中文版使用章节三条 bullet 重复的旧问题。
+  READMEs restructured showcase-first: a features section (out of the box / recommended / advanced), a 5-minute quick start, and Marketplace install now lead both READMEs, with the implementation details moved under a "For developers" divider; a pre-existing triple-bullet duplication in the Chinese usage section was also fixed.
+
 ## [0.9.3] - 2026-08-20
 
 ### Fixed / 修复

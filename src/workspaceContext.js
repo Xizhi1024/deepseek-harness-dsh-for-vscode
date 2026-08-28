@@ -24,6 +24,12 @@ function createWorkspaceContext(vscode, extensionContext) {
         runtimeVersion: String(settings.get('runtime.version', '') || ''),
         localPackageRoot: String(settings.get('local.packageRoot', '') || ''),
         localNodePath: String(settings.get('local.nodePath', '') || ''),
+        executablePath: String(settings.get('executablePath', '') || ''),
+        launchMethod: String(settings.get('launch.method', 'auto') || 'auto'),
+        launchCommand: String(settings.get('launch.command', 'dsh') || 'dsh'),
+        extraArgs: Array.isArray(settings.get('extraArgs', []))
+          ? settings.get('extraArgs', []).filter((value) => typeof value === 'string')
+          : [],
         homeMode: String(settings.get('home.mode', 'shared') || 'shared'),
         homePath: String(settings.get('home.path', '') || ''),
       };

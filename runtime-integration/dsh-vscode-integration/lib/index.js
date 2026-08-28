@@ -4,6 +4,7 @@ import net from 'node:net';
 
 import { createBridgeTools } from './tools.js';
 import { createLmRoutes } from './lmRoute.js';
+import { createFimRoutes } from './fimRoutes.js';
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
@@ -375,6 +376,13 @@ function apply(ctx) {
     const routes = createLmRoutes({ env: process.env, ctx });
     return () => routes.dispose();
   }, 'dsh-vscode-integration: /api/lm routes');
+
+  // Tab completion: mounts POST /api/fim only when the extension injected
+  // DSH_FIM_BRIDGE_TOKEN (feature off => no route, zero surface).
+  ctx.effect(() => {
+    const fim = createFimRoutes({ env: process.env, ctx });
+    return () => fim.dispose();
+  }, 'dsh-vscode-integration: /api/fim route');
 }
 
 export {

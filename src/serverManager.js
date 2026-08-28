@@ -21,7 +21,12 @@ const net = require('node:net');
 const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
-const { buildManagedLaunchSpec, normalizeResolvedRuntime } = require('./managedRuntimeLaunch');
+const {
+  buildManagedLaunchSpec,
+  isNoOpenStderr,
+  normalizeResolvedRuntime,
+  supportsNoOpenFlag,
+} = require('./managedRuntimeLaunch');
 const { STARTUP_ERRORS } = require('./startupErrors');
 
 // Shared contract constants normally come from ./types. Fall back to local
@@ -312,6 +317,12 @@ class ServerManager {
     this.ownerWindowId = null;  // stable window identity (see extension.js deriveWindowId)
     this._selfHealCount = 0; // successful patch-drop self-heal retries for Diagnose
     this._child = null;   // ChildProcess spawned by THIS instance (owned)
+    this._noOpenSuppressed = false; // session-sticky: runtime rejected --no-open
+    this._lastSpawnArgs = null;     // args of the most recent spawn attempt
+    this._lastSpawnLogPath = null;  // per-spawn log used by the no-open self-heal
+    this._healthTimer = null;       // post-ready liveness poll (see _startHealthWatch)
+    this._healthPort = null;        // port the health poll probes
+    this._extraArgs = [];           // dsh.extraArgs appended to owned spawns
     this._registryFile = null; // registry merged on ready (own entry removed on stop)
     this._stopping = false; // true while a deliberate stop() is in progress
     this._ownedServer = null; // last ready endpoint backed by this._child
@@ -330,6 +341,9 @@ class ServerManager {
     this.resolvedRuntime = resolvedRuntime === undefined || resolvedRuntime === null
       ? null
       : normalizeResolvedRuntime(resolvedRuntime);
+    // A fresh runtime re-announces its version; let the version gate decide
+    // --no-open again instead of keeping a stale suppression around.
+    this._noOpenSuppressed = false;
     return this.resolvedRuntime;
   }
 
@@ -379,6 +393,24 @@ class ServerManager {
   /** Static read helper: an old registry entry without the key reads as non-clean. */
   static isCleanEntry(entry) {
     return Boolean(entry && entry.clean === true);
+  }
+
+  /**
+   * Extra CLI arguments appended to every future owned DSH spawn (the
+   * dsh.extraArgs setting). Validated once here; buildManagedLaunchSpec
+   * appends them after its own flags so user flags can still override
+   * profile defaults but never the extension-owned --host/--port safety net.
+   */
+  setExtraArgs(extraArgs) {
+    if (extraArgs === undefined || extraArgs === null) {
+      this._extraArgs = [];
+      return [];
+    }
+    if (!Array.isArray(extraArgs) || extraArgs.some((value) => typeof value !== 'string' || value.includes('\0'))) {
+      throw new TypeError('extraArgs must be an array of strings');
+    }
+    this._extraArgs = [...extraArgs];
+    return [...this._extraArgs];
   }
 
   /** Merge environment values used by future owned DSH spawns. */
@@ -456,6 +488,7 @@ class ServerManager {
       const result = await this.probeWithRetry(host, port);
       if (result && result.reachable && result.isDsh) {
         this._emit('reusing', 'Found a running DSH instance at http://{host}:{port}, reusing', { host, port });
+        this._startHealthWatch(host, port);
         return this._reuseHandle(host, port);
       }
     } catch {
@@ -799,15 +832,24 @@ class ServerManager {
   /** Pure launch-spec assembly for the configured managed runtime and optional patch overlay. */
   _buildLaunchSpec(host, port, usePatch = true) {
     const patchPath = usePatch ? this._effectivePatchPath() : null;
-    return buildManagedLaunchSpec(
+    // --no-open is passed only while not suppressed (spawn self-heal) and
+    // while the resolved runtime's version is known-new enough (or unknown,
+    // in which case the self-heal below covers a wrong optimistic guess).
+    const noOpen = !this._noOpenSuppressed
+      && supportsNoOpenFlag(this.resolvedRuntime && this.resolvedRuntime.dshVersion);
+    const spec = buildManagedLaunchSpec(
       this.resolvedRuntime,
       host,
       port,
       process.platform,
-      patchPath === null || patchPath === undefined
-        ? {}
-        : { patchPath }
+      {
+        ...(patchPath === null || patchPath === undefined ? {} : { patchPath }),
+        noOpen,
+      }
     );
+    const extra = Array.isArray(this._extraArgs) ? this._extraArgs : [];
+    if (extra.length === 0) return spec;
+    return Object.freeze({ ...spec, args: Object.freeze([...spec.args, ...extra]) });
   }
 
   /**
@@ -818,13 +860,68 @@ class ServerManager {
    */
   async _spawnAndWait(host, port, cwd, registryFile, generation = this._cancelGeneration) {
     this._throwIfCancelled(generation);
-    // D1 -patch self-heal: when the first spawn exits early while a --patch
-    // overlay was in effect, retry exactly once with the patch removed. A
-    // successful retry continues transparently and is recorded for Diagnose;
-    // a second early exit reports the original SPAWN_EXITED_EARLY error.
-    const hadPatch = this._effectivePatchPath() != null;
     try {
-      return await this._spawnAttempt(host, port, cwd, registryFile, generation, true);
+      return await this._spawnWithPatchSelfHeal(host, port, cwd, registryFile, generation, true);
+    } catch (err) {
+      // --no-open self-heal: a runtime older than 0.1.0-rc.7 rejects the
+      // flag through Commander's "unknown option" error and exits before
+      // the health probe can pass. When the per-spawn log proves exactly
+      // that rejection, retry once with the flag removed; the suppression
+      // sticks for the session so later restarts skip the broken flag.
+      if (!(err && err.code === 'SPAWN_EXITED_EARLY')) throw err;
+      if (!this._lastSpawnPassedNoOpen()) throw err;
+      if (!isNoOpenStderr(this._readLastSpawnLogTail())) throw err;
+      this._noOpenSuppressed = true;
+      try {
+        const server = await this._spawnWithPatchSelfHeal(host, port, cwd, registryFile, generation, true);
+        this._selfHealCount += 1;
+        this._emit('selfheal', 'DSH runtime rejected --no-open (older than 0.1.0-rc.7); retried without the flag');
+        return server;
+      } catch (err2) {
+        // No second retry: the original SPAWN_EXITED_EARLY code stands.
+        throw err2;
+      }
+    }
+  }
+
+  /** True when the most recent spawn actually passed --no-open. */
+  _lastSpawnPassedNoOpen() {
+    return Array.isArray(this._lastSpawnArgs) && this._lastSpawnArgs.includes('--no-open');
+  }
+
+  /** Tail (last 8 KiB) of the most recent per-spawn log, or '' when absent. */
+  _readLastSpawnLogTail(maxBytes = 8192) {
+    const logPath = this._lastSpawnLogPath;
+    if (typeof logPath !== 'string' || logPath.length === 0) return '';
+    try {
+      const stat = fs.statSync(logPath);
+      const start = Math.max(0, stat.size - maxBytes);
+      const fd = fs.openSync(logPath, 'r');
+      try {
+        const buffer = Buffer.alloc(stat.size - start);
+        fs.readSync(fd, buffer, 0, buffer.length, start);
+        return buffer.toString('utf8');
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch {
+      return '';
+    }
+  }
+
+  /** Session flag: the current runtime rejected --no-open once already. */
+  noOpenSuppressed() {
+    return Boolean(this._noOpenSuppressed);
+  }
+
+  // D1 -patch self-heal: when the first spawn exits early while a --patch
+  // overlay was in effect, retry exactly once with the patch removed. A
+  // successful retry continues transparently and is recorded for Diagnose;
+  // a second early exit reports the original SPAWN_EXITED_EARLY error.
+  async _spawnWithPatchSelfHeal(host, port, cwd, registryFile, generation, usePatch) {
+    const hadPatch = usePatch && this._effectivePatchPath() != null;
+    try {
+      return await this._spawnAttempt(host, port, cwd, registryFile, generation, usePatch);
     } catch (err) {
       if (!(hadPatch && err && err.code === 'SPAWN_EXITED_EARLY')) throw err;
       try {
@@ -845,6 +942,7 @@ class ServerManager {
       throw new ServerError('Managed DSH runtime is unavailable; install or verify it before auto-start');
     }
     const launch = this._buildLaunchSpec(host, port, usePatch);
+    this._lastSpawnArgs = launch.args;
     const spawnCwd = this._resolveSpawnCwd(cwd);
     // Capture stdout/stderr into a per-spawn log next to the instance registry
     // (truncated on every spawn), so an unexpected exit leaves something to
@@ -861,6 +959,7 @@ class ServerManager {
         logFd = null;
       }
     }
+    this._lastSpawnLogPath = logPath;
     // Include the cwd option ONLY when explicitly requested; otherwise omit it
     // entirely so the child inherits the parent process's current directory
     // (no fallback to the user home directory).
@@ -997,6 +1096,7 @@ class ServerManager {
     const server = { url: `http://${host}:${port}`, host, port, pid, owned: true };
     this._ownedServer = server;
     this._emit('ready', 'DSH web ready: http://{host}:{port} (pid={pid})', { host, port, pid }, server);
+    this._startHealthWatch(host, port);
     return server;
   }
 
@@ -1017,6 +1117,43 @@ class ServerManager {
    * instance's entry from the registry (other windows' entries stay) and
    * clear internal records. Safe to call when nothing was spawned.
    */
+  /**
+   * Post-ready health watchdog (credited to the MIT-licensed
+   * Fengze233/dsh-vscode ServiceManager.startHealthWatch): poll the ready
+   * endpoint every 30s; when it stops answering as DSH — the child was
+   * killed from outside, the machine resumed from sleep, a port hijack —
+   * emit a 'lost' status so the sidebar can surface the disconnect instead
+   * of silently showing a dead iframe. The timer self-clears on loss; stop()
+   * and a fresh ensureServer cycle clear it as well.
+   */
+  _startHealthWatch(host, port, intervalMs = 30000) {
+    this._clearHealthWatch();
+    // Instance-level override (mainly a test seam) beats the default cadence.
+    const cadence = Number.isInteger(this._healthIntervalMs) && this._healthIntervalMs > 0
+      ? this._healthIntervalMs
+      : intervalMs;
+    this._healthPort = port;
+    this._healthTimer = setInterval(() => {
+      Promise.resolve(this.probe(host, port))
+        .then((result) => {
+          if (this._healthTimer === null) return;
+          if (result && result.reachable && result.isDsh) return;
+          this._clearHealthWatch();
+          this._emit('lost', 'DSH service stopped answering at http://{host}:{port}', { host, port });
+        })
+        .catch(() => { /* probe errors are treated as silent */ });
+    }, cadence);
+    if (typeof this._healthTimer.unref === 'function') this._healthTimer.unref();
+  }
+
+  _clearHealthWatch() {
+    if (this._healthTimer !== null) {
+      clearInterval(this._healthTimer);
+      this._healthTimer = null;
+    }
+    this._healthPort = null;
+  }
+
   async stop() {
     this._emit('stopping', 'Stopping DSH process…');
     this._stopping = true;
@@ -1041,6 +1178,7 @@ class ServerManager {
     this._ownedServer = null;
     this._registryFile = null;
     this._stopping = false;
+    this._clearHealthWatch();
 
     this._emit('stopped', child ? 'DSH process stopped' : 'No process was started by this instance');
   }

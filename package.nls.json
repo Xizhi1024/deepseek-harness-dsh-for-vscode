@@ -11,6 +11,10 @@
   "dsh.cfg.closePolicy": "When to stop the extension-owned DSH server. onVscodeExit (default): stop only when VS Code exits. onViewClose: also stop when the sidebar view is closed. never: never stop automatically — use the Stop DSH Server command. A reused (non-owned) instance is never stopped.",
   "dsh.cfg.local.packageRoot": "Optional absolute path to the official @deepseek-ai/dsh package root. Empty = detect the global npm installation automatically.",
   "dsh.cfg.local.nodePath": "Optional absolute path to the Node.js executable used to launch the official DSH package. Empty = detect Node.js automatically.",
+  "dsh.cfg.executablePath": "Optional absolute path to the dsh executable: the package directory, its lib/bin.js entrypoint, or a Windows shim (dsh.cmd / dsh.ps1). Empty = detect automatically. Takes precedence over automatic discovery.",
+  "dsh.cfg.launch.method": "How DSH is launched. auto (default): resolve the installed official package, then fall back to the dsh command from PATH. managed: only the installed package. command: only the dsh command from PATH (see dsh.launch.command).",
+  "dsh.cfg.launch.command": "The dsh command used when dsh.launch.method is command (or the auto fallback). A name resolved from PATH, default dsh.",
+  "dsh.cfg.extraArgs": "Extra CLI arguments appended to every extension-owned dsh web launch (e.g. [\"--patch\", \"C:\\overlay.yml\"]). The extension-owned --host/--port/--profile flags always come first.",
   "dsh.cfg.runtime.manifestUrl": "Optional HTTPS runtime release manifest (schemaVersion 1, artifacts with embedded manifests). Empty = use the locally installed official npm DSH; non-empty = opt into verified managed-runtime provisioning.",
   "dsh.cfg.runtime.version": "Optional managed-runtime version pin; used only when dsh.runtime.manifestUrl is configured.",
   "dsh.cfg.features.clipboard-bridge": "Embedded copy/paste bridge between the DSH iframe and the VS Code clipboard.",
@@ -61,7 +65,7 @@
   "dsh.lm.vendor": "DSH",
   "dsh.participant.name": "DSH",
   "dsh.participant.description": "Ask the local DeepSeek Harness (DSH) from the VS Code chat view. Off by default; enable with dsh.features.chat-participant.",
-  "dsh.cfg.features.changes-review": "Review workspace edits proposed by DSH: approval prompts, the dsh.changes tree view, and the vscode/changes/push bridge handler. Off by default.",
+  "dsh.cfg.features.changes-review": "Review workspace edits proposed by DSH: approval prompts, the dsh.changes tree view, and the vscode/changes/push bridge handler. On by default (recommended); every edit still needs explicit approval.",
   "dsh.cfg.features.ctrl-k": "Enable the Edit with DSH (Ctrl+K) command that sends the active selection and an instruction to the DSH conversation. Off by default; no keybinding is contributed.",
   "dsh.cfg.features.ctrl-i": "Enable the Edit with DSH Files (Ctrl+I) command that lets you pick 1-8 workspace files and sends them as a multi-file context block to the DSH conversation. Off by default; no keybinding is contributed.",
   "dsh.cfg.features.lm-route": "Expose DSH models to the VS Code language-model chat picker (vendor dsh). Off by default.",
@@ -69,7 +73,8 @@
   "dsh.cfg.features.mcp-consume": "Let DSH consume VS Code MCP servers through the bridge (vscode/mcp/listServers|listTools|callTool). Off by default.",
   "dsh.cfg.features.call-export": "Let DSH call exported methods of installed VS Code extensions through the bridge (vscode/extensions/callExport). Off by default; activation and invocation share this consent gate.",
   "dsh.cfg.features.exports": "Enable the programmatic exports API returned by the extension activate() face (ask/listSessions/addContext). Off by default; calls throw DSH_EXPORT_DISABLED until enabled.",
-  "dsh.cfg.features.chat-participant": "Enable the @dsh chat participant in the VS Code chat view. Off by default; the participant consumes DSH sessions only and never uses the vscode.lm/Copilot quota.",
+  "dsh.cfg.features.chat-participant": "Enable the @dsh chat participant in the VS Code chat view. On by default (recommended); the participant consumes DSH sessions only and never uses the vscode.lm/Copilot quota.",
   "dsh.cfg.features.tab-completion": "Enable the DSH FIM tab-completion provider for file documents. Off by default; POC-quality feature.",
-  "dsh.cfg.fim.model": "DSH-side FIM model name used for tab completion. The upstream API key and base URL are configured in the DSH-side vscode-fim plugin, never here."
+  "dsh.cfg.fim.baseUrl": "Upstream FIM endpoint (full URL of an OpenAI-compatible completions API, e.g. https://api.deepseek.com/beta/completions). Set together with the DSH FIM API Key; changes take effect after restarting the DSH server.",
+"dsh.cfg.fim.model": "DSH-side FIM model name used for tab completion. The upstream API key and base URL are configured in the DSH-side vscode-fim plugin, never here."
 }

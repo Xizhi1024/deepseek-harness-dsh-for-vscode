@@ -6,6 +6,12 @@ const path = require('node:path');
 const { ServerError, ServerManager } = require('./serverManager');
 const { MANAGED_PROFILE } = require('./managedRuntimeLaunch');
 const { STARTUP_ERRORS } = require('./startupErrors');
+const {
+  executableSettingPackageRoots,
+  shimDiscoveredPackageRoots,
+  windowsPathPackageCandidates,
+  windowsGlobalLayoutCandidates,
+} = require('./shimResolver');
 
 function unique(values, platform) {
   const seen = new Set();
@@ -33,6 +39,27 @@ function packageCandidates(env, platform) {
   }
   if (platform === 'win32' && env.APPDATA) {
     candidates.push(path.join(env.APPDATA, 'npm', 'node_modules', '@deepseek-ai', 'dsh'));
+  }
+  if (platform === 'win32') {
+    // The npm prefix may be ANY directory on PATH (custom prefixes, pnpm's
+    // %LOCALAPPDATA%\pnpm, scoop shims, portable layouts): the shim sits
+    // directly in the prefix while node_modules sits inside it (or inside
+    // the parent for <prefix>/bin layouts). This mirrors the POSIX PATH
+    // scan below and fixes GUI-launched VS Code missing shell-only setups.
+    candidates.push(...windowsPathPackageCandidates(env));
+    candidates.push(...windowsGlobalLayoutCandidates(env).sync);
+    // Volta keeps one directory per installed package version under
+    // tools/image/packages/<scope>/<name>/<version>; enumerate them so any
+    // installed dsh image is reachable without executing volta itself.
+    for (const root of windowsGlobalLayoutCandidates(env).voltaRoots) {
+      try {
+        for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+          if (entry.isDirectory()) candidates.push(path.join(root, entry.name));
+        }
+      } catch {
+        // Volta not installed or no dsh package image — skip silently.
+      }
+    }
   }
   if (platform !== 'win32') {
     candidates.push(
@@ -224,6 +251,7 @@ async function resolveLocalDshRuntime({
   dshHome,
   packageRoot = '',
   nodePath = '',
+  executablePath = '',
   platform = process.platform,
   env = process.env,
 } = {}) {
@@ -242,6 +270,12 @@ async function resolveLocalDshRuntime({
     error.params = { path: nodePath };
     throw error;
   }
+  if (executablePath && !isConfiguredPathAbsolute(executablePath, platform)) {
+    const error = new Error('dsh.executablePath must be absolute (Windows drive-letter path on win32)');
+    error.code = 'CONFIG_EXECUTABLE_PATH_INVALID';
+    error.params = { path: executablePath };
+    throw error;
+  }
 
   // The selected DSH home is independent from the npm installation. Create it
   // even when DSH itself is still missing so shared/isolated selection is
@@ -249,7 +283,30 @@ async function resolveLocalDshRuntime({
   const resolvedHome = path.resolve(dshHome);
   await fs.promises.mkdir(resolvedHome, { recursive: true });
 
-  const roots = packageRoot ? [packageRoot] : packageCandidates(env, platform);
+  // Explicit user input wins: dsh.local.packageRoot and dsh.executablePath
+  // (package dir, lib/bin.js, or a Windows shim file) are honored first and
+  // exclusively. Without explicit input, Windows additionally probes the
+  // authoritative shim-discovery layer (PATH dsh.cmd parsing) before the
+  // static layout guesses so pnpm/yarn/custom-prefix installs resolve.
+  const explicitRoots = [];
+  if (packageRoot) explicitRoots.push(packageRoot);
+  if (executablePath) {
+    const normalized = await executableSettingPackageRoots(executablePath, { platform });
+    if (normalized.error) {
+      throw new ServerError(
+        `The configured dsh.executablePath could not be interpreted (${normalized.error}): ${executablePath}`,
+        { path: executablePath },
+        'CONFIG_EXECUTABLE_PATH_INVALID'
+      );
+    }
+    explicitRoots.push(...normalized.packageRoots);
+  }
+  const shimRoots = explicitRoots.length === 0 && platform === 'win32'
+    ? await shimDiscoveredPackageRoots(env)
+    : [];
+  const roots = explicitRoots.length > 0
+    ? explicitRoots
+    : [...shimRoots, ...packageCandidates(env, platform)];
   let resolvedPackageRoot = null;
   let packageJson = null;
   for (const candidate of roots) {
@@ -269,6 +326,13 @@ async function resolveLocalDshRuntime({
         'CONFIG_PACKAGE_ROOT_INVALID'
       );
     }
+    if (executablePath) {
+      throw new ServerError(
+        `The configured dsh.executablePath does not resolve to the official @deepseek-ai/dsh package: ${executablePath}`,
+        { path: executablePath },
+        'CONFIG_EXECUTABLE_PATH_INVALID'
+      );
+    }
     throw new ServerError(
       STARTUP_ERRORS.RUNTIME_NOT_INSTALLED.template,
       {},
@@ -286,7 +350,7 @@ async function resolveLocalDshRuntime({
   // its own `bin/` (nvm/fnm/asdf/n/Homebrew layouts). Prefer that pairing over
   // a PATH scan so a GUI-launched VS Code without the shell PATH still finds Node.
   const nodeExecutable = platform === 'win32' ? 'node.exe' : 'node';
-  const executablePath = await firstRegularFile(
+  const resolvedNodeExecutable = await firstRegularFile(
     nodePath
       ? [nodePath]
       : [
@@ -295,7 +359,7 @@ async function resolveLocalDshRuntime({
         ],
     'Node.js executable'
   );
-  if (!executablePath) {
+  if (!resolvedNodeExecutable) {
     if (nodePath) {
       throw new ServerError(
         `The configured dsh.local.nodePath is not a usable Node.js executable: ${nodePath}`,
@@ -311,7 +375,7 @@ async function resolveLocalDshRuntime({
   }
 
   return Object.freeze({
-    executablePath,
+    executablePath: resolvedNodeExecutable,
     entrypointArgs: Object.freeze([entrypoint]),
     dshHome: resolvedHome,
     profileHome: path.join(resolvedHome, 'profiles', MANAGED_PROFILE),

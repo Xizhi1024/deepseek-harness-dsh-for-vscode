@@ -203,7 +203,7 @@ function waitFor(predicate, timeoutMs = 2000) {
 }
 
 test('activation registers the public host surface through injected dependencies', async () => {
-  const fake = createFakeVscode();
+  const fake = createFakeVscode({ 'features.changes-review': false, 'features.chat-participant': false });
   const context = {
     globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-${process.pid}`) },
     subscriptions: [],
@@ -288,8 +288,9 @@ test('activation registers the public host surface through injected dependencies
   assert.strictEqual(typeof versionedBridgeOptions.handlers['vscode/extensions/getProviderStates'], 'function');
   assert.strictEqual(typeof versionedBridgeOptions.handlers['vscode/extensions/openDetails'], 'function');
   // Cumulative merge resolution: theme-follow listener + dsh.restartClean (B)
-  // + dsh.addFolderToThread registration (C3) + DSH OutputChannel (C1) each add one.
-  assert.strictEqual(context.subscriptions.length, 26);
+  // + dsh.addFolderToThread registration (C3) + DSH OutputChannel (C1) each add one,
+  // + the L0 fallback dsh.changes tree provider (0.9.4 view-data guard).
+  assert.strictEqual(context.subscriptions.length, 27);
   assert.strictEqual(ensureRuntimeCalls, 0, 'autoStart=false must not resolve the managed runtime');
 
   // Windows drive paths are not absolute on POSIX; build platform-neutral
@@ -886,6 +887,7 @@ test('autoStart fails closed without spawning when runtime resolution fails', as
       ensureRuntimeCalls += 1;
       throw new Error('runtime verification failed');
     },
+    async discoverDshWebPorts() { return []; }, // no real process scan in tests
   });
 
   await waitFor(() => ensureRuntimeCalls === 1);
@@ -1537,7 +1539,7 @@ function managerStubWithSpawnEnv(spawnEnvCalls) {
 }
 
 test('chat-participant L2 feature registers the @dsh chat participant only when enabled', async () => {
-  const off = createFakeVscode();
+  const off = createFakeVscode({ 'features.chat-participant': false });
   const offContext = {
     globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-chat-participant-off-${process.pid}`) },
     subscriptions: [],
@@ -1675,7 +1677,7 @@ test('tab-completion L2 feature registers the file-scheme provider and clears th
 });
 
 test('chat-participant and tab-completion each add exactly one command when enabled', async () => {
-  const off = createFakeVscode();
+  const off = createFakeVscode({ 'features.chat-participant': false, 'features.tab-completion': false });
   const offContext = {
     globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-asm2-commands-off-${process.pid}`) },
     subscriptions: [],

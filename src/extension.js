@@ -30,6 +30,8 @@ const {
 } = require("./serverManager");
 const { ensureManagedRuntime } = require("./runtimeProvisioner");
 const { resolveLocalDshRuntime } = require("./localRuntimeResolver");
+const { normalizeLaunchMethod, resolveCommandRuntime } = require("./launchMethodResolver");
+const { discoverDshWebPorts: defaultDiscoverDshWebPorts } = require("./processDiscovery");
 const { STARTUP_ERRORS, isRetryableStartupError, renderStartupError } = require("./startupErrors");
 const { deriveVscodeCapabilities } = require("./vscodeCapabilities");
 const { deriveFeatureFlags } = require("./dshCompat");
@@ -133,6 +135,7 @@ let runtimeStorageRoot = null; // managed runtime storage under VS Code global s
 let activeDshHome = null; // effective shared/isolated DSH user-data home
 let activeDshHomeInfo = null; // effective mode/path/source for diagnostics
 let ensureRuntime = null; // resolves/verifies (and optionally provisions) the managed runtime
+let discoverRunningDshWebPorts = null; // process-scan fallback for silent ports (injectable)
 let ensureWorkspaceSessionFn = null; // retained injection seam; defaults to workspaceBinding.resolve
 let workspaceBinding = null; // SM-2 workspace registry binding (created in activate)
 let runtimeAbort = new AbortController(); // cancels in-flight runtime provisioning on deactivate
@@ -718,6 +721,14 @@ async function connectNow(context) {
 
     const cfg = hostContext.config();
     prepareDshHome(cfg, context);
+    if (typeof manager.setExtraArgs === 'function') {
+      try {
+        manager.setExtraArgs(cfg.extraArgs);
+      } catch (argsError) {
+        appendDiagnostic(`[config] invalid dsh.extraArgs ignored: ${argsError.message}`);
+        manager.setExtraArgs([]);
+      }
+    }
     const cwd = hostContext.workspaceCwd();
     setStatusBar("$(radio-tower) " + loc("DSH: connecting…"));
     render(statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail: "", lang: vscode.env.language }));
@@ -735,23 +746,81 @@ async function connectNow(context) {
         detail: loc("Resolving official DSH runtime…"),
         lang: vscode.env.language,
       }));
+      // dsh.launch.method selects how DSH is launched: 'managed' resolves the
+      // installed official package (default), 'command' runs the dsh CLI from
+      // PATH via dsh.launch.command, and 'auto' tries managed first and falls
+      // back to command mode when no local package can be resolved. The
+      // fallback keeps GUI-launched VS Code working on exotic Windows setups
+      // (pnpm/yarn/scoop/custom npm prefixes) where static layout probing may
+      // still miss the install.
+      const launchMethod = normalizeLaunchMethod(cfg.launchMethod);
+      const hasExplicitRuntimeConfig = Boolean(cfg.localPackageRoot || cfg.localNodePath || cfg.executablePath);
       let resolvedRuntime;
       try {
-        resolvedRuntime = await ensureRuntime({
-          storageRoot: runtimeStorageRoot,
-          platform: process.platform,
-          arch: process.arch,
-          manifestUrl: cfg.runtimeManifestUrl,
-          version: cfg.runtimeVersion,
-          dshHome: activeDshHome,
-          packageRoot: cfg.localPackageRoot,
-          nodePath: cfg.localNodePath,
-          signal: runtimeAbort.signal,
-        });
+        if (launchMethod === 'command') {
+          resolvedRuntime = await resolveCommandRuntime({
+            command: cfg.launchCommand,
+            dshHome: activeDshHome,
+            profileName: cfg.profile,
+          });
+          if (!resolvedRuntime) {
+            const error = new Error(`dsh.launch.method is "command" but "${cfg.launchCommand}" was not found on PATH`);
+            error.code = 'RUNTIME_NOT_INSTALLED';
+            throw error;
+          }
+        } else {
+          try {
+            resolvedRuntime = await ensureRuntime({
+              storageRoot: runtimeStorageRoot,
+              platform: process.platform,
+              arch: process.arch,
+              manifestUrl: cfg.runtimeManifestUrl,
+              version: cfg.runtimeVersion,
+              dshHome: activeDshHome,
+              packageRoot: cfg.localPackageRoot,
+              nodePath: cfg.localNodePath,
+              executablePath: cfg.executablePath,
+              signal: runtimeAbort.signal,
+            });
+          } catch (managedError) {
+            const fallbackEligible = launchMethod === 'auto'
+              && !hasExplicitRuntimeConfig
+              && managedError
+              && (managedError.code === 'RUNTIME_NOT_INSTALLED' || managedError.code === 'RUNTIME_NODE_MISSING');
+            if (!fallbackEligible) throw managedError;
+            resolvedRuntime = await resolveCommandRuntime({
+              command: cfg.launchCommand,
+              dshHome: activeDshHome,
+              profileName: cfg.profile,
+            });
+            if (!resolvedRuntime) throw managedError;
+            console.warn(
+              'dsh-vs-sidebar: managed runtime not found; falling back to the dsh command from PATH:',
+              managedError && managedError.message ? managedError.message : managedError
+            );
+          }
+        }
       } catch (runtimeError) {
-        const adopted = typeof manager.adoptRunningDsh === 'function'
+        let adopted = typeof manager.adoptRunningDsh === 'function'
           ? await manager.adoptRunningDsh(cfg.host, cfg.port).catch(() => null)
           : null;
+        if (!adopted) {
+          // Process-discovery fallback (credited to DM010727/dsh-cline): the
+          // configured port is silent but a `dsh web` may be running on a
+          // different port of this machine (leftover instance, a port override
+          // in another window, a manual terminal session). Scan process
+          // command lines, then probe each discovered port before giving up.
+          try {
+            const ports = await discoverRunningDshWebPorts({ platform: process.platform });
+            for (const port of ports) {
+              if (port === cfg.port) continue;
+              adopted = await manager.adoptRunningDsh(cfg.host, port);
+              if (adopted) break;
+            }
+          } catch {
+            // best-effort only: the original runtime error still stands
+          }
+        }
         if (!adopted) throw runtimeError;
         manager.setResolvedRuntime(null);
         console.warn(
@@ -981,6 +1050,10 @@ function scheduleConfigReconcile(context) {
       || String(prev.runtimeVersion || '') !== String(next.runtimeVersion || '')
       || String(prev.localPackageRoot || '') !== String(next.localPackageRoot || '')
       || String(prev.localNodePath || '') !== String(next.localNodePath || '')
+      || String(prev.executablePath || '') !== String(next.executablePath || '')
+      || String(prev.launchMethod || '') !== String(next.launchMethod || '')
+      || String(prev.launchCommand || '') !== String(next.launchCommand || '')
+      || JSON.stringify(prev.extraArgs || []) !== JSON.stringify(next.extraArgs || [])
       || String(prev.homeMode || '') !== String(next.homeMode || '')
       || String(prev.homePath || '') !== String(next.homePath || '')
       || String(prev.profile || '') !== String(next.profile || '')
@@ -1023,26 +1096,26 @@ const FEATURE_CATALOG = [
   { id: 'editor-links', label: 'Editor links (Read…)', layer: 'L1', defaultEnabled: true, core: false, setup: setupEditorLinks },
   { id: 'statusbar-basic', label: 'Status bar indicator', layer: 'L1', defaultEnabled: true, core: false, setup: setupStatusbarBasic },
   { id: 'theme-follow', label: 'Theme follow (dark/light)', layer: 'L1', defaultEnabled: true, core: false, setup: setupThemeFollow },
-  { id: 'changes-review', label: 'Changes review (DSH workspace edits)', layer: 'L2', defaultEnabled: false, core: false, setup: setupChangesReview },
+  { id: 'changes-review', label: 'Changes review (DSH workspace edits)', layer: 'L2', defaultEnabled: true, core: false, setup: setupChangesReview },
   { id: 'ctrl-k', label: 'Edit with DSH (Ctrl+K)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCtrlK },
   { id: 'lm-route', label: 'DSH model routing', layer: 'L2', defaultEnabled: false, core: false, setup: setupLmRoute },
   { id: 'mcp-consume', label: 'MCP servers', layer: 'L2', defaultEnabled: false, core: false, setup: setupMcpConsume },
   { id: 'call-export', label: 'Call extension exports (vscode/extensions/callExport)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCallExport },
   { id: 'ctrl-i', label: 'Edit with DSH files (Ctrl+I, keybinding not bound)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCtrlI },
   { id: 'exports', label: 'Programmatic exports API (activate() return face)', layer: 'L2', defaultEnabled: false, core: false, setup: setupExports },
-  { id: 'chat-participant', label: 'Chat participant @dsh', layer: 'L2', defaultEnabled: false, core: false, setup: setupChatParticipant },
+  { id: 'chat-participant', label: 'Chat participant @dsh', layer: 'L2', defaultEnabled: true, core: false, setup: setupChatParticipant },
   { id: 'tab-completion', label: 'Tab completion (FIM POC)', layer: 'L2', defaultEnabled: false, core: false, setup: setupTabCompletion },
 ];
 
 /**
  * C2 onboarding: the implemented feature switches the wizard can toggle.
- * L0 features are never configurable and L2 features do not exist yet, so
- * only the L1 `dsh.features.*` switches are offered (the plan's full list is
- * covered by a roadmap placeholder step — declared deviation).
+ * L0 features are never configurable; every L1/L2 `dsh.features.*` switch is
+ * offered, pre-picked from the catalog's defaultEnabled (the recommended
+ * preset: changes-review and chat-participant default to on).
  */
 const ONBOARDING_FEATURE_SWITCHES = FEATURE_CATALOG
   .filter((feature) => feature.layer !== 'L0')
-  .map((feature) => ({ id: feature.id, label: feature.label }));
+  .map((feature) => ({ id: feature.id, label: feature.label, defaultEnabled: feature.defaultEnabled }));
 
 /**
  * C2 onboarding: the workspace adapter passed to runOnboardingWizard. It
@@ -1165,6 +1238,10 @@ async function setupCoreServer({ context, services }) {
     || ((options) => options.manifestUrl
       ? ensureManagedRuntime(options)
       : resolveLocalDshRuntime(options));
+  // Process-discovery seam: tests inject a no-op so the fail-closed contract
+  // is asserted without racing a real `ps`/`powershell` scan of this machine.
+  discoverRunningDshWebPorts = injectedDependencies.discoverDshWebPorts
+    || ((options) => defaultDiscoverDshWebPorts(options));
   ensureWorkspaceSessionFn = injectedDependencies.ensureWorkspaceSession || ((baseUrl, cwd, options) => {
     const server = currentServer || { url: baseUrl, owned: true };
     return workspaceBinding.resolve(server, cwd);
@@ -1182,6 +1259,21 @@ async function setupCoreServer({ context, services }) {
     spawnEnv: services.bridgeEnv, // live shared bag: L0 publishes it, L1/L2 bridge features merge into it
     embedPatchPath,
     onStatus: (s) => {
+      if (s.state === "lost") {
+        // Post-ready health watchdog detected the service stopped answering
+        // (killed from outside, sleep/resume, port hijack). Surface it so the
+        // sidebar does not silently show a dead iframe; the user can Retry.
+        setStatusBar("$(plug) " + loc("DSH: connection lost"));
+        appendDiagnostic(`[watchdog] ${s.message ? loc(s.message, s.params) : 'DSH service lost'}`);
+        render(statusPage({
+          title: loc("DeepSeek Harness connection lost"),
+          detail: loc("The DSH service stopped answering. Restart it with Retry."),
+          showRetry: true,
+          retryLabel: loc("Retry"),
+          lang: vscode.env.language,
+        }));
+        return;
+      }
       if (s.state === "selfheal") {
         // Successful patch-drop self-heal: transparent for the user, kept
         // for Diagnose and appended to the OutputChannel.
@@ -1277,7 +1369,11 @@ async function setupCoreServer({ context, services }) {
         e.affectsConfiguration("dsh.runtime.manifestUrl") ||
         e.affectsConfiguration("dsh.runtime.version") ||
         e.affectsConfiguration("dsh.local.packageRoot") ||
-        e.affectsConfiguration("dsh.local.nodePath")
+        e.affectsConfiguration("dsh.local.nodePath") ||
+        e.affectsConfiguration("dsh.executablePath") ||
+        e.affectsConfiguration("dsh.launch.method") ||
+        e.affectsConfiguration("dsh.launch.command") ||
+        e.affectsConfiguration("dsh.extraArgs")
         || e.affectsConfiguration("dsh.home.mode")
         || e.affectsConfiguration("dsh.home.path")
         || e.affectsConfiguration("dsh.profile")
@@ -1314,6 +1410,23 @@ async function setupCoreSidebar({ context, services }) {
     },
   });
   services.editorContext = editorContext;
+  // R14S1 guard: `dsh.changes` is declared unconditionally in package.json
+  // (gated by a `when` visibility clause), but the real provider is only
+  // mounted by the L2 changes-review feature. Always register an empty
+  // fallback provider at L0 so a partially failed activation — or a window
+  // where the when-clause lags behind the config — never renders VS Code's
+  // "no registered data provider" placeholder. When changes-review is on,
+  // createChangeTree re-registers the real provider for the same view id and
+  // this fallback is superseded (re-registration replaces).
+  try {
+    const fallbackChangesProvider = vscode.window.registerTreeDataProvider('dsh.changes', {
+      getChildren: () => [],
+      getTreeItem: () => null,
+    });
+    context.subscriptions.push(fallbackChangesProvider);
+  } catch {
+    // older facades without registerTreeDataProvider simply skip the guard
+  }
   const rawChangeTracker = injectedDependencies.changeTracker
     || createChangeTracker({ storageUri: context.globalStorageUri, vscode });
   // Wrap record so a later L2 change tree can reveal newly arrived entries
@@ -1761,7 +1874,19 @@ async function setupChatParticipant({ context, services }) {
  */
 async function setupTabCompletion({ context, services }) {
   const token = crypto.randomBytes(32).toString('hex');
-  services.manager?.setSpawnEnv?.({ DSH_FIM_BRIDGE_TOKEN: token });
+  const spawnEnv = { DSH_FIM_BRIDGE_TOKEN: token };
+  // Upstream FIM endpoint + key: baseUrl from settings (machine scope), key
+  // from VS Code secretStorage. The DSH-side /api/fim route needs both;
+  // missing values simply leave the route unconfigured (503 with guidance).
+  try {
+    const baseUrl = vscode.workspace.getConfiguration('dsh').get('fim.baseUrl', '');
+    if (typeof baseUrl === 'string' && baseUrl.length > 0) spawnEnv.DSH_FIM_BASE_URL = baseUrl;
+    const apiKey = await context.secrets.get('dsh.fim.apiKey');
+    if (typeof apiKey === 'string' && apiKey.length > 0) spawnEnv.DSH_FIM_API_KEY = apiKey;
+  } catch {
+    // secrets unavailable in stripped hosts: the route reports its own 503
+  }
+  services.manager?.setSpawnEnv?.(spawnEnv);
   const provider = createInlineCompletionProvider({
     getServerUrl: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
     tokenProvider: () => token,
@@ -1778,7 +1903,7 @@ async function setupTabCompletion({ context, services }) {
       /* registration disposal is best-effort */
     }
     provider.dispose();
-    services.manager?.setSpawnEnv?.({ DSH_FIM_BRIDGE_TOKEN: '' });
+    services.manager?.setSpawnEnv?.({ DSH_FIM_BRIDGE_TOKEN: '', DSH_FIM_BASE_URL: '', DSH_FIM_API_KEY: '' });
   };
 }
 
