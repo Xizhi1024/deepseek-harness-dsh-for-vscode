@@ -50,7 +50,9 @@ test('resolveCommandRuntime spawns the absolute executable directly on POSIX', a
   assert.strictEqual(runtime.executablePath, '/usr/local/bin/dsh');
   assert.deepStrictEqual([...runtime.entrypointArgs], []);
   assert.strictEqual(runtime.source, 'command-path');
-  assert.strictEqual(runtime.profileHome, path.join('/tmp/dsh-home', 'profiles', 'web'));
+  // resolve (not join): the resolver anchors POSIX-style roots to the current
+  // drive on win32 hosts, so mirror that with path.resolve for a host-neutral expectation
+  assert.strictEqual(runtime.profileHome, path.resolve('/tmp/dsh-home', 'profiles', 'web'));
 });
 
 test('resolveCommandRuntime parses a Windows shim into node + bin.js (never executes it)', async () => {
