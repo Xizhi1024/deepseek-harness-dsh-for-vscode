@@ -94,6 +94,8 @@ test('consent gate persists per-server approval in globalState and fail-closed o
   assert.strictEqual(gate.isConsented('s1'), true);
   assert.ok(asked[0].message.includes('s1'));
   assert.strictEqual(globalState._store.get('dsh.mcp.consentedServers').includes('s1'), true);
+  assert.deepStrictEqual(gate.list(), ['s1'], 'list() exposes the exact stored names for the QuickPick');
   assert.strictEqual(gate.forget('s1'), true);
   assert.strictEqual(gate.isConsented('s1'), false);
+  assert.deepStrictEqual(gate.list(), []);
 });

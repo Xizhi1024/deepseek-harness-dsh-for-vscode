@@ -122,6 +122,32 @@ test('local resolver derives a package prefix from PATH and pairs its node binar
   assert.strictEqual(runtime.executablePath, fs.realpathSync(path.join(prefix, 'bin', 'node')));
 });
 
+test('A9: an unreadable candidate manifest is skipped in favor of the next candidate', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-corrupt-manifest-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const badPrefix = path.join(root, 'bad');
+  const goodPrefix = path.join(root, 'good');
+  writeOfficialPackage(path.join(badPrefix, 'lib', 'node_modules', '@deepseek-ai', 'dsh'));
+  fs.writeFileSync(
+    path.join(badPrefix, 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'package.json'),
+    '{ this is not json'
+  );
+  writeOfficialPackage(path.join(goodPrefix, 'lib', 'node_modules', '@deepseek-ai', 'dsh'));
+  fs.mkdirSync(path.join(goodPrefix, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(goodPrefix, 'bin', 'node'), 'node fixture');
+
+  const runtime = await resolveLocalDshRuntime({
+    dshHome: path.join(root, 'storage', '.dsh'),
+    env: {
+      HOME: path.join(root, 'no-managers-home'),
+      PATH: [path.join(badPrefix, 'bin'), path.join(goodPrefix, 'bin')].join(path.delimiter),
+    },
+    platform: 'darwin',
+  });
+
+  assert.strictEqual(runtime.dshVersion, '0.1.0-rc.6', 'the corrupt first candidate is skipped, not fatal');
+});
+
 test('local resolver names a dead configured nodePath', async (t) => {
   const value = fixture(t);
   const dshHome = path.join(value.root, '.dsh');

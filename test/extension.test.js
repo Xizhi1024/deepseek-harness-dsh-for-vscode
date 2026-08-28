@@ -2132,3 +2132,55 @@ test('readMcpSources includes the remoteValue layer between user and workspace',
   assert.ok(sources[1].servers.some((server) => server.name === 'beta'));
 });
 
+test('A3/U4: forget-consent picks the server from a QuickPick and the next tool call re-asks', async () => {
+  const fake = createFakeVscode({ 'features.mcp-consume': true });
+  const consentStore = ['markitdown', 'other'];
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-a3-forget-${process.pid}`) },
+    globalState: {
+      get(key) { return key === 'dsh.mcp.consentedServers' ? consentStore.slice() : undefined; },
+      update(key, value) { if (key === 'dsh.mcp.consentedServers') consentStore.splice(0, consentStore.length, ...value); },
+    },
+    subscriptions: [],
+  };
+  const quickPicks = [];
+  fake.api.window.showQuickPick = async (items) => {
+    quickPicks.push(items.map((item) => item.label));
+    return items.find((item) => item.label === 'markitdown');
+  };
+
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() { return { env: {}, async close() {} }; },
+    async startVersionedBridge() { return { env: {}, async close() {} }; },
+    createServerManager() {
+      return {
+        setSpawnEnv() {},
+        setOwnerIdentity() {},
+        cancelPending() {},
+        currentChildPid() { return null; },
+        hasOwnedChild() { return false; },
+        async stop() {},
+      };
+    },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  await fake.commands.get('dsh.mcp.forgetConsent')();
+  assert.deepStrictEqual(quickPicks, [['markitdown', 'other']], 'the remembered consents are offered as a pick list');
+  assert.deepStrictEqual(consentStore, ['other'], 'the exact picked name is removed');
+  assert.ok(fake.informationMessages.some((m) => String(m).includes('markitdown')), 'the forget result is surfaced');
+
+  // Forgetting the last consent and running again reaches the empty state.
+  fake.api.window.showQuickPick = async (items) => items[0];
+  await fake.commands.get('dsh.mcp.forgetConsent')();
+  assert.deepStrictEqual(consentStore, []);
+  await fake.commands.get('dsh.mcp.forgetConsent')();
+  assert.ok(fake.informationMessages.some((m) => String(m).includes('consent')), 'the empty state explains itself');
+
+  await deactivate();
+});
+

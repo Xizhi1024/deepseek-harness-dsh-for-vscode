@@ -154,6 +154,19 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
       if (!entry) throw v3Error('VSCODE_TERMINAL_NOT_FOUND', 'Unknown terminalId: ' + terminalId);
       return entry;
     };
+    // A8 (issue #7): mirror real terminal output into the ring through
+    // window.onDidWriteTerminalData when the host exposes it, so
+    // terminal/read sees process output (echo, command results) and not
+    // only the text this bridge itself sent. The event is terminal-scoped;
+    // only entries whose Terminal instance matches are captured.
+    if (typeof vscode.window.onDidWriteTerminalData === 'function') {
+      vscode.window.onDidWriteTerminalData((event) => {
+        if (!event || typeof event.data !== 'string') return;
+        for (const entry of terminals.values()) {
+          if (event.terminal === entry.terminal) capture(entry, event.data);
+        }
+      });
+    }
     handlers['vscode/terminal/create'] = async (params) => {
       if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'terminal/create params must be an object');
       if (terminals.size >= MAX_TERMINALS) {

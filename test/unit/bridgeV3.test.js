@@ -157,6 +157,38 @@ test('terminal bridge caps terminals and trims the ring buffer', async () => {
   await assert.rejects(handlers['vscode/terminal/read']({ terminalId: 'nope' }), /Unknown terminalId/);
 });
 
+test('A8: terminal/read mirrors real output captured through onDidWriteTerminalData', async () => {
+  let dataHandler = null;
+  const holder = { terminal: null };
+  const api = {
+    window: {
+      createTerminal(options) {
+        const terminal = {
+          name: typeof options === 'string' ? options : options.name,
+          sendText() {},
+        };
+        holder.terminal = terminal;
+        return terminal;
+      },
+      onDidWriteTerminalData(handler) {
+        dataHandler = handler;
+        return { dispose() {} };
+      },
+    },
+    workspace: {},
+  };
+  const handlers = createV3Handlers({ vscode: api, getFlag: flags({ 'bridge.terminal': true }) });
+  const created = await handlers['vscode/terminal/create']({ name: 'probe' });
+  await handlers['vscode/terminal/sendText']({ terminalId: created.terminalId, text: 'node -e "console.log(42)"' });
+  // The terminal process wrote its output; the bridge must capture it.
+  dataHandler({ terminal: holder.terminal, data: '42\r\n' });
+  // Output of OTHER terminals must not leak into this ring.
+  dataHandler({ terminal: { name: 'elsewhere' }, data: 'LEAK' });
+  const read = await handlers['vscode/terminal/read']({ terminalId: created.terminalId });
+  assert.ok(read.text.includes('42'), 'process output reaches terminal/read');
+  assert.ok(!read.text.includes('LEAK'), 'other terminals output stays out');
+});
+
 test('tasks list filters to workspace-declared tasks and run executes exactly those', async () => {
   const fake = fakeVscode();
   const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags() });

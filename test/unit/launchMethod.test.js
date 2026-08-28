@@ -81,6 +81,56 @@ test('resolveCommandRuntime parses a Windows shim into node + bin.js (never exec
   assert.deepStrictEqual([...runtime.entrypointArgs], [binJs]);
 });
 
+test('A9: command-path runtime recovers dshVersion from the npm layout around a POSIX hit', async () => {
+  const manifest = JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.7' });
+  const expected = path.resolve('/usr/local/node_modules/@deepseek-ai/dsh/package.json');
+  const runtime = await resolveCommandRuntime({
+    command: 'dsh',
+    dshHome: '/tmp/dsh-home',
+    platform: 'darwin',
+    env: {},
+    deps: {
+      execFn: async () => '/usr/local/bin/dsh',
+      stat: async (p) => (p === '/usr/local/bin/dsh' ? fileStat : Promise.reject(new Error('ENOENT'))),
+      readFile: async (p) => (p === expected ? manifest : Promise.reject(new Error('ENOENT'))),
+    },
+  });
+  assert.strictEqual(runtime.source, 'command-path');
+  assert.strictEqual(runtime.dshVersion, '0.2.7', 'the version near the hit feeds compat flags / Diagnose');
+});
+
+test('A9: a Windows .exe hit also recovers the package version', async () => {
+  const manifest = JSON.stringify({ name: '@deepseek-ai/dsh', version: '1.2.3' });
+  const expected = path.win32.resolve('C:\\tools\\node_modules\\@deepseek-ai\\dsh\\package.json');
+  const runtime = await resolveCommandRuntime({
+    command: 'dsh',
+    dshHome: 'C:\\dsh-home',
+    platform: 'win32',
+    env: {},
+    deps: {
+      execFn: async () => 'C:\\tools\\dsh.exe',
+      readFile: async (p) => (p === expected ? manifest : Promise.reject(new Error('ENOENT'))),
+    },
+  });
+  assert.strictEqual(runtime.source, 'command-path');
+  assert.strictEqual(runtime.dshVersion, '1.2.3');
+});
+
+test('A9: version detection stays null when no official package is nearby', async () => {
+  const runtime = await resolveCommandRuntime({
+    command: 'dsh',
+    dshHome: '/tmp/dsh-home',
+    platform: 'darwin',
+    env: {},
+    deps: {
+      execFn: async () => '/opt/bin/dsh',
+      stat: async (p) => (p === '/opt/bin/dsh' ? fileStat : Promise.reject(new Error('ENOENT'))),
+      readFile: async () => Promise.reject(new Error('ENOENT')),
+    },
+  });
+  assert.strictEqual(runtime.dshVersion, null);
+});
+
 test('resolveCommandRuntime returns null when nothing resolves', async () => {
   const none = await resolveCommandRuntime({
     command: 'dsh',

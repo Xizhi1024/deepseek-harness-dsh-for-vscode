@@ -166,5 +166,13 @@
   "Ctrl+K draft sent to the DSH conversation": "Ctrl+K 草稿已发送到 DSH 对话",
   "DSH wants to use the MCP server {server}. Allow it to list and call its tools?": "DSH 想使用 MCP 服务器 {server}。允许它列出并调用该服务器的工具吗？",
   "MCP servers refreshed": "MCP 服务器已刷新",
-  "MCP server name to forget": "要忘记授权的 MCP 服务器名称"
+  "MCP server name to forget": "要忘记授权的 MCP 服务器名称",
+  "No remembered MCP server consent": "没有已记住的 MCP 服务器授权",
+  "MCP server consent forgotten: {name}": "已忘记 MCP 服务器授权：{name}",
+  "Click to open the DSH sidebar": "点击打开 DSH 侧边栏",
+  "More: Restart / Stop / Diagnose DSH Server, New DSH Instance (Ctrl+Alt+N)": "更多：重启 / 停止 / 诊断 DSH 服务，新建 DSH 实例（Ctrl+Alt+N）",
+  "The changed DSH settings take effect after the DSH service restarts. Restart now?": "已更改的 DSH 设置需重启 DSH 服务后生效。现在重启吗？",
+  "Restart now": "立即重启",
+  "actual port {actual} (configured {configured})": "实际端口 {actual}（配置 {configured}）",
+  "DSH server ready": "DSH 服务已就绪"
 }

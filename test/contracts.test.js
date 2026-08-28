@@ -70,11 +70,32 @@ test('editor title exposes one persistent icon and DSH view title exposes only t
     key: 'ctrl+alt+b',
     when: '!terminalFocus'
   }, {
+    command: 'dsh.newInstance',
+    key: 'ctrl+alt+n',
+    mac: 'cmd+alt+n',
+    when: '!terminalFocus'
+  }, {
     command: 'dsh.addSelectionToThread',
     key: 'ctrl+l',
     mac: 'cmd+l',
     when: 'config.dsh.keybindings.ctrlL && editorTextFocus'
   }]);
+
+  // A5/U6: the changes tree has welcome content for its empty state.
+  const changesWelcome = (manifest.contributes.viewsWelcome || []).find(
+    (entry) => entry.view === 'dsh.changes'
+  );
+  assert.ok(changesWelcome, 'dsh.changes must contribute viewsWelcome content');
+  assert.strictEqual(typeof changesWelcome.contents, 'string');
+  assert.ok(changesWelcome.contents.startsWith('%') && changesWelcome.contents.endsWith('%'),
+    'viewsWelcome contents must go through the nls %key% mechanism');
+
+  // A7/U13: the new-instance entry is on by default.
+  assert.strictEqual(
+    manifest.contributes.configuration.properties['dsh.multiInstance.entry'].default,
+    true,
+    'dsh.multiInstance.entry defaults to true (U13)'
+  );
   assert.ok(
     !manifest.contributes.keybindings.some((entry) => entry.command === 'dsh.ctrlKEdit'),
     'D8 final verdict: Ctrl+K must not contribute a default keybinding'

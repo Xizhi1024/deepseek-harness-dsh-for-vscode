@@ -166,5 +166,13 @@
   "Ctrl+K draft sent to the DSH conversation": "Ctrl+K draft sent to the DSH conversation",
   "DSH wants to use the MCP server {server}. Allow it to list and call its tools?": "DSH wants to use the MCP server {server}. Allow it to list and call its tools?",
   "MCP servers refreshed": "MCP servers refreshed",
-  "MCP server name to forget": "MCP server name to forget"
+  "MCP server name to forget": "MCP server name to forget",
+  "No remembered MCP server consent": "No remembered MCP server consent",
+  "MCP server consent forgotten: {name}": "MCP server consent forgotten: {name}",
+  "Click to open the DSH sidebar": "Click to open the DSH sidebar",
+  "More: Restart / Stop / Diagnose DSH Server, New DSH Instance (Ctrl+Alt+N)": "More: Restart / Stop / Diagnose DSH Server, New DSH Instance (Ctrl+Alt+N)",
+  "The changed DSH settings take effect after the DSH service restarts. Restart now?": "The changed DSH settings take effect after the DSH service restarts. Restart now?",
+  "Restart now": "Restart now",
+  "actual port {actual} (configured {configured})": "actual port {actual} (configured {configured})",
+  "DSH server ready": "DSH server ready"
 }

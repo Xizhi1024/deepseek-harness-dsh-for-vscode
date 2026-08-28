@@ -117,6 +117,7 @@ let currentView = null; // vscode.WebviewView | null
 let statusBar = null; // vscode.StatusBarItem | null
 let boundCwd = null; // workspace root the current server is bound to (null = none)
 let lastConfig = null; // last config snapshot used for change detection (reconciler)
+let restartPromptTimer = null; // A2/U2: debounced "Restart now?" prompt for injection-class settings
 let lifecycle = null; // the one queue for every lifecycle transition
 let viewGeneration = 0; // invalidates delayed connects for disposed/replaced views
 let textDocumentBridge = null; // per-window authenticated DSH -> vscode.window bridge
@@ -615,8 +616,13 @@ function setStatusBar(text, tooltip) {
     // through a fallback item so the $(error) lifeline always has a seat.
     statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   }
+  // A1/U1: the indicator is a button, not a label — clicking toggles the
+  // DSH sidebar; the tooltip lists the other lifeline commands.
+  statusBar.command = 'dsh.focusSidebar';
   statusBar.text = text;
-  statusBar.tooltip = tooltip || text;
+  statusBar.tooltip = (tooltip || text)
+    + "\n\n" + loc("Click to open the DSH sidebar")
+    + "\n" + loc("More: Restart / Stop / Diagnose DSH Server, New DSH Instance (Ctrl+Alt+N)");
   statusBar.show();
 }
 
@@ -684,9 +690,20 @@ async function bindServer(context, server, cwd) {
   const url = await externalize(server.url);
   currentExternalUrl = url;
   const mode = loc(server.owned ? "managed" : "reused");
+  // A6/U9: when the port-conflict fallback moved the server off the
+  // configured port, the tooltip says which port is actually in use.
+  const configuredPort = hostContext.config().port;
+  let bindTooltip = loc("DSH server: {url}", { url: server.url })
+    + (cwd ? " | " + loc("workspace: {cwd}", { cwd }) : "");
+  if (Number.isInteger(configuredPort) && server.port !== configuredPort) {
+    bindTooltip += " | " + loc("actual port {actual} (configured {configured})", {
+      actual: String(server.port),
+      configured: String(configuredPort),
+    });
+  }
   setStatusBar(
       "$(radio-tower) " + loc("DSH: {port} ({mode})", { port: String(server.port), mode }),
-      loc("DSH server: {url}", { url: server.url }) + (cwd ? " | " + loc("workspace: {cwd}", { cwd }) : "")
+      bindTooltip
   );
 
   let sessionId = null;
@@ -1327,7 +1344,15 @@ async function setupCoreServer({ context, services }) {
         }));
       } else if (s.state === "ready") {
         const mode = loc(s.server && s.server.owned ? "managed" : "reused");
-        setStatusBar("$(radio-tower) " + loc("DSH: {port} ({mode})", { port: String(s.server ? s.server.port : "?"), mode }));
+        const readyPort = s.server ? s.server.port : null;
+        const cfgPort = hostContext.config().port;
+        const readyTooltip = Number.isInteger(cfgPort) && Number.isInteger(readyPort) && readyPort !== cfgPort
+          ? loc("DSH server ready") + " | " + loc("actual port {actual} (configured {configured})", {
+            actual: String(readyPort),
+            configured: String(cfgPort),
+          })
+          : loc("DSH server ready");
+        setStatusBar("$(radio-tower) " + loc("DSH: {port} ({mode})", { port: String(readyPort === null ? "?" : readyPort), mode }), readyTooltip);
       }
     },
   });
@@ -1361,6 +1386,13 @@ async function setupCoreServer({ context, services }) {
       scheduleRebind(context);
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
+      // A2/U2: injection-class settings only take effect after the DSH
+      // service restarts — surface that with an explicit Restart prompt
+      // instead of silently keeping the old behavior.
+      if (RESTART_PROMPT_SETTINGS.some((key) => e.affectsConfiguration(key))) {
+        scheduleRestartPrompt(context);
+        return;
+      }
       if (
         e.affectsConfiguration("dsh.host") ||
         e.affectsConfiguration("dsh.port") ||
@@ -1387,6 +1419,44 @@ async function setupCoreServer({ context, services }) {
     workspaceBinding?.dispose?.();
     workspaceBinding = null;
   };
+}
+
+/**
+ * A2/U2: settings that only apply to a freshly started DSH service (the
+ * server-side FIM plugin config and the bridge consent gates negotiated at
+ * bridge initialization). Changing any of them triggers a debounced
+ * "Restart now?" prompt; confirming runs dsh.restartServer.
+ */
+const RESTART_PROMPT_SETTINGS = Object.freeze([
+  'dsh.fim.baseUrl',
+  'dsh.fim.model',
+  'dsh.features.tab-completion',
+  'dsh.bridge.terminal',
+  'dsh.bridge.editorRead',
+  'dsh.bridge.ui',
+]);
+
+/**
+ * Debounced prompt so a settings-editor burst (toggling several keys at
+ * once) coalesces into one question. Confirming restarts the DSH service
+ * through the normal command (which politely declines for reused external
+ * instances).
+ */
+function scheduleRestartPrompt(context) {
+  if (restartPromptTimer) return;
+  restartPromptTimer = setTimeout(() => {
+    restartPromptTimer = null;
+    const restartLabel = loc("Restart now");
+    vscode.window.showInformationMessage(
+      loc("The changed DSH settings take effect after the DSH service restarts. Restart now?"),
+      restartLabel
+    ).then((choice) => {
+      if (choice === restartLabel) {
+        vscode.commands.executeCommand("dsh.restartServer").catch(() => {});
+      }
+    });
+  }, 300);
+  if (restartPromptTimer && typeof restartPromptTimer.unref === 'function') restartPromptTimer.unref();
 }
 
 /**
@@ -1968,6 +2038,7 @@ async function setupLmRoute({ context, services }) {
 async function setupStatusbarBasic() {
   if (typeof vscode.window.createStatusBarItem === 'function') {
     statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+    statusBar.command = 'dsh.focusSidebar'; // A1/U1: clickable from the first paint on
   }
   return () => {
     try {
@@ -2219,6 +2290,9 @@ function registerFeatureCommands(context, featureOk) {
         });
         currentSessionId = sessionIdFromValue(sessionId);
         renderFrame(context);
+        // A4/U5: a successful session switch must also reveal the sidebar —
+        // it may still be collapsed, and the toast alone hides the result.
+        vscode.commands.executeCommand("dsh.focusSidebar").catch(() => {});
         vscode.window.showInformationMessage(loc("Session created: {sessionId}", { sessionId }));
       } catch (err) {
         vscode.window.showErrorMessage(loc("Session command failed: {message}", {
@@ -2257,6 +2331,7 @@ function registerFeatureCommands(context, featureOk) {
         if (selected && selected.sessionId) {
           currentSessionId = sessionIdFromValue(selected.sessionId);
           renderFrame(context);
+          vscode.commands.executeCommand("dsh.focusSidebar").catch(() => {});
           vscode.window.showInformationMessage(loc("Session switched: {sessionId}", {
             sessionId: selected.sessionId,
           }));
@@ -2463,10 +2538,23 @@ function registerFeatureCommands(context, featureOk) {
     }
     registered.push(
       vscode.commands.registerCommand("dsh.mcp.forgetConsent", async () => {
-        const name = await vscode.window.showInputBox({ prompt: loc("MCP server name to forget") });
-        if (typeof name === 'string' && name.length > 0) {
-          mcpConsentGate?.forget(name);
+        // A3/U4: pick from the remembered consents instead of hand-typing
+        // the server name — a typed name that did not match a stored one
+        // made forget() a silent no-op, so re-invoking the tool never
+        // re-asked for consent (the acceptance-found bug).
+        const consented = mcpConsentGate ? mcpConsentGate.list() : [];
+        if (consented.length === 0) {
+          vscode.window.showInformationMessage(loc("No remembered MCP server consent"));
+          return;
+        }
+        const picked = await vscode.window.showQuickPick(
+          consented.map((name) => ({ label: name, name })),
+          { placeHolder: loc("MCP server name to forget") }
+        );
+        if (picked && picked.name) {
+          mcpConsentGate?.forget(picked.name);
           mcpManager.refresh();
+          vscode.window.showInformationMessage(loc("MCP server consent forgotten: {name}", { name: picked.name }));
         }
       })
     );

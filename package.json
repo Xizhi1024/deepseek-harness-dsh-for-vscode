@@ -137,6 +137,12 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "dsh.changes",
+        "contents": "%dsh.view.welcome.changes%"
+      }
+    ],
     "commands": [
       {
         "command": "dsh.openInBrowser",
@@ -300,6 +306,12 @@
       {
         "command": "dsh.focusSidebar",
         "key": "ctrl+alt+b",
+        "when": "!terminalFocus"
+      },
+      {
+        "command": "dsh.newInstance",
+        "key": "ctrl+alt+n",
+        "mac": "cmd+alt+n",
         "when": "!terminalFocus"
       },
       {
@@ -588,7 +600,7 @@
         },
         "dsh.multiInstance.entry": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "%dsh.cfg.multiInstance.entry%"
         },
         "dsh.bridge.terminal": {
