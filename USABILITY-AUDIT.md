@@ -56,8 +56,24 @@
 - 向导只列 L1/L2 开关名，没有说明每个开关干什么、开了会怎样；FIM 三步配置（baseUrl/key/restart）向导完全不覆盖。
 - 修复：向导 feature 步每项加 description；新增 "Tab 补全配置" 可选步骤。
 
+## 零输入原则（贯穿性设计要求）
+
+**任何能让用户点选的，都不得要求手输。** 全量输入点审计（src/ showInputBox 穷举）：
+
+| 输入点 | 位置 | 裁定 | 替代设计 |
+|---|---|---|---|
+| MCP forget consent 手输服务器名 | extension.js:2466 | ❌ 违反 | QuickPick 列出 consent 记录中的服务器 |
+| MCP server env 缺值询问 | manager.js:65 | ⚠️ 部分正当 | ① 先查 VS Code secretStorage 同名密钥（OPENAI_API_KEY 等）② key 名含 KEY/TOKEN/SECRET 时 password:true ③ 问完存 secretStorage 下次免问 |
+| onboarding 手输 profile 名 | onboarding.js:105 | ❌ 违反 | QuickPick 列 DSH home 已有 profiles（profileProbe.js 探测能力现成）+ "web (默认)" |
+| FIM baseUrl 在 settings JSON 手填 | package.json 配置 | ❌ 违反 | 新命令 "DSH: 配置 Tab 补全"：QuickPick 常见端点（DeepSeek beta completions / OpenAI / OpenRouter / 自定义…）→ 顺手引导 key + 重启，三步并一步 |
+| FIM API key 输入 | extension.js:2063 | ✅ 正当（密钥） | 保持，但 U2 修后补"重启生效"提示 |
+| Ctrl+K 指令输入 | ctrlKEdit.js:76 | ✅ 正当（本质是 prompt） | — |
+| 桥 confirm ask | v3.js:575 | ✅ 正当（agent 侧询问） | — |
+
+U4（MCP 下拉化）由 1.0.4 **提前到 1.0.3 批**；onboarding profile 下拉化与 FIM 配置命令并入 1.0.4。
+
 ## 建议批次
 
-- **1.0.3 快改**（全部一行到几行）：U1 状态栏 command、U2 reconcile+提示、U5 focus、U6 welcome content、U9 tooltip。
-- **1.0.4**：U3 快捷键策略、U4 QuickPick、U8 findFiles 防护。
+- **1.0.3 快改**（全部一行到几行）：U1 状态栏 command、U2 reconcile+提示、U5 focus、U6 welcome content、U9 tooltip、U4 MCP forget 改 QuickPick。
+- **1.0.4**：U3 快捷键策略、U8 findFiles 防护、onboarding profile 下拉化、FIM 一键配置命令、MCP env 密钥联动 secretStorage。
 - **1.1.0 随变更追踪一起**：U7 Diagnose 改版、U11 向导改版、U10 文档。
