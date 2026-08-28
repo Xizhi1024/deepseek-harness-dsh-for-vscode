@@ -2,7 +2,7 @@
   "name": "dsh-vs-sidebar",
   "displayName": "%dsh.displayName%",
   "description": "%dsh.ext.description%",
-  "version": "0.9.4",
+  "version": "1.0.0",
   "publisher": "Xizhi1024",
   "license": "MIT",
   "pricing": "Free",
@@ -444,6 +444,36 @@
           "default": "",
           "scope": "machine",
           "description": "%dsh.cfg.local.nodePath%"
+        },
+        "dsh.executablePath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "%dsh.cfg.executablePath%"
+        },
+        "dsh.launch.method": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "managed",
+            "command"
+          ],
+          "default": "auto",
+          "scope": "machine",
+          "description": "%dsh.cfg.launch.method%"
+        },
+        "dsh.launch.command": {
+          "type": "string",
+          "default": "dsh",
+          "scope": "machine",
+          "description": "%dsh.cfg.launch.command%"
+        },
+        "dsh.extraArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "scope": "machine",
+          "description": "%dsh.cfg.extraArgs%"
         },
         "dsh.runtime.manifestUrl": {
           "type": "string",

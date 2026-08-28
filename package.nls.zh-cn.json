@@ -1,5 +1,5 @@
 {
-  "dsh.displayName": "DeepSeek Harness(dsh) for VS Code",
+  "dsh.displayName": "DSH for VS Code",
   "dsh.ext.description": "将本地 DeepSeek Harness (DSH) Web 界面嵌入 VS Code 辅助侧边栏。",
   "dsh.cfg.title": "DeepSeek Harness(dsh) for VS Code",
   "dsh.cfg.port": "探测 / 启动 DSH Web 服务的端口。",
@@ -11,6 +11,10 @@
   "dsh.cfg.closePolicy": "何时停止扩展自己拉起的 DSH 服务。onVscodeExit（默认）：仅在 VS Code 退出时停止。onViewClose：关闭侧边栏视图时也停止。never：永不自动停止——请使用「停止 DSH 服务」命令。被复用的（非自管）实例永不停止。",
   "dsh.cfg.local.packageRoot": "可选：官方 @deepseek-ai/dsh 包根目录的绝对路径。留空时自动探测 npm 全局安装位置。",
   "dsh.cfg.local.nodePath": "可选：用于启动官方 DSH 的 Node.js 可执行文件绝对路径。留空时自动探测。",
+  "dsh.cfg.executablePath": "可选：dsh 可执行文件的绝对路径——包目录、其 lib/bin.js 入口，或 Windows shim（dsh.cmd / dsh.ps1）。留空时自动探测；配置后优先于自动发现。",
+  "dsh.cfg.launch.method": "DSH 的启动方式。auto（默认）：先解析本机安装的官方包，失败则回退到 PATH 上的 dsh 命令。managed：仅使用本机安装的官方包。command：仅使用 PATH 上的 dsh 命令（见 dsh.launch.command）。",
+  "dsh.cfg.launch.command": "dsh.launch.method 为 command（或 auto 回退）时使用的 dsh 命令。默认为从 PATH 解析的 dsh。",
+  "dsh.cfg.extraArgs": "附加到每次扩展自管 dsh web 启动的额外 CLI 参数（如 [\"--patch\", \"C:\\overlay.yml\"]）。扩展自有的 --host/--port/--profile 参数始终在前。",
   "dsh.cfg.runtime.manifestUrl": "可选的 HTTPS 运行时发布清单（schemaVersion 1，artifact 内嵌 manifest）。留空 = 使用本机 npm 安装的官方 DSH；非空 = 启用带校验的托管 runtime 安装。",
   "dsh.cfg.runtime.version": "可选的托管 runtime 版本锁定；仅在配置 dsh.runtime.manifestUrl 时使用。",
   "dsh.cfg.features.clipboard-bridge": "DSH iframe 与 VS Code 剪贴板之间的内嵌复制/粘贴桥。",

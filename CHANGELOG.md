@@ -3,6 +3,36 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-08-28
+
+合并 0.9.4（视图修复 + 推荐预设 + README 展示优先重构）与 feature/1.0.0（启动与自愈大改），版本统一为 1.0.0。
+Merges 0.9.4 (view fix + recommended preset + showcase-first READMEs) with feature/1.0.0 (launch & self-healing overhaul); unified version 1.0.0.
+
+### Fixed / 修复
+
+- **--no-open 按运行时版本门控**：低于 0.1.0-rc.7 的 DSH 运行时不再因未知旗标导致托管启动必死；仍拒绝该旗标的老运行时会自动去掉它重试（serverNoOpenSelfHeal）。
+  `--no-open` is now gated on the runtime version; older runtimes that still reject the flag retry without it automatically.
+- （继承 0.9.4）`dsh.changes` 视图「无数据提供程序」占位错误：`when` 可见性门控 + L0 常驻 fallback provider。
+  (from 0.9.4) the `dsh.changes` "no registered data provider" placeholder: `when` visibility gate + an always-registered L0 fallback provider.
+
+### Added / 新增
+
+- **Windows 发现范围扩大**：自动发现新增 PATH shim 扫描（`dsh.cmd` / `dsh.ps1`）与 pnpm/yarn 全局目录（`shimResolver` / `processDiscovery`）。
+  Windows discovery now scans PATH shims (`dsh.cmd` / `dsh.ps1`) and pnpm/yarn global directories.
+- **可配置启动**：新设置 `dsh.executablePath`（包目录、`lib/bin.js` 或 Windows shim 文件，优先于自动发现）与启动方式解析（`launchMethodResolver`）。
+  Configurable launch: new `dsh.executablePath` setting (package dir, `lib/bin.js`, or a Windows shim; takes precedence over discovery) plus a launch-method resolver.
+- **连接看门狗**：侧栏连接后持续监测服务端点；失联（崩溃、休眠唤醒、端口被占）时显示连接丢失页并支持一键重试，不再留死白框。
+  Connection watchdog: the service endpoint is monitored once the sidebar connects; on loss the sidebar shows a reconnect page instead of a dead frame.
+- **更智能的复用**：配置端口静默但其它端口已有 `dsh web` 在跑时自动复用。
+  Smarter reuse: a silent configured port falls back to an already-running `dsh web` on another port.
+- （继承 0.9.4）推荐预设：`dsh.features.changes-review` 与 `dsh.features.chat-participant` 默认开启。
+  (from 0.9.4) recommended preset: changes-review and @dsh chat-participant default to on.
+
+### Changed / 变更
+
+- （继承 0.9.4）README 重构为功能展示优先（功能亮点 / 五分钟上手 / 面向开发者分隔）；内部实现笔记与规划文档移出仓库。
+  (from 0.9.4) READMEs restructured showcase-first; internal impl notes and planning docs removed from the repository.
+
 ## [0.9.4] - 2026-08-27
 
 ### Fixed / 修复

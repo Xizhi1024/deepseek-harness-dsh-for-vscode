@@ -887,6 +887,7 @@ test('autoStart fails closed without spawning when runtime resolution fails', as
       ensureRuntimeCalls += 1;
       throw new Error('runtime verification failed');
     },
+    async discoverDshWebPorts() { return []; }, // no real process scan in tests
   });
 
   await waitFor(() => ensureRuntimeCalls === 1);

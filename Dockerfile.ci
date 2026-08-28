@@ -1,0 +1,16 @@
+# Linux leg of the cross-platform test matrix (for machines with Docker).
+# The Windows/macOS legs run in GitHub Actions (.github/workflows/ci.yml).
+#
+#   docker build -t dsh-ext-ci -f Dockerfile.ci .
+#   docker run --rm dsh-ext-ci
+#
+FROM node:24-slim
+
+WORKDIR /repo
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY . .
+
+# Different terminal environments matter for the PATH-scan discovery layer:
+# bash (login shell, profile-augmented PATH) and sh (bare PATH) must both pass.
+CMD ["bash", "-lc", "npm run check:w0 && echo '== bare sh ==' && sh -c 'npm run test:unit'"]
