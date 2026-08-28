@@ -3,6 +3,20 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-08-28
+
+### Added / 新增
+
+- **FIM Tab 补全服务端补齐（`/api/fim`）**：此前 tab-completion 只有扩展侧客户端——每次补全请求打到 DSH 后 404 静默返回空。1.0.1 在 DSH 侧 `dsh-vscode-integration` 插件内实现 `POST /api/fim`：Bearer 桥令牌鉴权（timing-safe）、调用 OpenAI 兼容 completions 上游（DeepSeek-Coder FIM 模板，可用 `DSH_FIM_TEMPLATE` 覆盖）、流式增量以客户端约定的 `data: {"text":...}` + `[DONE]` 帧回传、8s 上游超时、全程故障围栏（WebRoute 内异常绝不逃逸）。
+  FIM tab completion previously shipped a client only — every request 404'd silently. 1.0.1 implements the missing `POST /api/fim` inside the DSH-side integration plugin: timing-safe bearer auth, an OpenAI-compatible completions upstream (DeepSeek-Coder FIM template, overridable via `DSH_FIM_TEMPLATE`), streamed deltas re-emitted in the client's `data: {"text":...}` + `[DONE]` frame format, an 8s upstream timeout, and full fault containment.
+- **新设置 `dsh.fim.baseUrl`**（machine scope）：上游 FIM 端点完整 URL，与 `Set DSH FIM API Key`（secretStorage）一起经 spawn env 注入（`DSH_FIM_BASE_URL`/`DSH_FIM_API_KEY`）；两者齐备并重启 DSH 服务后 Tab 补全真正可用，缺失时 `/api/fim` 返回带指引的 503。
+  New `dsh.fim.baseUrl` setting (machine scope): full upstream FIM endpoint URL, injected alongside the secretStorage API key into the DSH spawn env; tab completion becomes actually usable once both are set and the DSH server restarted, otherwise /api/fim answers a guided 503.
+
+### Changed / 变更
+
+- **README 精简为产品视角**：一句话定位 + 能力 bullet + 兼容性 + 安装 + 使用 + 配置表，删除全部面向开发者的长文（交互保证/隔离模式/桥接矩阵/exports/错误码/FAQ/实现原理）。
+  READMEs slimmed to a product-first structure: one-line pitch, capability bullets, compatibility, install, usage, and the config table; all developer-facing long-form sections removed.
+
 ## [1.0.0] - 2026-08-28
 
 合并 0.9.4（视图修复 + 推荐预设 + README 展示优先重构）与 feature/1.0.0（启动与自愈大改），版本统一为 1.0.0。

@@ -34,7 +34,7 @@
 
 ![将 VS Code 选区以紧凑链接添加到 DSH 对话](media/add-to-dsh-thread-example.png)
 
-常用命令（命令面板 `DSH:` 前缀）：新建/切换会话 · 打开会话历史 · 重启/停止服务 · 在浏览器打开 · 新建 DSH 实例 · 诊断 · 干净重启。
+常用命令（命令面板 `DSH:` 前缀）：新建/切换会话 · 打开会话历史 · 重启/停止服务 · 在浏览器打开 · 新建 DSH 实例 · 诊断 · 干净重启 · 设置 DSH FIM API Key。
 
 ## ⚙️ 配置
 
@@ -51,7 +51,8 @@
 | `dsh.features.ctrl-k` / `ctrl-i` | false | 内联编辑命令（Ctrl+K / Ctrl+I） |
 | `dsh.features.lm-route` | false | DSH 模型进 VS Code 语言模型选择器 |
 | `dsh.features.mcp-consume` | false | DSH 消费 VS Code 侧 MCP 服务器 |
-| `dsh.features.tab-completion` | false | FIM Tab 补全（POC） |
+| `dsh.features.tab-completion` | false | FIM Tab 补全——需设置 `dsh.fim.baseUrl` + **DSH: 设置 FIM API Key** 并重启 DSH 服务 |
+| `dsh.fim.baseUrl` | (空) | 上游 FIM 端点（OpenAI 兼容 completions API 完整 URL） |
 | `dsh.keybindings.ctrlL` | false | Ctrl+L 把选区加入对话 |
 | `dsh.bridge.terminal` / `editorRead` / `ui` | false | 终端 / 编辑器读取 / UI 表面桥（同意开关） |
 

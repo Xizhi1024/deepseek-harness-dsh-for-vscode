@@ -258,6 +258,13 @@ test('E-asm-2 chat participant contribution, activation events, and FIM config a
     !Object.hasOwn(properties, 'dsh.fim.apiKey'),
     'dsh.fim.apiKey must never be contributed as a configuration key'
   );
-  assert.ok(!Object.hasOwn(properties, 'dsh.fim.baseUrl'), 'dsh.fim.baseUrl must not be contributed');
+  // 1.0.1: the DSH-side /api/fim route is owned by dsh-vscode-integration, so
+  // the upstream endpoint moved into an extension-side machine-scoped setting
+  // (injected into the DSH spawn env as DSH_FIM_BASE_URL). The API key stays
+  // in VS Code secretStorage and must never become a configuration key.
+  assert.ok(Object.hasOwn(properties, 'dsh.fim.baseUrl'), 'dsh.fim.baseUrl must be contributed since 1.0.1');
+  assert.strictEqual(properties['dsh.fim.baseUrl'].type, 'string');
+  assert.strictEqual(properties['dsh.fim.baseUrl'].default, '');
+  assert.strictEqual(properties['dsh.fim.baseUrl'].scope, 'machine');
   assert.ok(!Object.hasOwn(properties, 'dsh.fim.api'), 'dsh.fim.api must not be contributed');
 });

@@ -1874,7 +1874,19 @@ async function setupChatParticipant({ context, services }) {
  */
 async function setupTabCompletion({ context, services }) {
   const token = crypto.randomBytes(32).toString('hex');
-  services.manager?.setSpawnEnv?.({ DSH_FIM_BRIDGE_TOKEN: token });
+  const spawnEnv = { DSH_FIM_BRIDGE_TOKEN: token };
+  // Upstream FIM endpoint + key: baseUrl from settings (machine scope), key
+  // from VS Code secretStorage. The DSH-side /api/fim route needs both;
+  // missing values simply leave the route unconfigured (503 with guidance).
+  try {
+    const baseUrl = vscode.workspace.getConfiguration('dsh').get('fim.baseUrl', '');
+    if (typeof baseUrl === 'string' && baseUrl.length > 0) spawnEnv.DSH_FIM_BASE_URL = baseUrl;
+    const apiKey = await context.secrets.get('dsh.fim.apiKey');
+    if (typeof apiKey === 'string' && apiKey.length > 0) spawnEnv.DSH_FIM_API_KEY = apiKey;
+  } catch {
+    // secrets unavailable in stripped hosts: the route reports its own 503
+  }
+  services.manager?.setSpawnEnv?.(spawnEnv);
   const provider = createInlineCompletionProvider({
     getServerUrl: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
     tokenProvider: () => token,
@@ -1891,7 +1903,7 @@ async function setupTabCompletion({ context, services }) {
       /* registration disposal is best-effort */
     }
     provider.dispose();
-    services.manager?.setSpawnEnv?.({ DSH_FIM_BRIDGE_TOKEN: '' });
+    services.manager?.setSpawnEnv?.({ DSH_FIM_BRIDGE_TOKEN: '', DSH_FIM_BASE_URL: '', DSH_FIM_API_KEY: '' });
   };
 }
 

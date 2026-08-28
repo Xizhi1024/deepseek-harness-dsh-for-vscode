@@ -75,5 +75,6 @@
   "dsh.cfg.features.exports": "Enable the programmatic exports API returned by the extension activate() face (ask/listSessions/addContext). Off by default; calls throw DSH_EXPORT_DISABLED until enabled.",
   "dsh.cfg.features.chat-participant": "Enable the @dsh chat participant in the VS Code chat view. On by default (recommended); the participant consumes DSH sessions only and never uses the vscode.lm/Copilot quota.",
   "dsh.cfg.features.tab-completion": "Enable the DSH FIM tab-completion provider for file documents. Off by default; POC-quality feature.",
-  "dsh.cfg.fim.model": "DSH-side FIM model name used for tab completion. The upstream API key and base URL are configured in the DSH-side vscode-fim plugin, never here."
+  "dsh.cfg.fim.baseUrl": "Upstream FIM endpoint (full URL of an OpenAI-compatible completions API, e.g. https://api.deepseek.com/beta/completions). Set together with the DSH FIM API Key; changes take effect after restarting the DSH server.",
+"dsh.cfg.fim.model": "DSH-side FIM model name used for tab completion. The upstream API key and base URL are configured in the DSH-side vscode-fim plugin, never here."
 }

@@ -75,5 +75,6 @@
   "dsh.cfg.features.exports": "启用扩展 activate() 返回的编程式导出 API（ask/listSessions/addContext）。默认关闭；关闭时调用抛 DSH_EXPORT_DISABLED。",
   "dsh.cfg.features.chat-participant": "在 VS Code 聊天视图中启用 @dsh 聊天参与者。默认开启（推荐）；参与者只消费 DSH 会话，绝不使用 vscode.lm/Copilot 配额。",
   "dsh.cfg.features.tab-completion": "为 file 文档启用 DSH FIM Tab 补全 provider。默认关闭；POC 级功能。",
-  "dsh.cfg.fim.model": "Tab 补全使用的 DSH 侧 FIM 模型名。上游 API key 与 base URL 在 DSH 侧 vscode-fim 插件中配置，绝不在此配置。"
+  "dsh.cfg.fim.baseUrl": "上游 FIM 补全端点（OpenAI 兼容 completions API 的完整 URL，如 https://api.deepseek.com/beta/completions）。与 DSH FIM API Key 一起设置；修改后需重启 DSH 服务生效。",
+"dsh.cfg.fim.model": "Tab 补全使用的 DSH 侧 FIM 模型名。上游 API key 与 base URL 在 DSH 侧 vscode-fim 插件中配置，绝不在此配置。"
 }

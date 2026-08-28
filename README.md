@@ -34,7 +34,7 @@ Embeds the full DSH web UI in the VS Code auxiliary sidebar: every window automa
 
 ![Add selected VS Code ranges to a DSH conversation as compact links](media/add-to-dsh-thread-example-en.png)
 
-Common commands (palette, `DSH:` prefix): New / Switch Session · Open Session History · Restart / Stop Server · Open in Browser · New DSH Instance · Diagnose · Restart Cleanly.
+Common commands (palette, `DSH:` prefix): New / Switch Session · Open Session History · Restart / Stop Server · Open in Browser · New DSH Instance · Diagnose · Restart Cleanly · Set DSH FIM API Key.
 
 ## ⚙️ Configuration
 
@@ -51,7 +51,8 @@ Common commands (palette, `DSH:` prefix): New / Switch Session · Open Session H
 | `dsh.features.ctrl-k` / `ctrl-i` | false | Inline edit commands (Ctrl+K / Ctrl+I) |
 | `dsh.features.lm-route` | false | Expose DSH models in the VS Code LM picker |
 | `dsh.features.mcp-consume` | false | Let DSH consume VS Code-side MCP servers |
-| `dsh.features.tab-completion` | false | FIM tab completion (POC) |
+| `dsh.features.tab-completion` | false | FIM tab completion — needs `dsh.fim.baseUrl` + **DSH: Set FIM API Key**, then restart the DSH server |
+| `dsh.fim.baseUrl` | (empty) | Upstream FIM endpoint (full URL of an OpenAI-compatible completions API) |
 | `dsh.keybindings.ctrlL` | false | Ctrl+L adds the selection to the thread |
 | `dsh.bridge.terminal` / `editorRead` / `ui` | false | Terminal / editor-read / UI surface bridges (consent switches) |
 
