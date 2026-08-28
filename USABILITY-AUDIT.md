@@ -56,6 +56,23 @@
 - 向导只列 L1/L2 开关名，没有说明每个开关干什么、开了会怎样；FIM 三步配置（baseUrl/key/restart）向导完全不覆盖。
 - 修复：向导 feature 步每项加 description；新增 "Tab 补全配置" 可选步骤。
 
+### U12 侧边栏视图无法参与自由分栏（对标 Codex 的上下/左右组合视图）
+- 现状：DSH 主界面是 `viewsContainers.secondarySidebar` 里的 webview **view**。VS Code 对 view 的布局能力天然有限：只能在 侧边栏/辅助侧边栏/面板 之间拖动、同容器内纵向堆叠——**不能**拖进编辑器网格、不能与编辑器/其它面板组成上下左右分栏。
+- Codex 的做法：其可停靠面板是编辑器区的 **WebviewPanel**（registerWebviewPanel），天然支持任意编辑器组分栏、split right/down、最大化。
+- 修复路径：主界面双形态并存——
+  1. 侧边栏 view（现状）：快速访问形态，保持；
+  2. 编辑器 Panel（已有 `dsh.newInstance`）：完整可停靠形态，作为"像 Codex 一样布局"的答案。
+  配合 U13 把入口做出来即可，**无需新写布局代码**。
+
+### U13 主视图新开 DSH 窗口不便捷
+- 现状：`dsh.newInstance` 命令存在且已支持多面板各自会话（关面板只释放自己的 session），但入口默认关（`dsh.multiInstance.entry` false）、无键位、无 view/title 按钮。
+- 修复：
+  1. `contributes.menus.view/title` 给侧边栏加 "在编辑器中打开" 图标按钮（Copilot Chat 同款交互模式）；
+  2. `editor/title` 加 DSH 图标（Fengze 竞品已验证此入口有效）；
+  3. `dsh.multiInstance.entry` 默认改 true；
+  4. 键位建议 `Ctrl+Alt+N`（与新建文件区隔）。
+  与 U1 联动：状态栏点击 = 侧边栏，长按/命令面板 = 新实例。
+
 ## 零输入原则（贯穿性设计要求）
 
 **任何能让用户点选的，都不得要求手输。** 全量输入点审计（src/ showInputBox 穷举）：
@@ -74,6 +91,6 @@ U4（MCP 下拉化）由 1.0.4 **提前到 1.0.3 批**；onboarding profile 下�
 
 ## 建议批次
 
-- **1.0.3 快改**（全部一行到几行）：U1 状态栏 command、U2 reconcile+提示、U5 focus、U6 welcome content、U9 tooltip、U4 MCP forget 改 QuickPick。
+- **1.0.3 快改**（全部一行到几行）：U1 状态栏 command、U2 reconcile+提示、U5 focus、U6 welcome content、U9 tooltip、U4 MCP forget 改 QuickPick、U13 view/editor-title 入口 + multiInstance 默认开（U12 的落地即 U13）。
 - **1.0.4**：U3 快捷键策略、U8 findFiles 防护、onboarding profile 下拉化、FIM 一键配置命令、MCP env 密钥联动 secretStorage。
 - **1.1.0 随变更追踪一起**：U7 Diagnose 改版、U11 向导改版、U10 文档。
