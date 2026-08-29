@@ -1,7 +1,7 @@
 "use strict";
 
 const { deepStrictEqual } = require('node:assert');
-const { createChangeTracker, validateWireEdits, MAX_LABEL_CHARS } = require('../changeTracker');
+const { createChangeTracker, validateWireEdits, assertEditsWithinDocuments, MAX_LABEL_CHARS } = require('../changeTracker');
 
 /**
  * v3a runtime bridge handlers (plan R6, D3 verdict).
@@ -664,6 +664,10 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
       const label = typeof params.label === 'string' ? params.label : '';
       const mode = params.mode === 'session' ? 'session' : 'ask';
       const edits = validateWireEdits(params.edits, vscode);
+      // F-b: reject coordinates outside the live document before any approval
+      // modal or journal write — otherwise zombie pending entries wedge the
+      // tree when Accept builds the WorkspaceEdit and VS Code declines it.
+      await assertEditsWithinDocuments(edits, vscode);
 
       if (mode === 'session' && sessionId.length > 0 && sessionApprovals.has(sessionId)) {
         const before = await tracker.snapshotBefore(edits);

@@ -10,6 +10,7 @@ const {
   ChangeTrackerError,
   MAX_EDITS,
   MAX_EDIT_TEXT_BYTES,
+  assertEditsWithinDocuments,
   buildSnapshotRestoreEdit,
   buildWorkspaceEdit,
   createChangeTracker,
@@ -82,7 +83,9 @@ function fakeVscode({ docs = {}, applyResult = true } = {}) {
       async openTextDocument(uri) {
         const value = String(uri);
         if (Object.prototype.hasOwnProperty.call(docs, value)) {
-          return { getText: () => docs[value] };
+          // String entries behave as plain text; document-like objects (with
+          // validatePosition etc.) pass through untouched for range tests.
+          return typeof docs[value] === 'string' ? { getText: () => docs[value] } : docs[value];
         }
         throw new Error('document not found');
       },
@@ -385,4 +388,69 @@ test('B1: construction tolerates a facade without applyEdit; accept degrades to 
   // Discarding a pending entry never touches applyEdit, so it must work.
   const discarded = await tracker.undo(entry.id);
   assert.deepStrictEqual(discarded, { undone: true, method: 'discard', changeId: entry.id });
+});
+
+// ---- F-a: id watermark derives from the persisted journal ------------------
+
+test('F-a: fresh tracker instances never reuse ids from the persisted journal', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-changes-fa-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const journalDir = path.join(root, 'changes');
+  fs.mkdirSync(journalDir, { recursive: true });
+  // Simulate a legacy journal whose ids a restarted extension would re-issue.
+  fs.writeFileSync(path.join(journalDir, 'journal.json'), JSON.stringify([
+    { id: 'chg-1', at: 'a', status: 'undone', edits: [], before: [] },
+    { id: 'chg-2', at: 'b', status: 'accepted', edits: [], before: [] },
+    { id: 'chg-3', at: 'c', status: 'pending', edits: [], before: [] },
+    { id: 'not-a-counter-id', at: 'd', status: 'pending', edits: [], before: [] },
+  ]));
+
+  const vscode = fakeVscode({ docs: {} });
+  const first = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const entryA = await first.record({ edits: [], before: [] });
+  assert.strictEqual(entryA.id, 'chg-4', 'must clear the persisted watermark, not restart at chg-1');
+
+  // A second instance on the same journal keeps allocating fresh ids.
+  const second = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const entryB = await second.record({ edits: [], before: [] });
+  assert.strictEqual(entryB.id, 'chg-5');
+  assert.notStrictEqual(entryB.id, 'chg-1', 'restarting must never collide with historical entries');
+});
+
+// ---- F-b: out-of-range coordinates rejected before the journal -------------
+
+test('F-b: assertEditsWithinDocuments rejects coordinates beyond the live document', async () => {
+  // Document model: one line of 5 characters.
+  const text = 'hello';
+  const doc = {
+    lineCount: 1,
+    lineAt(line) { if (line !== 0) throw new Error('no line ' + line); return { text }; },
+    validatePosition(position) {
+      const clampedLine = Math.min(Math.max(position.line, 0), this.lineCount - 1);
+      const maxChar = clampedLine === this.lineCount - 1 ? text.length : this.lineAt(clampedLine).text.length;
+      return new FakePosition(clampedLine, Math.min(Math.max(position.character, 0), maxChar));
+    },
+  };
+  const vscode = fakeVscode({ docs: { 'file:///ws/a.js': doc } });
+  const normalized = validateWireEdits([
+    { kind: 'insert', uri: 'file:///ws/a.js', at: { line: 9, character: 3 }, text: 'x' },
+  ], vscode);
+  await assert.rejects(
+    assertEditsWithinDocuments(normalized, vscode),
+    (error) => error.bridgeCode === 'VSCODE_EDIT_OUT_OF_RANGE',
+    'line 9 in a one-line document must be rejected with a specific code',
+  );
+  // The in-range twin passes.
+  const fine = validateWireEdits([
+    { kind: 'insert', uri: 'file:///ws/a.js', at: { line: 0, character: 5 }, text: '!' },
+  ], vscode);
+  await assertEditsWithinDocuments(fine, vscode);
+});
+
+test('F-b: hosts that cannot open the document skip the range check (best effort)', async () => {
+  const vscode = fakeVscode({ docs: {} }); // openTextDocument throws for everything
+  const normalized = validateWireEdits([
+    { kind: 'insert', uri: 'file:///ws/never-opened.js', at: { line: 42, character: 7 }, text: 'x' },
+  ], vscode);
+  await assertEditsWithinDocuments(normalized, vscode); // must not reject
 });

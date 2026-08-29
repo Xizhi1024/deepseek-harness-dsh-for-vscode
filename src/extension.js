@@ -531,11 +531,23 @@ function startHeartbeat() {
  * Last link of the §3 degradation chain: append one diagnostic line to the
  * `DSH` OutputChannel. Null-safe — the channel may be absent in tests or on a
  * host without the API, and diagnostics must never throw.
- * @param {string} line
+ *
+ * F-h: variadic with real serialization. A bare (line) signature silently
+ * dropped every extra argument — status codes, Error objects, response
+ * payloads — which repeatedly slowed down live debugging (gate-session F-h).
+ * Errors render their stack; objects render as JSON; strings join with a
+ * single space.
+ * @param {...unknown} parts
  */
-function appendDiagnostic(line) {
+function appendDiagnostic(...parts) {
   try {
     if (outputChannel && typeof outputChannel.appendLine === 'function') {
+      const line = parts.map((part) => {
+        if (typeof part === 'string') return part;
+        if (part instanceof Error) return part.stack || `${part.name}: ${part.message}`;
+        if (part === undefined) return 'undefined';
+        try { return JSON.stringify(part); } catch { return String(part); }
+      }).join(' ');
       outputChannel.appendLine(line);
     }
   } catch {
@@ -1947,25 +1959,58 @@ async function setupChatParticipant({ context, services }) {
  */
 async function setupTabCompletion({ context, services }) {
   const token = crypto.randomBytes(32).toString('hex');
-  const spawnEnv = { DSH_FIM_BRIDGE_TOKEN: token };
   // Upstream FIM endpoint + key: baseUrl from settings (machine scope), key
   // from VS Code secretStorage. The DSH-side /api/fim route needs both;
   // missing values simply leave the route unconfigured (503 with guidance).
-  try {
-    const baseUrl = vscode.workspace.getConfiguration('dsh').get('fim.baseUrl', '');
-    if (typeof baseUrl === 'string' && baseUrl.length > 0) spawnEnv.DSH_FIM_BASE_URL = baseUrl;
-    const apiKey = await context.secrets.get('dsh.fim.apiKey');
-    if (typeof apiKey === 'string' && apiKey.length > 0) spawnEnv.DSH_FIM_API_KEY = apiKey;
-  } catch {
-    // secrets unavailable in stripped hosts: the route reports its own 503
+  // F-i: the values are RE-READ and re-injected on every fim config/secret
+  // change, because ServerManager snapshots spawnEnv at setSpawnEnv time — a
+  // one-shot activation read meant "dsh.restartServer" kept spawning with
+  // stale values until a full window reload. Writing each key on every
+  // refresh (empty string when unset) also overwrites stale merges.
+  async function readFimSpawnEnv() {
+    const env = { DSH_FIM_BRIDGE_TOKEN: token };
+    try {
+      const baseUrl = vscode.workspace.getConfiguration('dsh').get('fim.baseUrl', '');
+      if (typeof baseUrl === 'string') env.DSH_FIM_BASE_URL = baseUrl;
+      const apiKey = await context.secrets.get('dsh.fim.apiKey');
+      if (typeof apiKey === 'string') env.DSH_FIM_API_KEY = apiKey;
+    } catch {
+      // secrets unavailable in stripped hosts: the route reports its own 503
+    }
+    return env;
   }
-  services.manager?.setSpawnEnv?.(spawnEnv);
+  const refreshFimSpawnEnv = async () => {
+    services.manager?.setSpawnEnv?.(await readFimSpawnEnv());
+  };
+  await refreshFimSpawnEnv();
+  if (typeof vscode.workspace.onDidChangeConfiguration === 'function') {
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
+      if (typeof event?.affectsConfiguration !== 'function') return;
+      if (event.affectsConfiguration('dsh.fim.baseUrl')) void refreshFimSpawnEnv();
+    }));
+  }
+  if (context.secrets && typeof context.secrets.onDidChangeSecrets === 'function') {
+    context.subscriptions.push(context.secrets.onDidChangeSecrets((event) => {
+      if (!event || event.key !== 'dsh.fim.apiKey') return;
+      void refreshFimSpawnEnv();
+    }));
+  }
   const provider = createInlineCompletionProvider({
     getServerUrl: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
     tokenProvider: () => token,
     getModel: () => vscode.workspace.getConfiguration('dsh').get('fim.model', ''),
     fetchImpl: globalThis.fetch,
     log: (line) => appendDiagnostic(line),
+    // F-e: inlineCompletion dedupes to once per session; surface the 503
+    // guidance as a visible warning plus a full diagnostic entry.
+    onFimUnavailable: (guidance) => {
+      appendDiagnostic(`[inlineCompletion] FIM service unavailable: ${guidance}`);
+      try {
+        vscode.window.showWarningMessage(loc('DSH tab completion is unavailable: {guidance}', { guidance }));
+      } catch {
+        // stripped hosts without window.showWarningMessage: diagnostic only
+      }
+    },
   });
   const registration = vscode.languages.registerInlineCompletionItemProvider({ scheme: 'file' }, provider.provider);
   context.subscriptions.push(registration);

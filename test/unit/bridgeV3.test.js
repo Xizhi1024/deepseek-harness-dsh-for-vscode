@@ -235,6 +235,39 @@ test('A8 regression: a call-time gated proposed API must not break handler const
   assert.strictEqual(typeof handlers['vscode/terminal/create'], 'function', 'terminal bridge still mounts (sendText ring only)');
 });
 
+test('F-b: changes/push rejects out-of-range coordinates before the approval modal', async () => {
+  const fake = fakeVscode();
+  const text = 'one line';
+  fake.api.workspace.openTextDocument = async (uri) => ({
+    lineCount: 1,
+    lineAt(line) { if (line !== 0) throw new Error('no line'); return { text }; },
+    getText: () => text,
+    validatePosition(position) {
+      const line = Math.min(Math.max(position.line, 0), 0);
+      const character = Math.min(Math.max(position.character, 0), text.length);
+      return new FakePosition(line, character);
+    },
+  });
+  let modals = 0;
+  fake.api.window.showWarningMessage = async () => { modals += 1; return 'Allow Once'; };
+  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.changes-review': true }) });
+  await assert.rejects(
+    handlers['vscode/changes/push']({
+      edits: [{ kind: 'insert', uri: 'file:///ws/a.js', at: { line: 9, character: 0 }, text: 'x' }],
+    }),
+    (error) => error.bridgeCode === 'VSCODE_EDIT_OUT_OF_RANGE',
+    'line 9 in a one-line document is rejected with a specific code',
+  );
+  assert.strictEqual(modals, 0, 'validation must fail fast, before any approval modal');
+  assert.strictEqual(fake.appliedEdits.length, 0, 'nothing reaches applyEdit');
+  // The in-range twin goes through the pending flow as before.
+  const result = await handlers['vscode/changes/push']({
+    edits: [{ kind: 'insert', uri: 'file:///ws/a.js', at: { line: 0, character: 0 }, text: 'x' }],
+  });
+  assert.strictEqual(result.pending, true);
+  assert.strictEqual(modals, 1, 'the in-range push reaches the modal exactly once');
+});
+
 test('tasks list filters to workspace-declared tasks and run executes exactly those', async () => {
   const fake = fakeVscode();
   const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags() });

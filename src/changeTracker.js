@@ -132,6 +132,62 @@ function validateWireEdits(edits, vscode) {
 }
 
 /**
+ * F-b: verify every position-bearing edit actually lands inside its target
+ * document. Out-of-range coordinates (beyond EOF / line length) pass the
+ * structural checks above, enter the journal as pending, and only fail later
+ * when Accept builds the WorkspaceEdit — leaving zombie entries that can wedge
+ * the changes tree. Positions are compared against the document's own
+ * validatePosition clamping: a clamped result that differs from the input
+ * means the coordinate does not exist in the document.
+ *
+ * @param {Array<object>} edits - Normalized edits from validateWireEdits.
+ * @param {object} vscode - VS Code facade ({ Uri, workspace, Position }).
+ * @returns {Promise<void>} Rejects with ChangeTrackerError on violation.
+ */
+async function assertEditsWithinDocuments(edits, vscode) {
+  if (!Array.isArray(edits) || edits.length === 0) return;
+  if (!vscode || !vscode.workspace || typeof vscode.workspace.openTextDocument !== 'function'
+    || typeof vscode.Position !== 'function') {
+    return; // facade without document access: structural checks only (tests)
+  }
+  const documents = new Map();
+  for (const edit of edits) {
+    if (edit.kind === 'create') continue; // targets a new file by design
+    const uriString = String(edit.uri);
+    let document = documents.get(uriString);
+    if (document === undefined) {
+      try {
+        document = await vscode.workspace.openTextDocument(edit.uri);
+      } catch {
+        // Best-effort hardening: hosts/facades that cannot open the document
+        // (test fakes, untitled schemes) skip the range check — VS Code still
+        // rejects the WorkspaceEdit at Accept time, which now surfaces a
+        // visible error and keeps the entry pending.
+        documents.set(uriString, null);
+        continue;
+      }
+      documents.set(uriString, document);
+    }
+    if (!document || typeof document.validatePosition !== 'function') continue;
+    const check = (position, label) => {
+      const candidate = new vscode.Position(position.line, position.character);
+      const clamped = document.validatePosition(candidate);
+      if (clamped.line !== candidate.line || clamped.character !== candidate.character) {
+        throw new ChangeTrackerError(
+          'VSCODE_EDIT_OUT_OF_RANGE',
+          `edits.${label} ({${position.line},${position.character}}) is outside the document (it ends at {${document.lineCount - 1}, ${document.lineAt(document.lineCount - 1).text.length}})`,
+        );
+      }
+    };
+    if (edit.kind === 'insert') check(edit.at, 'at');
+    else {
+      check(edit.range.start, 'range.start');
+      check(edit.range.end, 'range.end');
+    }
+  }
+}
+
+/**
  * Compute the end position after inserting `text` at `at`.
  *
  * @param {string} text - Inserted text.
@@ -311,8 +367,20 @@ function createChangeTracker({
     renameSync(temporary, journalPath);
   }
 
+  /**
+   * F-a: the id watermark is derived from the PERSISTED journal on every
+   * allocation. A bare in-memory counter restarts at chg-1 after every
+   * extension restart and collides with historical entries, which misroutes
+   * Accept/Undo/openDiff (they find() the first matching id). Scanning the
+   * journal keeps new ids unique across restarts and legacy data alike.
+   */
   function nextId() {
-    idCounter += 1;
+    let max = idCounter;
+    for (const entry of readJournal()) {
+      const match = /^chg-(\d+)$/.exec(typeof entry.id === 'string' ? entry.id : '');
+      if (match) max = Math.max(max, Number(match[1]));
+    }
+    idCounter = max + 1;
     return `chg-${idCounter}`;
   }
 
@@ -519,6 +587,7 @@ module.exports = {
   ChangeTrackerError,
   EDIT_KINDS,
   MAX_EDITS,
+  assertEditsWithinDocuments,
   MAX_EDIT_TEXT_BYTES,
   MAX_LABEL_CHARS,
   buildSnapshotRestoreEdit,
