@@ -10,8 +10,8 @@ All notable changes to this project are documented here, following [Keep a Chang
 
 ### Added / 新增
 
-- *[暂缓 Deferred to the next drop]* 全源变更追踪（journal v2 + watcher 兜底）与工具层拦截（`dsh.changes.mode`）——本分支未落地；C2 的 P0 spike 已在本仓库外部预答（DSH 运行时 `ctx.on('tools/pre-execute')` 异步 waterfall + `ctx.tools.guard()`，见 PLAN-1.1.0-REMAINING.md）。
-  *[Deferred]* Full-source change tracking (journal v2 + watcher) and tool-layer interception (`dsh.changes.mode`) are NOT in this drop; the C2 spike is pre-answered externally (see PLAN-1.1.0-REMAINING.md).
+- **全源变更追踪（journal v2 + watcher 兜底 + 工具拦截观测）**：变更树三分组——经桥编辑 / DSH 工具写入 / 外部变更。DSH 侧 `tools/pre-execute` waterfall 观测 edit/write 工具调用（只归因不拦截，`dsh.changes.observe-tools` 默认开），经桥通知 `vscode/dshEditObserved` 入 journal；FileSystemWatcher 兜底捕获一切不经桥的落盘（500ms 去抖、watcherExclude 尊重、>20 事件/s 熔断降级 git 轮询、快照可回滚）；外部条目 Undo 走快照还原或确认后 git checkout。
+  Full-source change tracking: the tree groups entries into via-bridge edits / DSH tool writes / external changes. The DSH-side tools/pre-execute waterfall observes edit/write calls (attribution only, never gating; dsh.changes.observe-tools defaults on) and notifies vscode/dshEditObserved into the journal; a FileSystemWatcher fallback captures every on-disk write that bypassed both (500ms debounce, watcherExclude respected, >20 events/s circuit breaker degrading to git polling, snapshot-backed undo); external entries undo via snapshot restore or, after confirmation, git checkout.
 - **MCP env 密钥联动 secretStorage**：MCP server 需要 env 密钥时先查 VS Code secretStorage 同名 key，命中免问；key 名含 KEY/TOKEN/SECRET 时输入框密码化，问完回存。
   MCP env secrets now check VS Code secretStorage first (same-name key skips the prompt); secret-looking keys prompt with password masking and are stored back into secretStorage.
 - *[暂缓 Deferred]* 调试器断点桥（`vscode/debug/listBreakpoints|addBreakpoints|removeBreakpoints`）——本分支未落地，见 PLAN-1.1.0-REMAINING.md。
