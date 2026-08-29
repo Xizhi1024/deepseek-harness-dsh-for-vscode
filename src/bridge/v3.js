@@ -172,15 +172,23 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
       const candidate = vscode.window.onDidWriteTerminalData;
       if (typeof candidate === 'function') onTerminalData = candidate;
     } catch {
-      onTerminalData = null; // proposal not enabled on this host — degrade
+      onTerminalData = null; // getter-style gate: proposal not enabled here
     }
     if (onTerminalData) {
-      onTerminalData((event) => {
-        if (!event || typeof event.data !== 'string') return;
-        for (const entry of terminals.values()) {
-          if (event.terminal === entry.terminal) capture(entry, event.data);
-        }
-      });
+      try {
+        onTerminalData((event) => {
+          if (!event || typeof event.data !== 'string') return;
+          for (const entry of terminals.values()) {
+            if (event.terminal === entry.terminal) capture(entry, event.data);
+          }
+        });
+      } catch {
+        // Call-time gate (observed on VS Code 1.123): the wrapper method is
+        // exposed to EVERY extension, and the proposal entitlement is enforced
+        // when the wrapper is INVOKED — reading + typeof both succeed, the
+        // subscription call throws "CANNOT use API proposal". Degrade to the
+        // sendText-echo ring, identical to proposal-absent hosts.
+      }
     }
     handlers['vscode/terminal/create'] = async (params) => {
       if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'terminal/create params must be an object');

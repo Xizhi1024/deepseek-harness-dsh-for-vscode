@@ -249,7 +249,7 @@ function createLinkRoutes({
     throw new TypeError('createLinkRoutes requires an openImpl function');
   }
   const openUrl = env && typeof env.DSH_VSCODE_OPEN_URL === 'string' ? env.DSH_VSCODE_OPEN_URL : '';
-  const openToken = env && typeof env.DSH_VSCODE_OPEN_TOKEN === 'string' ? env.DSH_VSCODE_OPEN_TOKEN : '';
+  const openToken = env && typeof env.DSH_VSCODE_OPEN_TOKEN === 'string' ? env.DSH_VSCODE_OPEN_TOKEN : ''; // allow-secret-scan (env read; ternary default '' false-matches the literal pattern)
   if (openUrl.length === 0 || openToken.length === 0) {
     return {
       running: false,

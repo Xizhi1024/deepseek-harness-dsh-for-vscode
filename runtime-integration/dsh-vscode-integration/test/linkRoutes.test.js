@@ -24,7 +24,7 @@ import {
 
 const ENV = {
   DSH_VSCODE_OPEN_URL: 'http://127.0.0.1:9/open-text-document',
-  DSH_VSCODE_OPEN_TOKEN: 'test-token',
+  DSH_VSCODE_OPEN_TOKEN: 'test-token', // allow-secret-scan (test fixture)
 };
 
 function fakeRequest(method, headers, body) {

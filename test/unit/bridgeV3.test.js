@@ -213,6 +213,28 @@ test('A8 regression: a throwing proposed-API getter must not break handler const
   assert.strictEqual(typeof handlers['vscode/terminal/create'], 'function', 'terminal bridge still mounts (sendText ring only)');
 });
 
+test('A8 regression: a call-time gated proposed API must not break handler construction', () => {
+  // VS Code 1.12x exposes the wrapper method to EVERY extension and enforces
+  // the proposal entitlement when the wrapper is INVOKED, not when it is read:
+  // the property probe succeeds and the subscription call itself throws
+  // "CANNOT use API proposal: terminalDataWriteEvent". Handler construction
+  // (and thus activation) must survive that call.
+  const api = {
+    window: {
+      createTerminal() { return { name: 'x', sendText() {} }; },
+      onDidWriteTerminalData() {
+        throw new Error("Extension 'Xizhi1024.dsh-vs-sidebar' CANNOT use API proposal: terminalDataWriteEvent.");
+      },
+    },
+    workspace: {},
+  };
+  let handlers;
+  assert.doesNotThrow(() => {
+    handlers = createV3Handlers({ vscode: api, getFlag: flags({ 'bridge.terminal': true }) });
+  }, 'subscribing through the gated wrapper must degrade, never throw');
+  assert.strictEqual(typeof handlers['vscode/terminal/create'], 'function', 'terminal bridge still mounts (sendText ring only)');
+});
+
 test('tasks list filters to workspace-declared tasks and run executes exactly those', async () => {
   const fake = fakeVscode();
   const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags() });

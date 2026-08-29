@@ -35,6 +35,9 @@
     "vscode": "^1.106.0"
   },
   "main": "src/extension.js",
+  "enabledApiProposals": [
+    "terminalDataWriteEvent"
+  ],
   "scripts": {
     "lint": "node scripts/lint.js",
     "test": "node --test \"test/*.test.js\" \"test/unit/*.test.js\"",
