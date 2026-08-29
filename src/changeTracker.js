@@ -20,6 +20,24 @@ const MAX_EDITS = 50;
 const MAX_EDIT_TEXT_BYTES = 1 * 1024 * 1024;
 const MAX_LABEL_CHARS = 200;
 const EDIT_KINDS = Object.freeze(['insert', 'replace', 'delete', 'create']);
+// Journal v2: which pipeline recorded the entry. Bridge pushes were the only
+// source in 1.0.x, so legacy entries without `source` migrate to 'bridge'.
+const ENTRY_SOURCES = Object.freeze(['bridge', 'tool-intercept', 'external']);
+// C1 contract: duplicate dshEditObserved notifications for the same
+// (path, sessionId) pair within this window merge into one entry.
+const TOOL_EDIT_MERGE_WINDOW_MS = 2000;
+
+function entryAtMs(entry) {
+  const ms = Date.parse(entry && entry.at);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function normalizeEntry(entry) {
+  if (isRecord(entry) && entry.source === undefined) {
+    return { ...entry, source: 'bridge' };
+  }
+  return entry;
+}
 
 class ChangeTrackerError extends Error {
   constructor(bridgeCode, message) {
@@ -337,10 +355,10 @@ function createChangeTracker({
   let idCounter = 0;
 
   function readJournal() {
-    if (memoryOnly) return memoryJournal.slice();
+    if (memoryOnly) return memoryJournal.map(normalizeEntry);
     try {
       const parsed = JSON.parse(readFileSync(journalPath, 'utf8'));
-      return Array.isArray(parsed) ? parsed : [];
+      return Array.isArray(parsed) ? parsed.map(normalizeEntry) : [];
     } catch {
       return [];
     }
@@ -468,11 +486,27 @@ function createChangeTracker({
    * @param {Array<object>} options.before - Before snapshots.
    * @param {string} [options.status] - Entry status (B1 default 'pending';
    *   'applied' only survives for legacy journal entries).
+   * @param {string} [options.source] - Journal v2 attribution: 'bridge' |
+   *   'tool-intercept' | 'external' (default 'bridge', 1.0.x compatible).
+   * @param {string} [options.path] - Journal v2: absolute filesystem path of
+   *   the touched file (attribution-only entries: tool-intercept/external).
+   * @param {string} [options.tool] - Journal v2: the DSH tool name for
+   *   tool-intercept entries ('edit' | 'write').
    * @returns {Promise<object>} The persisted entry.
    */
-  async function record({ sessionId = '', label = '', edits = [], before = [], status = 'pending' }) {
+  async function record({
+    sessionId = '',
+    label = '',
+    edits = [],
+    before = [],
+    status = 'pending',
+    source = 'bridge',
+    path = '',
+    tool = '',
+  }) {
     const entry = {
       id: nextId(),
+      source,
       sessionId,
       label,
       at: now(),
@@ -480,8 +514,82 @@ function createChangeTracker({
       edits,
       before,
     };
+    if (typeof path === 'string' && path.length > 0) entry.path = path;
+    if (typeof tool === 'string' && tool.length > 0) entry.tool = tool;
     const entries = readJournal();
     entries.push(entry);
+    writeJournal(entries);
+    return entry;
+  }
+
+  /**
+   * C1: consume one `vscode/dshEditObserved` notification emitted by the
+   * plugin-side tool interceptor (C2). These entries describe writes the DSH
+   * tool ALREADY performed directly on disk (F-d: no pre-approval) — the
+   * extension tracks them for attribution/audit only, so edits/before stay
+   * empty, status is 'accepted', and openDiff/undo degrade to disk-vs-git.
+   * Notifications are at-least-once: a duplicate (path, sessionId) pair
+   * inside ±2s merges into the existing entry instead of creating a new one.
+   *
+   * @param {object} payload - {tool:'edit'|'write', path, sessionId, size, truncated}.
+   * @returns {Promise<object>} The persisted entry (or the existing one with
+   *   `merged: true` when the notification was a duplicate).
+   */
+  async function recordToolEdit(payload) {
+    if (!isRecord(payload)) throw invalidParams('dshEditObserved payload must be an object');
+    const { tool } = payload;
+    const filePath = payload.path;
+    if (tool !== 'edit' && tool !== 'write') {
+      throw invalidParams('dshEditObserved.tool must be "edit" or "write"');
+    }
+    if (typeof filePath !== 'string' || filePath.length === 0) {
+      throw invalidParams('dshEditObserved.path must be a non-empty string');
+    }
+    const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : '';
+    const size = Number.isFinite(payload.size) ? payload.size : 0;
+    const truncated = Boolean(payload.truncated);
+    const atMs = entryAtMs({ at: now() });
+    const entries = readJournal();
+    const duplicate = entries.find((candidate) => (
+      candidate.source === 'tool-intercept'
+      && candidate.path === filePath
+      && (candidate.sessionId || '') === sessionId
+      && Math.abs(entryAtMs(candidate) - atMs) <= TOOL_EDIT_MERGE_WINDOW_MS
+    ));
+    if (duplicate) return { ...duplicate, merged: true };
+    const entry = {
+      id: nextId(),
+      source: 'tool-intercept',
+      sessionId,
+      tool,
+      path: filePath,
+      label: `${tool} ${path.basename(filePath)}`,
+      at: now(),
+      status: 'accepted',
+      edits: [],
+      before: [],
+      size,
+      truncated,
+    };
+    entries.push(entry);
+    writeJournal(entries);
+    return entry;
+  }
+
+  /**
+   * Journal v2: merge a patch into one stored entry (used by the watcher to
+   * attach beforeSnapshotPath after the entry id is allocated).
+   *
+   * @param {string} changeId - Entry id.
+   * @param {object} patch - Fields to merge.
+   * @returns {object|null} Updated entry or null when not found.
+   */
+  function updateEntry(changeId, patch) {
+    if (!isRecord(patch)) throw invalidParams('updateEntry patch must be an object');
+    const entries = readJournal();
+    const entry = entries.find((candidate) => candidate.id === changeId);
+    if (!entry) return null;
+    Object.assign(entry, patch);
     writeJournal(entries);
     return entry;
   }
@@ -566,7 +674,9 @@ function createChangeTracker({
     get,
     list,
     record,
+    recordToolEdit,
     snapshotBefore,
+    updateEntry,
     undo,
     updateStatus,
     validateWireEdits,
@@ -576,8 +686,10 @@ function createChangeTracker({
 module.exports = {
   ChangeTrackerError,
   EDIT_KINDS,
+  ENTRY_SOURCES,
   MAX_EDITS,
   assertEditsWithinDocuments,
+  entryAtMs,
   MAX_EDIT_TEXT_BYTES,
   MAX_LABEL_CHARS,
   buildSnapshotRestoreEdit,

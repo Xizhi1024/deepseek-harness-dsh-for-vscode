@@ -356,6 +356,19 @@ class BridgeGeneration {
     this.socket.write(JSON.stringify(message) + '\n');
   }
 
+  // C2: fire-and-forget JSON-RPC notification (no id). Dropped silently when
+  // the socket is gone or the write fails — notifications are never replayed
+  // on the next reconnect.
+  notify(method, params) {
+    try {
+      if (this.disposed || this.socket.destroyed) return false;
+      this.socket.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   request(method, params, { signal = null, timeoutMs = this.timeoutMs } = {}) {
     if (this.disposed || this.socket.destroyed) {
       return Promise.reject(jsonRpcError('VSCODE_DISCONNECTED', 'The VS Code bridge is disconnected'));
@@ -661,6 +674,12 @@ function createBridgeTools({
 
     return {
       running: true,
+      // C2: outbound notification channel on the live generation (false when
+      // no socket is connected — callers drop the event).
+      notify(method, params) {
+        if (generation) return generation.notify(method, params);
+        return false;
+      },
       stop() {
         if (disposed) return { stopped: true };
         disposed = true;
@@ -689,6 +708,7 @@ function createBridgeTools({
 export {
   bridgeEnv,
   bridgeTimeoutMs,
+  BridgeGeneration,
   createBridgeTools,
   descriptorFor,
   jsonRpcError,

@@ -454,3 +454,119 @@ test('F-b: hosts that cannot open the document skip the range check (best effort
   ], vscode);
   await assertEditsWithinDocuments(normalized, vscode); // must not reject
 });
+// ---- journal v2 (C1): source field, migration, recordToolEdit ----------------
+
+test('record() stamps source:"bridge" by default and honors an explicit source', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tracker-v2-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode: fakeVscode() });
+  const bridge = await tracker.record({ label: 'via bridge', edits: [] });
+  assert.strictEqual(bridge.source, 'bridge');
+  const external = await tracker.record({ source: 'external', label: 'watched', edits: [], status: 'accepted' });
+  assert.strictEqual(external.source, 'external');
+  assert.deepStrictEqual(
+    tracker.list().map((entry) => entry.source),
+    ['bridge', 'external'],
+  );
+});
+
+test('journal v2 migration: legacy entries without source read back as bridge', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tracker-mig-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const journalPath = path.join(root, 'changes', 'journal.json');
+  fs.mkdirSync(path.dirname(journalPath), { recursive: true });
+  fs.writeFileSync(journalPath, JSON.stringify([
+    { id: 'chg-1', sessionId: 's', label: 'legacy', at: '2025-01-01T00:00:00.000Z', status: 'applied', edits: [], before: [] },
+    { id: 'chg-2', source: 'external', sessionId: '', label: 'new-style', at: '2025-01-02T00:00:00.000Z', status: 'accepted', edits: [], before: [] },
+  ]));
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode: fakeVscode() });
+  assert.deepStrictEqual(
+    tracker.list().map((entry) => entry.source),
+    ['bridge', 'external'],
+  );
+  // New ids still allocate above the persisted watermark.
+  const entry = await tracker.record({ label: 'x', edits: [] });
+  assert.strictEqual(entry.id, 'chg-3');
+});
+
+test('recordToolEdit creates an accepted tool-intercept attribution entry', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tracker-tool-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode: fakeVscode() });
+  const entry = await tracker.recordToolEdit({
+    tool: 'edit',
+    path: 'D:\\workspace\\src\\a.js',
+    sessionId: 'sess-1',
+    size: 128,
+    truncated: false,
+  });
+  assert.strictEqual(entry.source, 'tool-intercept');
+  assert.strictEqual(entry.status, 'accepted');
+  assert.strictEqual(entry.sessionId, 'sess-1');
+  assert.strictEqual(entry.tool, 'edit');
+  assert.strictEqual(entry.path, 'D:\\workspace\\src\\a.js');
+  assert.deepStrictEqual(entry.edits, []);
+  assert.deepStrictEqual(entry.before, []);
+  assert.ok(entry.label.includes('a.js'));
+  const stored = tracker.get(entry.id);
+  assert.strictEqual(stored.source, 'tool-intercept');
+});
+
+test('recordToolEdit validates the C1/C2 notification payload', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tracker-toolval-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode: fakeVscode() });
+  await assert.rejects(
+    () => tracker.recordToolEdit(null),
+    (error) => error.bridgeCode === 'VSCODE_INVALID_PARAMS',
+  );
+  await assert.rejects(
+    () => tracker.recordToolEdit({ tool: 'rename', path: 'D:/a.js' }),
+    (error) => error.bridgeCode === 'VSCODE_INVALID_PARAMS',
+  );
+  await assert.rejects(
+    () => tracker.recordToolEdit({ tool: 'write', path: '' }),
+    (error) => error.bridgeCode === 'VSCODE_INVALID_PARAMS',
+  );
+  assert.strictEqual(tracker.list().length, 0);
+});
+
+test('recordToolEdit merges duplicate notifications within ±2s per (path, sessionId)', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tracker-dup-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  let clockMs = Date.parse('2025-06-01T00:00:00.000Z');
+  const tracker = createChangeTracker({
+    storageUri: { fsPath: root },
+    vscode: fakeVscode(),
+    now: () => new Date(clockMs).toISOString(),
+  });
+  const payload = { tool: 'write', path: '/ws/b.js', sessionId: 'sess-1', size: 10, truncated: false };
+  const first = await tracker.recordToolEdit(payload);
+  assert.strictEqual(first.merged, undefined);
+  clockMs += 1500;
+  const second = await tracker.recordToolEdit(payload);
+  assert.strictEqual(second.merged, true);
+  assert.strictEqual(second.id, first.id);
+  // Different sessionId => a separate attribution entry.
+  clockMs += 100;
+  const other = await tracker.recordToolEdit({ ...payload, sessionId: 'sess-2' });
+  assert.notStrictEqual(other.id, first.id);
+  // Same pair but outside the ±2s window => a new entry.
+  clockMs += 5000;
+  const late = await tracker.recordToolEdit(payload);
+  assert.strictEqual(late.merged, undefined);
+  assert.notStrictEqual(late.id, first.id);
+  assert.strictEqual(tracker.list().length, 3);
+});
+
+test('updateEntry merges a patch into a stored entry (watcher snapshot path)', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tracker-patch-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode: fakeVscode() });
+  const entry = await tracker.record({ source: 'external', label: 'e', edits: [] });
+  const updated = tracker.updateEntry(entry.id, { beforeSnapshotPath: '/store/snapshots/' + entry.id });
+  assert.strictEqual(updated.beforeSnapshotPath, '/store/snapshots/' + entry.id);
+  assert.strictEqual(tracker.get(entry.id).beforeSnapshotPath, '/store/snapshots/' + entry.id);
+  assert.strictEqual(tracker.updateEntry('chg-999', { x: 1 }), null);
+});
+

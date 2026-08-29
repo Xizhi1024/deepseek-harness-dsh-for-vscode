@@ -174,6 +174,9 @@ function createTreeEvent() {
  *   diff original files.
  * @param {Function} [options.loc] - Localization function.
  * @param {Function} [options.checkpointRollback] - Optional Undo seam.
+ * @param {Function} [options.gitRestore] - Optional injectable seam for the
+ *   external-undo `git checkout -- <file>` path (defaults to the built-in
+ *   vscode.git API when available).
  * @returns {object} Change tree API.
  */
 function createChangeTree({
@@ -182,6 +185,7 @@ function createChangeTree({
   storageUri = null,
   loc = (value) => value,
   checkpointRollback = null,
+  gitRestore = null,
 } = {}) {
   if (!vscode || !vscode.window) throw new TypeError('createChangeTree requires a vscode facade');
   if (!tracker || typeof tracker.list !== 'function') throw new TypeError('createChangeTree requires a change tracker');
@@ -207,30 +211,42 @@ function createChangeTree({
     return vscode.Uri.parse(PREVIEW_SCHEME + '://changes/' + id + '/' + role + '/' + fileName);
   }
 
+  // Journal v2: the top level groups by SOURCE so attribution is scannable
+  // at a glance — bridge pushes (this sidebar), DSH tool writes (interceptor
+  // notifications), and everything else the watcher caught (Web GUI, CLI,
+  // other machines, manual edits).
+  const SOURCE_GROUP_ORDER = ['bridge', 'tool-intercept', 'external'];
+  const SOURCE_GROUP_LABELS = {
+    bridge: 'DSH edits (via bridge)',
+    'tool-intercept': 'DSH tool writes',
+    external: 'External changes',
+  };
+
   function groupEntries(entries) {
     const groups = [];
-    const bySession = new Map();
+    const bySource = new Map();
     for (const entry of entries) {
-      const key = entry.sessionId || '';
-      if (!bySession.has(key)) {
-        const group = { key, entries: [] };
-        bySession.set(key, group);
+      const source = SOURCE_GROUP_LABELS[entry.source] ? entry.source : 'bridge';
+      if (!bySource.has(source)) {
+        const group = { type: 'group', source, entries: [] };
+        bySource.set(source, group);
         groups.push(group);
       }
-      bySession.get(key).entries.push(entry);
+      bySource.get(source).entries.push(entry);
     }
+    groups.sort((a, b) => {
+      const ai = SOURCE_GROUP_ORDER.indexOf(a.source);
+      const bi = SOURCE_GROUP_ORDER.indexOf(b.source);
+      return (ai === -1 ? SOURCE_GROUP_ORDER.length : ai) - (bi === -1 ? SOURCE_GROUP_ORDER.length : bi);
+    });
     return groups;
   }
 
   function getChildren(element) {
     if (!element) {
-      return groupEntries(tracker.list()).map((group) => ({
-        type: 'session',
-        sessionId: group.key,
-        entries: group.entries,
-      }));
+      return groupEntries(tracker.list());
     }
-    if (element && element.type === 'session') {
+    if (element && element.type === 'group') {
       return element.entries;
     }
     return [];
@@ -257,18 +273,33 @@ function createChangeTree({
     return 'dsh.changes.entry';
   }
 
+  function entryLabel(entry) {
+    if (entry.label) return entry.label;
+    const fromPath = typeof entry.path === 'string' && entry.path.length > 0
+      ? entry.path.split(/[\\/]/).pop()
+      : null;
+    if (fromPath) return fromPath;
+    if (Array.isArray(entry.edits) && entry.edits[0] && entry.edits[0].uri) {
+      return basenameFromUri(String(entry.edits[0].uri));
+    }
+    return entry.id;
+  }
+
   function getTreeItem(element) {
     if (!element) return null;
-    if (element.type === 'session') {
-      const label = element.sessionId.length > 0 ? element.sessionId : loc('Untitled session');
-      const item = new vscode.TreeItem(label, 1);
-      item.id = 'dsh.changes.session:' + element.sessionId;
-      item.contextValue = 'dsh.changes.session';
+    if (element.type === 'group') {
+      const item = new vscode.TreeItem(loc(SOURCE_GROUP_LABELS[element.source] || element.source), 1);
+      item.id = 'dsh.changes.source:' + element.source;
+      item.description = String(element.entries.length);
+      item.contextValue = 'dsh.changes.source';
       return item;
     }
-    const item = new vscode.TreeItem(element.label || element.id, 0);
+    const item = new vscode.TreeItem(entryLabel(element), 0);
     item.id = element.id;
-    item.description = statusDescription(element.status);
+    const status = statusDescription(element.status);
+    item.description = element.sessionId && element.source === 'bridge'
+      ? `${status} · ${element.sessionId}`
+      : status;
     item.contextValue = entryContextValue(element.status);
     item.command = {
       command: 'dsh.changes.openDiff',
@@ -279,12 +310,12 @@ function createChangeTree({
   }
 
   function getParent(element) {
-    if (element && element.type === 'entry') {
-      return {
-        type: 'session',
-        sessionId: element.sessionId || '',
-        entries: tracker.list().filter((entry) => (entry.sessionId || '') === (element.sessionId || '')),
-      };
+    // Journal v2 entries are raw journal records (no type marker); only the
+    // group wrappers carry type === 'group'. Anything that is not a group is
+    // an entry leaf, so resolve its owning source group by id.
+    if (element && element.type !== 'group') {
+      return groupEntries(tracker.list())
+        .find((group) => group.entries.some((entry) => entry.id === element.id)) || null;
     }
     return null;
   }
@@ -353,6 +384,31 @@ function createChangeTree({
       candidate && candidate.kind !== 'create' && candidate.uri
     ));
     if (!before || !edit) {
+      // Journal v2 attribution-only entries (tool-intercept / external): the
+      // write already happened on disk with no captured before text. Annotate
+      // that and open the current file — a fabricated blank diff would be
+      // misleading, the git SCM view remains the hunk-level fallback.
+      const targetUriString = typeof entry.uri === 'string' && entry.uri.length > 0
+        ? entry.uri
+        : (Array.isArray(entry.edits) && entry.edits[0] && typeof entry.edits[0].uri === 'string'
+          ? entry.edits[0].uri
+          : null);
+      const target = targetUriString
+        ? vscode.Uri.parse(targetUriString)
+        : (typeof entry.path === 'string' && entry.path.length > 0 ? vscode.Uri.file(entry.path) : null);
+      if (target) {
+        try {
+          await vscode.window.showInformationMessage(loc('No before snapshot for this change; showing the current file'));
+        } catch {
+          // informational only
+        }
+        try {
+          await vscode.commands.executeCommand('vscode.open', target, { preview: false });
+        } catch {
+          // opening is best-effort; the annotation above already explained why
+        }
+        return { opened: true, noSnapshot: true };
+      }
       throw new Error('This change has no before snapshot to diff');
     }
     if (!storageUri || typeof storageUri.fsPath !== 'string') {
@@ -382,7 +438,109 @@ function createChangeTree({
     return result;
   }
 
+  function entryTargetFsPath(entry) {
+    if (typeof entry.path === 'string' && entry.path.length > 0) return entry.path;
+    if (typeof entry.uri === 'string' && entry.uri.startsWith('file://')) {
+      return decodeURIComponent(entry.uri.replace(/^file:\/\//, ''));
+    }
+    return null;
+  }
+
+  /**
+   * Default external-undo git seam: `git checkout -- <file>` through the
+   * built-in vscode.git API (same resolution chain as the v3 git handlers).
+   * Returns false when git is unavailable or does not expose checkout.
+   */
+  async function gitRestoreDefault(fsPath) {
+    try {
+      const extension = vscode.extensions && vscode.extensions.getExtension
+        && vscode.extensions.getExtension('vscode.git');
+      if (!extension) return false;
+      const exported = extension.isActive ? extension.exports : await extension.activate();
+      const api = exported && typeof exported.getBuiltInGitApi === 'function'
+        ? await exported.getBuiltInGitApi()
+        : exported;
+      if (!api || typeof api.getRepositories !== 'function') return false;
+      const repositories = await api.getRepositories();
+      for (const repository of Array.isArray(repositories) ? repositories : []) {
+        const target = repository && typeof repository.checkout === 'function'
+          ? repository
+          : (repository && typeof repository.repository === 'object' ? repository.repository : null);
+        if (target && typeof target.checkout === 'function') {
+          await target.checkout(undefined, [fsPath]);
+          return true;
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Journal v2 undo for attribution-only entries (external / tool-intercept).
+   * Priority: (1) the watcher's beforeSnapshot whole-file restore; (2) after
+   * a destructive-action confirmation (NOT a permission gate — the write was
+   * already allowed; this protects the user's own uncommitted work)
+   * `git checkout -- <file>` when git can restore it. Without either, undo is
+   * reported unavailable instead of silently doing nothing.
+   */
+  async function undoAttributed(entry) {
+    const changeId = entry.id;
+    if (entry.status === 'undone' || entry.status === 'discarded') {
+      return { undone: false, reason: 'already-undone', changeId };
+    }
+    if (entry.status === 'pending') {
+      tracker.updateStatus(changeId, 'discarded');
+      refresh();
+      return { undone: true, method: 'discard', changeId };
+    }
+    const targetPath = entryTargetFsPath(entry);
+    if (entry.beforeSnapshotPath && targetPath) {
+      try {
+        const text = fs.readFileSync(entry.beforeSnapshotPath, 'utf8');
+        fs.writeFileSync(targetPath, text, 'utf8');
+        tracker.updateStatus(changeId, 'undone');
+        refresh();
+        return { undone: true, method: 'snapshot-restore', changeId };
+      } catch {
+        // fall through to the git path; the snapshot may have been cleaned
+      }
+    }
+    if (!targetPath) {
+      return { undone: false, reason: 'no-target-path', changeId };
+    }
+    const fileName = targetPath.split(/[\\/]/).pop() || targetPath;
+    let choice = null;
+    try {
+      choice = await vscode.window.showWarningMessage(
+        loc('Undo will discard uncommitted changes in {file}. Continue?', { file: fileName }),
+        loc('Undo'),
+      );
+    } catch {
+      choice = null;
+    }
+    if (choice !== loc('Undo')) {
+      return { undone: false, reason: 'cancelled', changeId };
+    }
+    const restored = typeof gitRestore === 'function' ? await gitRestore(targetPath) : await gitRestoreDefault(targetPath);
+    if (!restored) {
+      try {
+        await vscode.window.showErrorMessage(loc('Cannot undo this change: no snapshot and Git is unavailable'));
+      } catch {
+        // informational only
+      }
+      return { undone: false, reason: 'no-snapshot-no-git', changeId };
+    }
+    tracker.updateStatus(changeId, 'undone');
+    refresh();
+    return { undone: true, method: 'git-checkout', changeId };
+  }
+
   async function undo(entry) {
+    if (entry && (entry.source === 'external' || entry.source === 'tool-intercept')) {
+      return undoAttributed(entry);
+    }
     const result = await tracker.undo(entry.id, { checkpointRollback });
     refresh();
     return result;

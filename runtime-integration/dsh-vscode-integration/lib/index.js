@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import net from 'node:net';
 
 import { createBridgeTools } from './tools.js';
+import { createEditObserver } from './editObserver.js';
 import { createLmRoutes } from './lmRoute.js';
 import { createFimRoutes } from './fimRoutes.js';
 import { createLinkRoutes, editorOpenViaBridge } from './linkRoutes.js';
@@ -31,6 +32,19 @@ const WATCHDOG_EXPIRY_MS = 60 * 1000;
 const HEARTBEAT_ENV = 'DSH_VSCODE_HEARTBEAT_PATH';
 const WINDOW_ID_ENV = 'DSH_VSCODE_WINDOW_ID';
 const WATCHDOG_ENV = 'DSH_VSCODE_WATCHDOG';
+const OBSERVE_TOOLS_ENV = 'DSH_VSCODE_OBSERVE_TOOLS';
+
+/**
+ * C2 gate for the edit/write observer. Defaults to ON; the extension
+ * translates the dsh.changes.observe-tools setting into this spawn-env key.
+ * @param {object} env
+ * @returns {boolean}
+ */
+function observeToolsEnabled(env = process.env) {
+  const value = env && env[OBSERVE_TOOLS_ENV];
+  if (typeof value !== 'string') return true;
+  return !['0', 'off', 'false', 'no'].includes(value.trim().toLowerCase());
+}
 
 function failure(request, message) {
   return {
@@ -368,10 +382,21 @@ function apply(ctx) {
       version: packageJson.version,
     });
     const started = bridge.start();
+    // C2: observe DSH edit/write tool executions (attribution only — never a
+    // gate) and forward metadata-only notifications over the live bridge
+    // generation. Dropped silently while disconnected (never replayed).
+    let observer = null;
+    if (started.running && observeToolsEnabled(process.env)) {
+      observer = createEditObserver({
+        ctx,
+        notify: (params) => started.notify('vscode/dshEditObserved', params),
+      });
+    }
     return () => {
+      if (observer) observer.dispose();
       if (started && typeof started.stop === 'function') started.stop();
     };
-  }, 'dsh-vscode-integration: vscode bridge tools');
+  }, 'dsh-vscode-integration: vscode bridge tools + edit observer');
 
   ctx.effect(() => {
     const routes = createLmRoutes({ env: process.env, ctx });
@@ -408,6 +433,7 @@ export {
   apply,
   inject,
   name,
+  observeToolsEnabled,
   openThroughBridge,
   parseHeartbeat,
   readHeartbeat,

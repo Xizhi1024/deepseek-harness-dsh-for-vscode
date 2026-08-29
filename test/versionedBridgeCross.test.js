@@ -21,8 +21,8 @@ test('notification tables cover every advertised protocol version', () => {
   }
   assert.deepStrictEqual(
     NOTIFICATIONS_BY_VERSION[3],
-    NOTIFICATIONS_BY_VERSION[2],
-    'v3 carries the v2 push set (v3a froze the request methods only)',
+    [...NOTIFICATIONS_BY_VERSION[2], 'vscode/dshEditObserved'],
+    'v3 carries the v2 push set plus the C2 edit-observation notification',
   );
 });
 

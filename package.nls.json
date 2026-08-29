@@ -67,6 +67,7 @@
   "dsh.participant.name": "DSH",
   "dsh.participant.description": "Ask the local DeepSeek Harness (DSH) from the VS Code chat view. Off by default; enable with dsh.features.chat-participant.",
   "dsh.cfg.features.changes-review": "Review workspace edits proposed by DSH: approval prompts, the dsh.changes tree view, and the vscode/changes/push bridge handler. On by default (recommended); every edit still needs explicit approval.",
+  "dsh.cfg.changes.observe-tools": "Record DSH edit/write tool writes in the changes tree (observation and attribution only - execution and permissions are governed by the DSH sandbox).",
   "dsh.cfg.features.ctrl-k": "Enable the Edit with DSH command: select code, press Ctrl+K (Cmd+K), type an instruction. Off by default; while disabled the Ctrl+K keybinding stays inactive.",
   "dsh.cfg.features.ctrl-i": "Enable the Edit with DSH Files (Ctrl+I) command that lets you pick 1-8 workspace files and sends them as a multi-file context block to the DSH conversation. Off by default; no keybinding is contributed.",
   "dsh.cfg.features.lm-route": "Expose DSH models to the VS Code language-model chat picker (vendor dsh). Off by default.",

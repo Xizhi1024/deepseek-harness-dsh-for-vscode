@@ -537,6 +537,11 @@
           "default": true,
           "description": "%dsh.cfg.features.changes-review%"
         },
+        "dsh.changes.observe-tools": {
+          "type": "boolean",
+          "default": true,
+          "description": "%dsh.cfg.changes.observe-tools%"
+        },
         "dsh.features.ctrl-k": {
           "type": "boolean",
           "default": false,

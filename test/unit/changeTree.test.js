@@ -79,6 +79,17 @@ function fakeVscode() {
         registeredProviders.push({ id, provider });
         return { dispose() {} };
       },
+      messages: [],
+      async showInformationMessage(message) {
+        this.messages.push({ level: 'info', message });
+      },
+      async showWarningMessage(message, ...buttons) {
+        this.messages.push({ level: 'warning', message, buttons });
+        return this.warningChoice === undefined ? undefined : this.warningChoice;
+      },
+      async showErrorMessage(message) {
+        this.messages.push({ level: 'error', message });
+      },
       createTreeView(id, options) {
         return { ...treeView, id, options };
       },
@@ -103,30 +114,58 @@ function fakeVscode() {
   };
 }
 
-test('change tree registers the dsh.changes provider and groups journal entries by session', async (t) => {
+test('change tree registers the dsh.changes provider and groups entries by source (journal v2)', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-change-tree-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const vscode = fakeVscode();
   const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
   await tracker.record({ sessionId: 's-1', label: 'a', edits: [] });
-  await tracker.record({ sessionId: 's-1', label: 'b', edits: [] });
-  await tracker.record({ sessionId: 's-2', label: 'c', edits: [] });
+  await tracker.record({ sessionId: 's-2', label: 'b', edits: [] });
+  await tracker.recordToolEdit({ tool: 'write', path: '/ws/c.js', sessionId: 's-1', size: 3, truncated: false });
+  await tracker.record({ source: 'external', label: 'watched.js', edits: [], status: 'accepted' });
 
-  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root } });
+  const labels = [];
+  const tree = createChangeTree({
+    vscode,
+    tracker,
+    storageUri: { fsPath: root },
+    loc: (value) => {
+      labels.push(value);
+      return value;
+    },
+  });
   assert.strictEqual(vscode.registeredProviders[0].id, 'dsh.changes');
   const provider = vscode.registeredProviders[0].provider;
 
   const groups = provider.getChildren(null);
-  assert.deepStrictEqual(groups.map((group) => group.sessionId), ['s-1', 's-2']);
+  // Canonical order: bridge first, then tool-intercept, then external.
+  assert.deepStrictEqual(groups.map((group) => group.source), ['bridge', 'tool-intercept', 'external']);
   assert.strictEqual(provider.getChildren(groups[0]).length, 2);
   assert.strictEqual(provider.getChildren(groups[1]).length, 1);
+  assert.strictEqual(provider.getChildren(groups[2]).length, 1);
 
-  const item = provider.getTreeItem(groups[0]);
-  assert.ok(item instanceof FakeTreeItem);
-  assert.strictEqual(item.collapsibleState, 1);
+  const bridgeItem = provider.getTreeItem(groups[0]);
+  assert.ok(bridgeItem instanceof FakeTreeItem);
+  assert.strictEqual(bridgeItem.collapsibleState, 1);
+  assert.strictEqual(bridgeItem.label, 'DSH edits (via bridge)');
+  assert.strictEqual(provider.getTreeItem(groups[1]).label, 'DSH tool writes');
+  assert.strictEqual(provider.getTreeItem(groups[2]).label, 'External changes');
+  assert.ok(labels.includes('DSH edits (via bridge)'));
+  assert.ok(labels.includes('DSH tool writes'));
+  assert.ok(labels.includes('External changes'));
+
   const entryItem = provider.getTreeItem(groups[0].entries[0]);
   assert.strictEqual(entryItem.contextValue, 'dsh.changes.entry.pending');
   assert.strictEqual(entryItem.command.command, 'dsh.changes.openDiff');
+  // Session attribution rides the entry description inside the bridge group.
+  assert.ok(entryItem.description.includes('s-1'));
+  // tool-intercept entries keep the tool+file label and accepted status.
+  const toolItem = provider.getTreeItem(groups[1].entries[0]);
+  assert.strictEqual(toolItem.label, 'write c.js');
+  assert.strictEqual(toolItem.contextValue, 'dsh.changes.entry.accepted');
+  // getParent resolves the owning source group.
+  const parent = provider.getParent(groups[1].entries[0]);
+  assert.strictEqual(parent.source, 'tool-intercept');
   tree.dispose();
 });
 
@@ -299,3 +338,155 @@ test('entry contextValue reflects the journal status for menu gating', async (t)
   ]);
   tree.dispose();
 });
+// ---- journal v2 (C1): external/tool-intercept undo + no-snapshot openDiff ----
+
+test('external entry undo restores the before snapshot file and marks the entry undone', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tree-ext-undo-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const target = path.join(root, 'watched.txt');
+  fs.writeFileSync(target, 'changed-by-web-gui', 'utf8');
+  const snapshotPath = path.join(root, 'snap.txt');
+  fs.writeFileSync(snapshotPath, 'before-text', 'utf8');
+  const vscode = fakeVscode();
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const entry = await tracker.record({
+    source: 'external',
+    label: 'watched.txt',
+    edits: [],
+    before: [],
+    status: 'accepted',
+    path: target,
+  });
+  tracker.updateEntry(entry.id, { beforeSnapshotPath: snapshotPath });
+  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root } });
+
+  const result = await tree.undo(tracker.get(entry.id));
+  assert.deepStrictEqual(result, { undone: true, method: 'snapshot-restore', changeId: entry.id });
+  assert.strictEqual(fs.readFileSync(target, 'utf8'), 'before-text');
+  assert.strictEqual(tracker.get(entry.id).status, 'undone');
+  // No confirmation prompt is needed when a snapshot exists.
+  assert.strictEqual(vscode.window.messages.length, 0);
+  tree.dispose();
+});
+
+test('external entry undo without snapshot asks for confirmation, then git-checkouts the file', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tree-ext-git-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const target = path.join(root, 'dirty.js');
+  fs.writeFileSync(target, 'dirty', 'utf8');
+  const vscode = fakeVscode();
+  vscode.window.warningChoice = 'Undo';
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const entry = await tracker.record({
+    source: 'external',
+    label: 'dirty.js',
+    edits: [],
+    before: [],
+    status: 'accepted',
+    path: target,
+  });
+  const restored = [];
+  const tree = createChangeTree({
+    vscode,
+    tracker,
+    storageUri: { fsPath: root },
+    loc: (value, params) => Object.entries(params || {}).reduce(
+      (text, [key, replacement]) => text.split('{' + key + '}').join(String(replacement)),
+      value,
+    ),
+    gitRestore: async (fsPath) => {
+      restored.push(fsPath);
+      return true;
+    },
+  });
+
+  const result = await tree.undo(tracker.get(entry.id));
+  assert.deepStrictEqual(result, { undone: true, method: 'git-checkout', changeId: entry.id });
+  assert.deepStrictEqual(restored, [target]);
+  assert.strictEqual(tracker.get(entry.id).status, 'undone');
+  // The destructive-undo confirmation was shown exactly once (an undo safety
+  // prompt, not a permission gate).
+  const warnings = vscode.window.messages.filter((message) => message.level === 'warning');
+  assert.strictEqual(warnings.length, 1);
+  assert.ok(warnings[0].message.includes('dirty.js'));
+  tree.dispose();
+});
+
+test('external entry undo without snapshot respects cancellation and git unavailability', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tree-ext-no-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const target = path.join(root, 'dirty2.js');
+  fs.writeFileSync(target, 'dirty', 'utf8');
+  const vscode = fakeVscode();
+  vscode.window.warningChoice = undefined; // user dismisses the prompt
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const entry = await tracker.record({
+    source: 'external',
+    label: 'dirty2.js',
+    edits: [],
+    before: [],
+    status: 'accepted',
+    path: target,
+  });
+  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root } });
+
+  const cancelled = await tree.undo(tracker.get(entry.id));
+  assert.deepStrictEqual(cancelled, { undone: false, reason: 'cancelled', changeId: entry.id });
+  assert.strictEqual(tracker.get(entry.id).status, 'accepted');
+
+  vscode.window.warningChoice = 'Undo'; // confirm, but git cannot restore
+  const unavailable = await tree.undo(tracker.get(entry.id));
+  assert.deepStrictEqual(unavailable, { undone: false, reason: 'no-snapshot-no-git', changeId: entry.id });
+  assert.strictEqual(tracker.get(entry.id).status, 'accepted');
+  assert.ok(vscode.window.messages.some((message) => message.level === 'error'));
+  tree.dispose();
+});
+
+test('tool-intercept entry openDiff annotates the missing snapshot and opens the current file', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tree-tool-diff-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const entry = await tracker.recordToolEdit({
+    tool: 'edit',
+    path: '/ws/src/a.js',
+    sessionId: 'sess-9',
+    size: 42,
+    truncated: false,
+  });
+  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root } });
+
+  const result = await tree.openDiff(tracker.get(entry.id));
+  assert.deepStrictEqual(result, { opened: true, noSnapshot: true });
+  assert.ok(vscode.window.messages.some((message) => message.level === 'info'
+    && message.message.includes('No before snapshot')));
+  const openCall = vscode.executedCommands.find((args) => args[0] === 'vscode.open');
+  assert.ok(openCall, 'vscode.open must be invoked for the current file');
+  tree.dispose();
+});
+
+test('tool-intercept entry undo follows the external semantics (snapshot first)', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tree-tool-undo-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const target = path.join(root, 'tool-written.js');
+  fs.writeFileSync(target, 'after-tool', 'utf8');
+  const snapshotPath = path.join(root, 'tool-snap.txt');
+  fs.writeFileSync(snapshotPath, 'before-tool', 'utf8');
+  const vscode = fakeVscode();
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const entry = await tracker.recordToolEdit({
+    tool: 'write',
+    path: target,
+    sessionId: 'sess-1',
+    size: 11,
+    truncated: false,
+  });
+  tracker.updateEntry(entry.id, { beforeSnapshotPath: snapshotPath });
+  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root } });
+
+  const result = await tree.undo(tracker.get(entry.id));
+  assert.deepStrictEqual(result, { undone: true, method: 'snapshot-restore', changeId: entry.id });
+  assert.strictEqual(fs.readFileSync(target, 'utf8'), 'before-tool');
+  tree.dispose();
+});
+

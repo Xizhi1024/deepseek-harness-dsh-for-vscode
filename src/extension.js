@@ -82,6 +82,7 @@ const { createWorkspaceBinding, BINDING_STATES } = require("./context/workspaceB
 const { createEditorContext } = require("./editorContext");
 const { createV3Handlers } = require("./bridge/v3");
 const { createChangeTracker } = require("./changeTracker");
+const { createChangeWatcher } = require("./changeWatcher");
 const callExportJournal = require("./callExportJournal");
 const { createChangeTree } = require("./changeTree");
 const { createLmRoute } = require("./lmRoute");
@@ -126,6 +127,7 @@ let notificationNotifier = null; // CH1 v2 metadata notification coalescer
 let notificationSubscriptions = []; // selection/diagnostics event disposables
 let editorContext = null; // per-window approved editor attachments backing vscode/editor methods
 let changeTracker = null; // R14S1 journal for applied changes (created in L0, no UI)
+let changeWatcher = null; // C1 L3 FileSystemWatcher fallback for source:'external' changes
 let changeTree = null; // R14S1 TreeView/command surface (created in L2 changes-review)
 let lmRoute = null; // R23 model-route provider (created in L2 lm-route)
 let mcpManager = null; // S2b MCP consume aggregator (created in L0, no side effects)
@@ -1525,6 +1527,17 @@ async function setupCoreSidebar({ context, services }) {
       }
       return entry;
     },
+    async recordToolEdit(payload) {
+      const entry = await rawChangeTracker.recordToolEdit(payload);
+      if (entry && entry.merged !== true) {
+        try {
+          services.changesReview?.onEntry?.(entry);
+        } catch (_) {
+          // reveal is best-effort; the journal record already succeeded
+        }
+      }
+      return entry;
+    },
   };
   services.changeTracker = changeTracker;
   mcpConsentGate = createConsentGate({
@@ -1579,6 +1592,8 @@ async function setupCoreSidebar({ context, services }) {
     })
     : injectedDependencies.v3Handlers;
   versionedBridge = await versionedBridgeStarter({
+    // C1/C2 contract: route vscode/dshEditObserved notifications into the journal.
+    onDshEditObserved: (payload) => changeTracker?.recordToolEdit?.(payload),
     handlers: injectedDependencies.vscodeBridgeHandlers === undefined
       ? { ...editorContext.handlers, ...extensionBridgeHandlers, ...v3Handlers }
       : injectedDependencies.vscodeBridgeHandlers,
@@ -2127,12 +2142,44 @@ async function setupChangesReview({ context, services }) {
     },
   };
   context.subscriptions.push({ dispose() { changeTree?.dispose(); } });
+  // C1 L3: the FileSystemWatcher fallback rides the changes-review feature —
+  // same tracker, same storage, disposed together (startWatcher/stopWatcher).
+  startChangeWatcher(context);
   return () => {
     services.changesReview = undefined;
     services.changesTree = undefined;
+    stopChangeWatcher();
     changeTree?.dispose();
     changeTree = null;
   };
+}
+
+/** C1 L3: start the changes watcher fallback (idempotent, best-effort). */
+function startChangeWatcher(context) {
+  if (changeWatcher) return;
+  try {
+    changeWatcher = createChangeWatcher({
+      vscode,
+      tracker: changeTracker,
+      storageUri: context.globalStorageUri,
+      loc,
+      onDiagnostic: (line) => appendDiagnostic(line),
+    });
+    context.subscriptions.push({ dispose() { stopChangeWatcher(); } });
+  } catch (error) {
+    changeWatcher = null;
+    appendDiagnostic(`changes watcher unavailable: ${error && error.message ? error.message : error}`);
+  }
+}
+
+/** C1 L3: stop the changes watcher fallback (idempotent). */
+function stopChangeWatcher() {
+  try {
+    changeWatcher?.dispose?.();
+  } catch {
+    // best-effort
+  }
+  changeWatcher = null;
 }
 
 /**

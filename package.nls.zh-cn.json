@@ -67,6 +67,7 @@
   "dsh.participant.name": "DSH",
   "dsh.participant.description": "在 VS Code 聊天视图中询问本地 DeepSeek Harness (DSH)。默认关闭；开启 dsh.features.chat-participant 后可用。",
   "dsh.cfg.features.changes-review": "审查 DSH 提议的工作区编辑：审批弹窗、dsh.changes 树视图与 vscode/changes/push 桥接处理器。默认开启（推荐）；每次编辑仍需显式批准。",
+  "dsh.cfg.changes.observe-tools": "记录 DSH edit/write 工具写入到变更树（仅观测与归因，不影响执行；执行权限由 DSH 沙箱决定）。默认开启。",
   "dsh.cfg.features.ctrl-k": "启用「用 DSH 编辑」命令：选中代码后按 Ctrl+K（macOS 为 Cmd+K）输入指令。默认关闭；关闭期间 Ctrl+K 键位保持不生效。",
   "dsh.cfg.features.ctrl-i": "启用「用 DSH 文件编辑（Ctrl+I）」命令：选择 1-8 个工作区文件并以多文件上下文块发送到 DSH 对话。默认关闭；不贡献默认键位。",
   "dsh.cfg.features.lm-route": "在 VS Code 语言模型聊天选择器中暴露 DSH 模型（vendor 为 dsh）。默认关闭。",
