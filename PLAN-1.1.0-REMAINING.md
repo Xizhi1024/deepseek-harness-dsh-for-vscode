@@ -24,7 +24,7 @@ ddfb734  feat(C3) MCP env 密钥联动 secretStorage（3 文件 +123）
 - src/dshChatClient.js（562 行，SSE delta 订阅 ~340 行）
 - src/context/workspaceBinding.js:179 createSession
 - src/sessionNavigation.js（listSessions/createSession；377/429 行附近）
-- 双前缀是运行时现象（源码无字面 "session-session-"），沿 id 派生链路实测定位
+- 【根因更正 2026-08-29】"session-session- 双前缀"实为 **DSH 运行时导出命名**（dsh-host-apiproxy 的 sessionLogZipFilename = 'dsh-session-' + 完整 sessionId，而 id 本身以 session- 开头 → dsh-session-session-<uuid>.zip），**与扩展会话链路无关**（扩展全程原样透传 id，已核实 webviewHtml/workspaceBinding/sessionNavigation 三处）。运行时三处拼接点已在本地全局安装热修（剥前导 session-；npm 重装 dsh 会回滚，需上游修复）。B2 剩余实际工作=会话复用/裸 UUID 标题/流式转发三项。
 - 验收：3 条消息 0 新会话；标题可读；流式转发
 
 ### C1 · journal v2 + watcher 兜底
