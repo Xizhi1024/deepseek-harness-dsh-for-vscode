@@ -394,6 +394,61 @@ test('streamSession routes malformed SSE data to INVALID_RESPONSE', async () => 
   assert.deepStrictEqual(result, { reason: 'DSH_SESSION_API_INVALID_RESPONSE' });
 });
 
+test('streamSession invokes onReady once after the connection is established, before any delta', async () => {
+  const order = [];
+  const chunks = [
+    ': connected\n\n',
+    sseFrameFor(sessionEventFrame('s1', textChunkEvent('Hello'))),
+  ];
+  const fetchImpl = async () => sseResponse(chunks);
+  const client = createDshChatClient({ fetchImpl, baseUrlProvider: () => BASE_URL });
+
+  const result = await client.streamSession({
+    sessionId: 's1',
+    onText: (text) => order.push(['onText', text]),
+    onDone: () => {},
+    onReady: () => order.push(['onReady']),
+  });
+
+  assert.deepStrictEqual(result, { reason: 'stream-end' });
+  assert.deepStrictEqual(order, [['onReady'], ['onText', 'Hello']]);
+});
+
+test('streamSession never invokes onReady when the connection fails', async () => {
+  const fetchImpl = async () => {
+    throw new Error('connection refused');
+  };
+  const client = createDshChatClient({ fetchImpl, baseUrlProvider: () => BASE_URL });
+
+  let ready = false;
+  const result = await client.streamSession({
+    sessionId: 's1',
+    onText: () => {},
+    onDone: () => {},
+    onReady: () => { ready = true; },
+  });
+
+  assert.equal(ready, false);
+  assert.deepStrictEqual(result, { reason: 'DSH_SESSION_API_UNAVAILABLE' });
+});
+
+test('streamSession routes an onReady throw to onDone consumer-error', async () => {
+  const fetchImpl = async () => hangingSseResponse();
+  const client = createDshChatClient({ fetchImpl, baseUrlProvider: () => BASE_URL });
+
+  let done;
+  const pending = client.streamSession({
+    sessionId: 's1',
+    onText: () => {},
+    onDone: (d) => { done = d; },
+    onReady: () => { throw new Error('ready boom'); },
+  });
+  const result = await pending;
+
+  assert.deepStrictEqual(done, { reason: 'consumer-error' });
+  assert.deepStrictEqual(result, { reason: 'consumer-error' });
+});
+
 test('streamSession routes onText failures to onDone consumer-error without rejecting', async () => {
   const chunks = [
     sseFrameFor(sessionEventFrame('s1', textChunkEvent('boom'))),

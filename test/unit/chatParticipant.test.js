@@ -49,14 +49,21 @@ function makeDeps() {
   const streamCalls = [];
   const resolveCalls = [];
   const listCalls = [];
+  const order = [];
   const deps = {
     chatClient: {
       async prompt(args) {
+        order.push('prompt');
         promptCalls.push(args);
         return { accepted: true, sessionId: args.sessionId };
       },
       async streamSession(args) {
+        order.push('stream');
         streamCalls.push(args);
+        if (typeof args.onReady === 'function') {
+          order.push('stream-ready');
+          args.onReady();
+        }
         return { reason: 'stream-end' };
       },
     },
@@ -71,7 +78,7 @@ function makeDeps() {
     },
     loc: defaultLoc,
   };
-  return { deps, promptCalls, streamCalls, resolveCalls, listCalls };
+  return { deps, promptCalls, streamCalls, resolveCalls, listCalls, order };
 }
 
 // ---------------------------------------------------------------------------
@@ -79,13 +86,17 @@ function makeDeps() {
 // ---------------------------------------------------------------------------
 
 test('handleRequest queues request.prompt and streams markdown chunks, splitting overlong deltas', async () => {
-  const { deps, promptCalls, streamCalls, resolveCalls } = makeDeps();
+  const { deps, promptCalls, streamCalls, resolveCalls, order } = makeDeps();
   const longDelta = 'a'.repeat(17000);
   deps.chatClient.streamSession = async (args) => {
     streamCalls.push(args);
+    order.push('stream');
+    if (typeof args.onReady === 'function') {
+      order.push('stream-ready');
+      args.onReady();
+    }
     args.onText('hi');
     args.onText(longDelta);
-    args.onDone({ reason: 'stream-end' });
     return { reason: 'stream-end' };
   };
 
@@ -107,6 +118,7 @@ test('handleRequest queues request.prompt and streams markdown chunks, splitting
   assert.equal(streamCalls.length, 1);
   assert.equal(streamCalls[0].sessionId, 'session-1');
   assert.strictEqual(streamCalls[0].signal, promptCalls[0].signal);
+  assert.deepStrictEqual(order, ['stream', 'stream-ready', 'prompt']);
   assert.deepStrictEqual(response.calls, [
     'hi',
     'a'.repeat(8000),
@@ -148,7 +160,7 @@ test('handleRequest surfaces resolveSessionId errors as markdown and does not th
   assert.equal(streamCalls.length, 0);
 });
 
-test('handleRequest surfaces prompt errors as markdown and does not start the stream', async () => {
+test('handleRequest surfaces prompt errors as markdown and aborts the live stream', async () => {
   const { deps, promptCalls, streamCalls } = makeDeps();
   deps.chatClient.prompt = async (args) => {
     promptCalls.push(args);
@@ -162,7 +174,44 @@ test('handleRequest surfaces prompt errors as markdown and does not start the st
   assert.equal(response.calls.length, 1);
   assert.match(response.calls[0], /DSH unavailable: prompt down/);
   assert.equal(promptCalls.length, 1);
-  assert.equal(streamCalls.length, 0);
+  assert.equal(streamCalls.length, 1);
+  assert.equal(streamCalls[0].signal.aborted, true);
+});
+
+test('handleRequest never sends the prompt when the live stream fails before ready', async () => {
+  const { deps, promptCalls, streamCalls } = makeDeps();
+  deps.chatClient.streamSession = async (args) => {
+    streamCalls.push(args);
+    args.onDone({ reason: 'DSH_SESSION_API_UNAVAILABLE' });
+    return { reason: 'DSH_SESSION_API_UNAVAILABLE' };
+  };
+
+  const module = createChatParticipantModule(deps);
+  const response = makeResponse();
+
+  await assert.doesNotReject(module.handleRequest({ prompt: 'hi' }, {}, response, makeToken()));
+  assert.equal(promptCalls.length, 0);
+  assert.equal(response.calls.length, 1);
+  assert.match(response.calls[0], /DSH unavailable: live stream/);
+});
+
+test('handleRequest streams markdown progressively as live deltas arrive', async () => {
+  const { deps } = makeDeps();
+  deps.chatClient.streamSession = async (args) => {
+    if (typeof args.onReady === 'function') args.onReady();
+    args.onText('Hello');
+    args.onText(' native');
+    args.onText(' chat!');
+    return { reason: 'stream-end' };
+  };
+
+  const module = createChatParticipantModule(deps);
+  const response = makeResponse();
+
+  await module.handleRequest({ prompt: 'hi' }, {}, response, makeToken());
+
+  assert.ok(response.calls.length >= 2, 'markdown must be called per delta (true streaming)');
+  assert.deepStrictEqual(response.calls, ['Hello', ' native', ' chat!']);
 });
 
 test('handleRequest wires token cancellation into the prompt/stream AbortSignal and disposes the listener', async () => {
@@ -207,9 +256,9 @@ test('handleRequest aborts the stream and stops calling markdown when response.m
   const { deps, streamCalls } = makeDeps();
   deps.chatClient.streamSession = async (args) => {
     streamCalls.push(args);
+    if (typeof args.onReady === 'function') args.onReady();
     args.onText('a'.repeat(8500));
     args.onText('b');
-    args.onDone({ reason: 'stream-end' });
     return { reason: 'stream-end' };
   };
 
@@ -227,8 +276,8 @@ test('handleRequest never reads request.model', async () => {
   const { deps, streamCalls } = makeDeps();
   deps.chatClient.streamSession = async (args) => {
     streamCalls.push(args);
+    if (typeof args.onReady === 'function') args.onReady();
     args.onText('ok');
-    args.onDone({ reason: 'stream-end' });
     return { reason: 'stream-end' };
   };
   const request = { prompt: 'hi' };

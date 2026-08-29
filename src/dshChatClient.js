@@ -353,6 +353,10 @@ function createDshChatClient({
    *   - only `session/event` frames whose `sessionId` matches are considered;
    *     every other frame is ignored.
    *   - `onText(string)` is called once per visible text delta, in order.
+   *   - `onReady()` (optional) is called exactly once after the SSE connection
+   *     is established and the server has subscribed the session bus - at that
+   *     point no live session/event can be missed. It is never called when
+   *     the connection fails; a throw routes to `consumer-error`.
    *   - `onDone({reason})` is called exactly once when the stream ends or is
    *     interrupted. Reasons: `'stream-end'`, `'aborted'`,
    *     `'DSH_SESSION_STREAM_STALLED'`, `'DSH_SESSION_API_INVALID_RESPONSE'`,
@@ -368,10 +372,12 @@ function createDshChatClient({
    * @param {string} args.sessionId - Session whose text deltas are forwarded.
    * @param {Function} args.onText - Called with each text delta string.
    * @param {Function} args.onDone - Called once with `{reason}`.
+   * @param {Function} [args.onReady] - Called once after the connection is
+   *   established (server subscribed; no delta can be missed from this point).
    * @param {AbortSignal} [args.signal] - Caller abort signal.
    * @returns {Promise<{reason: string}>} Terminal reason (also passed to onDone).
    */
-  async function streamSession({ sessionId, onText, onDone, signal } = {}) {
+  async function streamSession({ sessionId, onText, onDone, onReady, signal } = {}) {
     if (typeof sessionId !== "string" || sessionId.length === 0) {
       throw new TypeError("sessionId must be a non-empty string");
     }
@@ -380,6 +386,9 @@ function createDshChatClient({
     }
     if (typeof onDone !== "function") {
       throw new TypeError("onDone must be a function");
+    }
+    if (typeof onReady !== "undefined" && typeof onReady !== "function") {
+      throw new TypeError("onReady must be a function when provided");
     }
 
     const resolvedFetch = resolveFetchImpl({ fetchImpl });
@@ -478,6 +487,24 @@ function createDshChatClient({
       const decoder = new TextDecoder();
       let buffer = "";
       armStall();
+
+      // The server subscribes the session bus before returning the SSE
+      // Response, so once the reader is acquired no live session/event frame
+      // can be missed. Notify readiness before consuming any delta so callers
+      // can order dependent requests (e.g. send session.prompt only now).
+      if (typeof onReady === "function") {
+        try {
+          const maybePromise = onReady();
+          if (maybePromise && typeof maybePromise.then === "function") {
+            await maybePromise;
+          }
+        } catch (_) {
+          finish("consumer-error");
+          return done;
+        }
+        if (done !== null) return done;
+        armStall();
+      }
 
       while (done === null) {
         let read;
