@@ -121,12 +121,12 @@ test('validateWireEdits accepts the frozen WorkspaceEdit safe subset', () => {
   assert.strictEqual(normalized[1].text, 'replacement');
 });
 
-test('validateWireEdits rejects outside-workspace and malformed edits', () => {
+test('validateWireEdits allows outside-workspace file URIs (F-d) and rejects malformed edits', () => {
   const vscode = fakeVscode();
-  assert.throws(
-    () => validateWireEdits([{ ...edits.insert, uri: 'file:///outside/a.js' }], vscode),
-    (error) => error instanceof ChangeTrackerError && error.bridgeCode === 'VSCODE_URI_OUTSIDE_WORKSPACE',
-  );
+  // F-d: the workspace boundary is gone - which paths are writable is
+  // single-sourced from the DSH sandbox, not from this extension.
+  const normalized = validateWireEdits([{ ...edits.insert, uri: 'file:///outside/a.js' }], vscode);
+  assert.strictEqual(String(normalized[0].uri), 'file:///outside/a.js');
   assert.throws(
     () => validateWireEdits([], vscode),
     (error) => error.bridgeCode === 'VSCODE_INVALID_PARAMS',

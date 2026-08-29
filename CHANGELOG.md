@@ -5,8 +5,8 @@ All notable changes to this project are documented here, following [Keep a Chang
 
 ## [1.1.0] - Unreleased
 
-> ⚠️ **迁移提示 / Migration note**：变更评审语义重排——`vscode/changes/push` 现在只把编辑记入变更树（**pending**，不落盘），在树中点 **Accept** 才真正写入文件；**Undo** 对 pending 条目直接丢弃、对已接受条目按快照整文件还原。1.0.x journal 里的旧条目以 legacy 标记显示。
-> Change review semantics reworked: `vscode/changes/push` now records edits into the changes tree as **pending** without touching disk; **Accept** in the tree applies them; **Undo** discards pending entries outright and restores accepted ones from whole-file snapshots. Entries from 1.0.x journals render with a legacy marker.
+> ⚠️ **迁移提示 / Migration note（F-d，Codex 对齐）**：`vscode/changes/push` 改为**直写**——扩展自设的审批弹窗（Allow Once/Session/Reject）与工作区边界拒绝已**删除**；哪条路径可写、要不要批，由 DSH 沙箱单源决定（read-only / workspace-write / full-access 三档在 DSH 侧）。安全网 = 落盘前类型化校验（结构 + 活文档坐标范围）+ journal before-快照 + 变更树文件级 **Undo**（快照整文件还原）——人是 Reviewer，不是守门员。过渡期早前构建产生的 pending 条目仍可在树上 Accept/丢弃；1.0.x 旧条目以 legacy 标记显示。
+> `vscode/changes/push` is now a **direct write** channel: the extension-side approval modal (Allow Once/Session/Reject) and the workspace-boundary rejection are REMOVED - which paths are writable and whether to approve is single-sourced from the DSH sandbox (its read-only / workspace-write / full-access tiers). The safety net is typed validation before landing (structure + live-document ranges), a before-snapshot in the journal, and file-level **Undo** in the changes tree (whole-file snapshot restore) - humans are reviewers, not gatekeepers. Pending entries from interim builds remain Accept/discard-able in the tree; 1.0.x entries render with a legacy marker.
 
 ### Added / 新增
 

@@ -235,7 +235,7 @@ test('A8 regression: a call-time gated proposed API must not break handler const
   assert.strictEqual(typeof handlers['vscode/terminal/create'], 'function', 'terminal bridge still mounts (sendText ring only)');
 });
 
-test('F-b: changes/push rejects out-of-range coordinates before the approval modal', async () => {
+test('F-b: changes/push rejects out-of-range coordinates before writing anything', async () => {
   const fake = fakeVscode();
   const text = 'one line';
   fake.api.workspace.openTextDocument = async (uri) => ({
@@ -258,14 +258,14 @@ test('F-b: changes/push rejects out-of-range coordinates before the approval mod
     (error) => error.bridgeCode === 'VSCODE_EDIT_OUT_OF_RANGE',
     'line 9 in a one-line document is rejected with a specific code',
   );
-  assert.strictEqual(modals, 0, 'validation must fail fast, before any approval modal');
+  assert.strictEqual(modals, 0, 'no approval modal exists in the direct-write model');
   assert.strictEqual(fake.appliedEdits.length, 0, 'nothing reaches applyEdit');
-  // The in-range twin goes through the pending flow as before.
+  // The in-range twin applies directly (F-d).
   const result = await handlers['vscode/changes/push']({
     edits: [{ kind: 'insert', uri: 'file:///ws/a.js', at: { line: 0, character: 0 }, text: 'x' }],
   });
-  assert.strictEqual(result.pending, true);
-  assert.strictEqual(modals, 1, 'the in-range push reaches the modal exactly once');
+  assert.strictEqual(result.applied, true);
+  assert.strictEqual(modals, 0, 'still no modal on the happy path');
 });
 
 test('tasks list filters to workspace-declared tasks and run executes exactly those', async () => {
@@ -338,64 +338,34 @@ test('changes/push is gated by dsh.features.changes-review', () => {
   assert.ok(typeof on['vscode/changes/push'] === 'function', 'changes/push mounts when the feature is enabled');
 });
 
-test('changes/push journals as pending after Allow Once and does not touch disk (B1)', async () => {
+test('F-d: changes/push applies directly with no approval modal and records accepted', async () => {
   const fake = fakeVscode();
-  fake.api.window.showWarningMessage = async () => 'Allow Once';
+  let modals = 0;
+  fake.api.window.showWarningMessage = async () => { modals += 1; return 'Allow Once'; };
   const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.changes-review': true }) });
   const result = await handlers['vscode/changes/push']({
     label: 'demo',
     edits: [{ kind: 'insert', uri: 'file:///ws/a.js', at: { line: 0, character: 0 }, text: 'x' }],
   });
-  assert.strictEqual(result.aproved === undefined, true); // no typo field
-  assert.strictEqual(result.applied, false, 'B1: push no longer writes to disk');
-  assert.strictEqual(result.approved, true);
-  assert.strictEqual(result.pending, true);
+  // F-d (Codex-aligned): permission is single-sourced from the DSH sandbox -
+  // this extension adds no gate of its own; the journal + tree undo is the
+  // review surface.
+  assert.strictEqual(modals, 0, 'no approval modal may be shown');
+  assert.strictEqual(result.applied, true, 'push writes to disk immediately');
+  assert.strictEqual(result.approved, undefined, 'approval vocabulary is gone from the wire result');
+  assert.strictEqual(result.pending, undefined);
   assert.strictEqual(result.changeIds.length, 1);
-  assert.strictEqual(fake.appliedEdits.length, 0, 'B1: nothing is applied until the tree Accept command');
+  assert.strictEqual(fake.appliedEdits.length, 1, 'the WorkspaceEdit went through applyEdit');
 });
 
-test('changes/push returns model-visible not-approved on rejection', async () => {
-  const fake = fakeVscode();
-  fake.api.window.showWarningMessage = async () => 'Reject';
+test('F-d: changes/push allows file URIs outside the workspace (DSH sandbox decides)', async () => {
+  const fake = fakeVscode(); // getWorkspaceFolder returns undefined for file:///outside
   const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.changes-review': true }) });
   const result = await handlers['vscode/changes/push']({
-    edits: [{ kind: 'insert', uri: 'file:///ws/a.js', at: { line: 0, character: 0 }, text: 'x' }],
+    edits: [{ kind: 'insert', uri: 'file:///outside/a.js', at: { line: 0, character: 0 }, text: 'x' }],
   });
-  assert.deepStrictEqual(result, { applied: false, approved: false, reason: 'user-rejected' });
-  assert.strictEqual(fake.appliedEdits.length, 0);
-});
-
-test('changes/push session approval skips the next modal for the same session', async () => {
-  const fake = fakeVscode();
-  let asks = 0;
-  fake.api.window.showWarningMessage = async () => {
-    asks += 1;
-    return asks === 1 ? 'Allow Session' : 'Allow Once';
-  };
-  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.changes-review': true }) });
-  const params = {
-    sessionId: 's-1',
-    mode: 'session',
-    edits: [{ kind: 'insert', uri: 'file:///ws/a.js', at: { line: 0, character: 0 }, text: 'x' }],
-  };
-  const first = await handlers['vscode/changes/push'](params);
-  const second = await handlers['vscode/changes/push'](params);
-  assert.strictEqual(first.approved, true);
-  assert.strictEqual(second.approved, true);
-  assert.strictEqual(asks, 1, 'session approval must skip the second modal');
-  assert.strictEqual(fake.appliedEdits.length, 0, 'B1: both pushes journal as pending; disk writes happen on Accept');
-});
-
-test('changes/push rejects edits outside the workspace', async () => {
-  const fake = fakeVscode();
-  fake.api.window.showWarningMessage = async () => 'Allow Once';
-  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.changes-review': true }) });
-  await assert.rejects(
-    handlers['vscode/changes/push']({
-      edits: [{ kind: 'insert', uri: 'file:///outside/a.js', at: { line: 0, character: 0 }, text: 'x' }],
-    }),
-    (error) => error.bridgeCode === 'VSCODE_URI_OUTSIDE_WORKSPACE',
-  );
+  assert.strictEqual(result.applied, true, 'outside-workspace writes are the sandbox call, not ours');
+  assert.strictEqual(fake.appliedEdits.length, 1);
 });
 
 test('mcp/* handlers are gated by features.mcp-consume; a missing manager degrades to VSCODE_MCP_UNAVAILABLE', async () => {

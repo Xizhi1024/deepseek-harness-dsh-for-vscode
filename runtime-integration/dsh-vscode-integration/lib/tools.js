@@ -291,11 +291,11 @@ const METHOD_SCHEMAS = {
     }, ['prompt']),
   },
   'vscode/changes/push': {
-    description: 'Push workspace edits for approval and apply them in VS Code.',
+    description: 'Apply workspace edits through the VS Code editor. Permission is governed by the DSH sandbox that owns this session - VS Code adds no approval gate. Every batch lands in the changes tree with a before-snapshot and file-level undo (the review surface).',
     parameters: objectSchema({
       sessionId: stringProp('DSH session id for journal isolation'),
       label: stringProp('Change label shown in the tree view (max 200 chars)'),
-      mode: { type: 'string', enum: ['ask', 'session'] },
+      mode: { type: 'string', enum: ['ask', 'session'], description: 'Legacy field from the approval era; accepted, ignored' },
       edits: { type: 'array', items: editSchema(), description: 'Workspace edits (max 50)' },
     }, ['edits']),
   },

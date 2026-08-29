@@ -72,10 +72,12 @@ function describeUri(uri) {
 
 /**
  * Parse and validate wire-supplied workspace edits (WorkspaceEdit safe subset).
- * Every edit uri must be a file URI inside an open workspace folder.
+ * Every edit uri must be a file URI. F-d: paths outside the open workspace
+ * folders are ALLOWED — which paths are writable is single-sourced from the
+ * DSH sandbox that owns the calling agent, not from this extension.
  *
  * @param {Array<object>} edits - Raw wire edits.
- * @param {object} vscode - VS Code facade ({ Uri, workspace }).
+ * @param {object} vscode - VS Code facade ({ Uri }).
  * @returns {Array<object>} Normalized edits with parsed uri objects.
  */
 function validateWireEdits(edits, vscode) {
@@ -84,9 +86,6 @@ function validateWireEdits(edits, vscode) {
   }
   if (!vscode || !vscode.Uri || typeof vscode.Uri.parse !== 'function') {
     throw new TypeError('validateWireEdits requires vscode.Uri.parse');
-  }
-  if (!vscode.workspace || typeof vscode.workspace.getWorkspaceFolder !== 'function') {
-    throw new TypeError('validateWireEdits requires vscode.workspace.getWorkspaceFolder');
   }
   const normalized = [];
   for (let index = 0; index < edits.length; index += 1) {
@@ -104,15 +103,6 @@ function validateWireEdits(edits, vscode) {
     }
     if (!uri || uri.scheme !== 'file') {
       throw new ChangeTrackerError('VSCODE_UNSUPPORTED_DOCUMENT', 'changes/push edits must use file:// URIs');
-    }
-    let folder = null;
-    try {
-      folder = vscode.workspace.getWorkspaceFolder(uri);
-    } catch {
-      folder = undefined;
-    }
-    if (folder === undefined) {
-      throw new ChangeTrackerError('VSCODE_URI_OUTSIDE_WORKSPACE', `Edit URI is outside the workspace: ${describeUri(uri)}`);
     }
     const normalizedEdit = { kind, uri };
     if (kind === 'insert') {

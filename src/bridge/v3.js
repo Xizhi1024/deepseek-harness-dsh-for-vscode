@@ -641,11 +641,16 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
   }
 
   // ---- changes/push (L2 gate: dsh.features.changes-review) -------------------
-  // Not-approved paths return a model-visible result instead of throwing, so
-  // the DSH agent can report the user's decision without a bridge error.
+  // F-d (Codex-aligned): this is a DIRECT write channel. The extension adds
+  // no approval gate of its own — permission is single-sourced from the DSH
+  // sandbox that owns the calling agent (read-only / workspace-write /
+  // full-access tiers live there). Safety here = typed-edit validation
+  // before landing (structure + live-document ranges), a before-snapshot in
+  // the journal, and file-level undo in the changes tree (the review
+  // surface). The workspace-boundary restriction is likewise gone: DSH's
+  // sandbox decides which paths are writable, not this handler.
   if (getFlag('features.changes-review')) {
     const tracker = changeTracker || createChangeTracker({ storageUri: null, vscode });
-    const sessionApprovals = new Set();
 
     handlers['vscode/changes/push'] = async (params) => {
       if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'changes/push params must be an object');
@@ -658,46 +663,27 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
         }
       }
       if (params.mode !== undefined && params.mode !== 'ask' && params.mode !== 'session') {
+        // Legacy wire field from the 1.0.x approval era: still validated for
+        // shape, ignored otherwise (no approval semantics remain).
         throw v3Error('VSCODE_INVALID_PARAMS', "changes/push mode must be 'ask' or 'session'");
       }
       const sessionId = typeof params.sessionId === 'string' ? params.sessionId : '';
       const label = typeof params.label === 'string' ? params.label : '';
-      const mode = params.mode === 'session' ? 'session' : 'ask';
       const edits = validateWireEdits(params.edits, vscode);
-      // F-b: reject coordinates outside the live document before any approval
-      // modal or journal write — otherwise zombie pending entries wedge the
-      // tree when Accept builds the WorkspaceEdit and VS Code declines it.
+      // F-b: reject coordinates outside the live document BEFORE writing —
+      // otherwise zombie entries wedge the tree when applyEdit declines.
       await assertEditsWithinDocuments(edits, vscode);
 
-      if (mode === 'session' && sessionId.length > 0 && sessionApprovals.has(sessionId)) {
-        const before = await tracker.snapshotBefore(edits);
-        const entry = await tracker.record({ sessionId, label, edits: stringifyEdits(edits), before });
-        return { applied: false, approved: true, pending: true, changeIds: [entry.id] };
-      }
-
-      const files = new Set(edits.map((edit) => String(edit.uri))).size;
-      const detail = `${files} file(s), ${edits.length} edit(s)` + (label.length > 0 ? ` — ${label}` : '');
-      const message = `DSH requests workspace edits (${detail})`;
-      const choice = await withTimeout(
-        vscode.window.showWarningMessage(message, { modal: true }, 'Allow Once', 'Allow Session', 'Reject'),
-        CONFIRM_TIMEOUT_MS,
-      );
-
-      if (choice === 'Allow Session') {
-        if (sessionId.length > 0) sessionApprovals.add(sessionId);
-      } else if (choice !== 'Allow Once') {
-        return {
-          applied: false,
-          approved: false,
-          reason: choice === 'Reject' ? 'user-rejected' : 'timeout-or-dismissed',
-        };
-      }
-
-      // B1: approval only journals the change as pending; the tree's Accept
-      // command is what writes it to disk (tracker.applyEdits).
       const before = await tracker.snapshotBefore(edits);
-      const entry = await tracker.record({ sessionId, label, edits: stringifyEdits(edits), before });
-      return { applied: false, approved: true, pending: true, changeIds: [entry.id] };
+      await tracker.applyEdits(edits);
+      const entry = await tracker.record({
+        sessionId,
+        label,
+        edits: stringifyEdits(edits),
+        before,
+        status: 'accepted',
+      });
+      return { applied: true, changeIds: [entry.id] };
     };
   }
 
