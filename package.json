@@ -346,17 +346,17 @@
       "view/item/context": [
         {
           "command": "dsh.changes.openDiff",
-          "when": "view == dsh.changes && viewItem == dsh.changes.entry",
+          "when": "view == dsh.changes && viewItem =~ /^dsh\\.changes\\.entry/",
           "group": "inline@1"
         },
         {
           "command": "dsh.changes.accept",
-          "when": "view == dsh.changes && viewItem == dsh.changes.entry",
+          "when": "view == dsh.changes && viewItem =~ /^dsh\\.changes\\.entry\\.(pending|legacy)$/",
           "group": "inline@2"
         },
         {
           "command": "dsh.changes.undo",
-          "when": "view == dsh.changes && viewItem == dsh.changes.entry",
+          "when": "view == dsh.changes && viewItem =~ /^dsh\\.changes\\.entry\\.(pending|accepted)$/",
           "group": "inline@3"
         }
       ],

@@ -42,17 +42,20 @@ test('editor title exposes one persistent icon and DSH view title exposes only t
     when: 'view == dsh.changes',
     group: 'navigation@1'
   }]);
+  // F-c: terminal-state entries (undone/discarded/accepted) no longer offer
+  // actions that would only fail — Accept is limited to pending/legacy, Undo
+  // to pending/accepted, openDiff stays available for every entry state.
   assert.deepStrictEqual(menus['view/item/context'], [{
     command: 'dsh.changes.openDiff',
-    when: 'view == dsh.changes && viewItem == dsh.changes.entry',
+    when: 'view == dsh.changes && viewItem =~ /^dsh\\.changes\\.entry/',
     group: 'inline@1'
   }, {
     command: 'dsh.changes.accept',
-    when: 'view == dsh.changes && viewItem == dsh.changes.entry',
+    when: 'view == dsh.changes && viewItem =~ /^dsh\\.changes\\.entry\\.(pending|legacy)$/',
     group: 'inline@2'
   }, {
     command: 'dsh.changes.undo',
-    when: 'view == dsh.changes && viewItem == dsh.changes.entry',
+    when: 'view == dsh.changes && viewItem =~ /^dsh\\.changes\\.entry\\.(pending|accepted)$/',
     group: 'inline@3'
   }]);
   assert.deepStrictEqual(menus['editor/context'], [{
