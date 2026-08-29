@@ -1676,6 +1676,125 @@ test('tab-completion L2 feature registers the file-scheme provider and clears th
   );
 });
 
+test('F-i: fim baseUrl/apiKey changes re-inject spawn env without a window reload', async () => {
+  const fake = createFakeVscode({
+    'features.tab-completion': true,
+    'fim.model': 'test-fim-model',
+    'fim.baseUrl': 'https://fim-a.example/completions',
+  });
+  // Mutable config + captured configuration-change listeners.
+  const config = {
+    host: '127.0.0.1',
+    port: 3080,
+    autoStart: false,
+    closePolicy: 'onVscodeExit',
+    'home.mode': 'isolated',
+    'features.tab-completion': true,
+    'fim.model': 'test-fim-model',
+    'fim.baseUrl': 'https://fim-a.example/completions',
+  };
+  const configListeners = [];
+  fake.api.workspace.getConfiguration = () => ({ get: (key, fallback) => config[key] ?? fallback });
+  fake.api.workspace.onDidChangeConfiguration = (listener) => {
+    configListeners.push(listener);
+    return disposable();
+  };
+  const fireConfigChange = (section) => {
+    for (const listener of configListeners) {
+      listener({ affectsConfiguration: (key) => key === section });
+    }
+  };
+
+  // Mutable secretStorage + captured secret-change listener.
+  const secretStore = new Map([['dsh.fim.apiKey', 'key-a']]);
+  let secretListener = null;
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-fim-env-refresh-${process.pid}`) },
+    subscriptions: [],
+    secrets: {
+      async get(key) { return secretStore.get(key) ?? undefined; },
+      async store(key, value) { secretStore.set(key, value); },
+      async delete(key) { secretStore.delete(key); },
+      onDidChangeSecrets(listener) {
+        secretListener = listener;
+        return disposable();
+      },
+    },
+  };
+
+  // Manager stub mirroring the real ServerManager spawn-env semantics
+  // (setSpawnEnv merges; _buildSpawnEnv spreads the merged bag at spawn time).
+  const spawnEnvCalls = [];
+  const managerState = { spawnEnv: {} };
+  const mergingManager = () => ({
+    setSpawnEnv(env) {
+      spawnEnvCalls.push(env);
+      managerState.spawnEnv = { ...managerState.spawnEnv, ...env };
+    },
+    setOwnerIdentity() {},
+    cancelPending() {},
+    currentChildPid() { return null; },
+    hasOwnedChild() { return false; },
+    async stop() {},
+    get spawnEnvSnapshot() { return { ...managerState.spawnEnv }; },
+  });
+
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    realpath: async (value) => value,
+    async startTextDocumentBridge() {
+      return { env: {}, async close() {} };
+    },
+    async startVersionedBridge() {
+      return { env: {}, async close() {} };
+    },
+    createServerManager: mergingManager,
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  // Activation-time injection: fresh values present.
+  assert.ok(spawnEnvCalls.some((env) =>
+    env.DSH_FIM_BASE_URL === 'https://fim-a.example/completions' && env.DSH_FIM_API_KEY === 'key-a'
+  ), 'activation injects the configured baseUrl and stored API key');
+
+  // Secret rotated: no reload, no restart yet — the env bag must refresh so
+  // the next dsh.restartServer spawns with the new key.
+  secretStore.set('dsh.fim.apiKey', 'key-b');
+  secretListener({ key: 'dsh.fim.apiKey' });
+  await waitFor(() => spawnEnvCalls.some((env) => env.DSH_FIM_API_KEY === 'key-b'));
+  assert.equal(
+    managerState.spawnEnv.DSH_FIM_API_KEY,
+    'key-b',
+    'a restart after the secret change spawns with the new API key',
+  );
+
+  // baseUrl changed through settings: same refresh path.
+  config['fim.baseUrl'] = 'https://fim-b.example/completions';
+  fireConfigChange('dsh.fim.baseUrl');
+  await waitFor(() => spawnEnvCalls.some((env) => env.DSH_FIM_BASE_URL === 'https://fim-b.example/completions'));
+  assert.equal(managerState.spawnEnv.DSH_FIM_BASE_URL, 'https://fim-b.example/completions');
+
+  // Unrelated config changes do not trigger a re-inject.
+  const callsBefore = spawnEnvCalls.length;
+  fireConfigChange('dsh.other.setting');
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(spawnEnvCalls.length, callsBefore, 'unrelated config changes do not re-inject');
+
+  // Deleting the secret must overwrite the stale merge (empty string = unconfigured).
+  secretStore.delete('dsh.fim.apiKey');
+  secretListener({ key: 'dsh.fim.apiKey' });
+  await waitFor(() => spawnEnvCalls.some((env) => env.DSH_FIM_API_KEY === ''));
+  assert.equal(managerState.spawnEnv.DSH_FIM_API_KEY, '', 'deleted key clears the merged env value');
+
+  await deactivate();
+  assert.ok(
+    spawnEnvCalls.some((env) => env.DSH_FIM_BRIDGE_TOKEN === ''),
+    'deactivate still clears the injected FIM bridge token',
+  );
+});
+
 test('chat-participant and tab-completion each add exactly one command when enabled', async () => {
   const off = createFakeVscode({ 'features.chat-participant': false, 'features.tab-completion': false });
   const offContext = {

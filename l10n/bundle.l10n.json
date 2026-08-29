@@ -179,5 +179,6 @@
   "The changed DSH settings take effect after the DSH service restarts. Restart now?": "The changed DSH settings take effect after the DSH service restarts. Restart now?",
   "Restart now": "Restart now",
   "actual port {actual} (configured {configured})": "actual port {actual} (configured {configured})",
-  "DSH server ready": "DSH server ready"
+  "DSH server ready": "DSH server ready",
+  "DSH tab completion is unavailable: {guidance}": "DSH tab completion is unavailable: {guidance}"
 }

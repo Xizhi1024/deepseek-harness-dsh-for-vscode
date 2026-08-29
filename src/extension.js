@@ -1968,7 +1968,10 @@ async function setupTabCompletion({ context, services }) {
   // stale values until a full window reload. Writing each key on every
   // refresh (empty string when unset) also overwrites stale merges.
   async function readFimSpawnEnv() {
-    const env = { DSH_FIM_BRIDGE_TOKEN: token };
+    // Both keys are always written (empty string = unconfigured on the DSH
+    // side) so a refresh overwrites stale merged values after a change or
+    // deletion instead of leaving the previous value in place.
+    const env = { DSH_FIM_BRIDGE_TOKEN: token, DSH_FIM_BASE_URL: '', DSH_FIM_API_KEY: '' };
     try {
       const baseUrl = vscode.workspace.getConfiguration('dsh').get('fim.baseUrl', '');
       if (typeof baseUrl === 'string') env.DSH_FIM_BASE_URL = baseUrl;

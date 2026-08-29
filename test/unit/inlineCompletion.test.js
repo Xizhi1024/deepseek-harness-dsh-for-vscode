@@ -3,7 +3,10 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { createInlineCompletionProvider } = require('../../src/inlineCompletion.js');
+const {
+  createInlineCompletionProvider,
+  resetFimUnavailableNotification,
+} = require('../../src/inlineCompletion.js');
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -177,7 +180,43 @@ test('single-flight: a new call during an in-flight request returns [] and does 
   assert.equal(h.fetchCalls.length, 1, 'no second request was queued');
 });
 
-test('timeout: 800ms aborts the in-flight request and returns []', async () => {
+test('timeout: the request survives a slow (1-3s) LLM round trip and aborts only at 5000ms (F-j)', async () => {
+  let aborted = false;
+  let resolveFetch;
+  const h = makeHarness({
+    fetchImpl: (url, options) => new Promise((resolve, reject) => {
+      resolveFetch = resolve;
+      options.signal.addEventListener('abort', () => {
+        aborted = true;
+        const error = new Error('Aborted');
+        error.name = 'AbortError';
+        reject(error);
+      });
+    }),
+  });
+
+  const p = h.api.provider.provideInlineCompletionItems(
+    makeDoc('one\ntwo'),
+    makePos(1, 2),
+    {},
+    {},
+  );
+  h.timers.advance(150);
+  assert.equal(h.fetchCalls.length, 1);
+
+  // The old 800ms budget killed every real upstream LLM response in flight;
+  // a typical 3s round trip must now complete normally.
+  h.timers.advance(800);
+  assert.equal(aborted, false, '800ms must no longer abort the request');
+  h.timers.advance(2200); // t = 3000ms since request start
+  assert.equal(aborted, false, 'a 3s LLM round trip must still be in flight');
+  resolveFetch(sseResponse('data: {"text":"late"}\n\ndata: [DONE]\n\n'));
+  const result = await p;
+  assert.equal(result.length, 1, 'slow-but-successful response yields a completion');
+  assert.equal(result[0].insertText, 'late');
+});
+
+test('timeout: 5000ms total budget still aborts a hung request and returns [] (F-j)', async () => {
   const h = makeHarness({
     fetchImpl: (url, options) => new Promise((resolve, reject) => {
       options.signal.addEventListener('abort', () => {
@@ -197,11 +236,70 @@ test('timeout: 800ms aborts the in-flight request and returns []', async () => {
   h.timers.advance(150);
   assert.equal(h.fetchCalls.length, 1);
 
-  h.timers.advance(799);
+  h.timers.advance(4999);
   h.timers.advance(1);
 
   assert.deepEqual(await p, []);
   assert.equal(h.fetchCalls.length, 1);
+});
+
+test('503: guidance message is extracted and onFimUnavailable fires exactly once per session (F-e)', async () => {
+  resetFimUnavailableNotification();
+  const unavailableCalls = [];
+  const guidance = 'Tab completion is not configured: set dsh.fim.baseUrl and store the DSH FIM API key';
+  const make503Harness = () => makeHarness({
+    onFimUnavailable: (text) => unavailableCalls.push(text),
+    fetchImpl: async () => sseResponse(JSON.stringify({ error: 'fim-not-configured', message: guidance }), {
+      status: 503,
+      ok: false,
+      contentType: 'application/json',
+    }),
+  });
+
+  const h1 = make503Harness();
+  const p1 = h1.api.provider.provideInlineCompletionItems(makeDoc('one\ntwo'), makePos(1, 2), {}, {});
+  h1.timers.advance(150);
+  assert.deepEqual(await p1, [], '503 still fails quiet for the completion itself');
+
+  // A second request — and even a brand-new provider instance — must not
+  // re-notify: the flag is module-level (one prompt per session).
+  const h2 = make503Harness();
+  const p2 = h2.api.provider.provideInlineCompletionItems(makeDoc('one\ntwo'), makePos(1, 2), {}, {});
+  h2.timers.advance(150);
+  assert.deepEqual(await p2, []);
+
+  assert.deepEqual(unavailableCalls, [guidance], 'guidance surfaced exactly once');
+  resetFimUnavailableNotification();
+});
+
+test('503 with a non-JSON body still notifies once with the raw text (F-e)', async () => {
+  resetFimUnavailableNotification();
+  const unavailableCalls = [];
+  const h = makeHarness({
+    onFimUnavailable: (text) => unavailableCalls.push(text),
+    fetchImpl: async () => sseResponse('plain guidance body', { status: 503, ok: false }),
+  });
+
+  const p = h.api.provider.provideInlineCompletionItems(makeDoc('one\ntwo'), makePos(1, 2), {}, {});
+  h.timers.advance(150);
+  assert.deepEqual(await p, []);
+  assert.deepEqual(unavailableCalls, ['plain guidance body']);
+  resetFimUnavailableNotification();
+});
+
+test('non-503 failures never trigger onFimUnavailable (F-e)', async () => {
+  resetFimUnavailableNotification();
+  const unavailableCalls = [];
+  const h = makeHarness({
+    onFimUnavailable: (text) => unavailableCalls.push(text),
+    fetchImpl: async () => sseResponse('boom', { status: 500, ok: false }),
+  });
+
+  const p = h.api.provider.provideInlineCompletionItems(makeDoc('one\ntwo'), makePos(1, 2), {}, {});
+  h.timers.advance(150);
+  assert.deepEqual(await p, []);
+  assert.deepEqual(unavailableCalls, [], '500 is not the not-configured signal');
+  resetFimUnavailableNotification();
 });
 
 test('SSE: multiple data frames are concatenated and [DONE] stops the parse', async () => {

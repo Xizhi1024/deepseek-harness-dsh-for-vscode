@@ -114,6 +114,11 @@ test('missing upstream config answers 503 fim-not-configured', async () => {
   await handler(makeRequest({ body: JSON.stringify({ model: 'm', prefix: 'a', suffix: 'b' }) }), res);
   assert.equal(res.statusCode, 503);
   assert.ok(res.body().includes('fim-not-configured'));
+  // F-e: the message must carry actionable guidance the extension can surface.
+  const payload = JSON.parse(res.body());
+  assert.ok(payload.message.includes('dsh.fim.baseUrl'), 'guidance names the baseUrl setting');
+  assert.ok(payload.message.includes('dsh.fim.setApiKey'), 'guidance names the setApiKey command');
+  assert.ok(payload.message.includes('restart'), 'guidance tells the user to restart');
   routes.dispose();
 });
 

@@ -9,10 +9,26 @@
  */
 
 const DEBOUNCE_MS = 150;
-const REQUEST_TIMEOUT_MS = 800;
+// Total-duration budget for one /api/fim round trip (the DSH side caps its own
+// upstream call at 8000 ms). Real LLM FIM completions typically answer in
+// 1-3 s, so 800 ms aborted virtually every real upstream response before it
+// arrived; 5000 ms covers the observed range while staying under the server
+// cap and keeping the UI responsive. There is no separate first-byte tier:
+// the whole request (connect + upstream LLM + SSE body) shares this budget.
+const REQUEST_TIMEOUT_MS = 5000;
 const MAX_PREFIX_LINES = 64;
 const MAX_SUFFIX_LINES = 32;
 const MAX_CONTEXT_BYTES = 128 * 1024;
+
+// F-e: session-sticky flag — the 503 "upstream not configured" guidance is
+// surfaced to the user at most once per extension-host session, no matter how
+// many providers or requests hit the unconfigured route.
+let fimUnavailableNotified = false;
+
+/** Test seam: reset the once-per-session 503 notification flag. */
+function resetFimUnavailableNotification() {
+  fimUnavailableNotified = false;
+}
 
 function byteLength(value) {
   return Buffer.byteLength(value, 'utf8');
@@ -167,6 +183,9 @@ function parseSSEText(raw, log) {
  *   log?: (...args: unknown[]) => void,
  *   setTimeout?: (fn: () => void, ms: number) => unknown,
  *   clearTimeout?: (id: unknown) => void,
+ *   onFimUnavailable?: (guidance: string) => void - called at most once per
+ *     session with the guidance text extracted from a 503 /api/fim response,
+ *     so the host can surface it (warning message + diagnostics).
  * }} deps
  * @returns {{provider: {provideInlineCompletionItems: Function}, dispose: () => void}}
  */
@@ -176,8 +195,22 @@ function createInlineCompletionProvider(deps) {
   const getModel = deps.getModel;
   const fetchImpl = deps.fetchImpl;
   const log = typeof deps.log === 'function' ? deps.log : () => {};
+  const onFimUnavailable = typeof deps.onFimUnavailable === 'function' ? deps.onFimUnavailable : null;
   const setTimeoutImpl = deps.setTimeout || globalThis.setTimeout;
   const clearTimeoutImpl = deps.clearTimeout || globalThis.clearTimeout;
+
+  // F-e: surface the 503 "upstream not configured" guidance exactly once per
+  // extension-host session (module-level flag shared by every provider).
+  function notifyFimUnavailable(guidance) {
+    if (fimUnavailableNotified) return;
+    fimUnavailableNotified = true;
+    if (!onFimUnavailable) return;
+    try {
+      onFimUnavailable(guidance);
+    } catch (error) {
+      log('[inlineCompletion] onFimUnavailable callback failed', error);
+    }
+  }
 
   let disposed = false;
   let debounceTimer = null;
@@ -244,6 +277,24 @@ function createInlineCompletionProvider(deps) {
         : !response.status || (response.status >= 200 && response.status < 300);
       if (!ok) {
         log('[inlineCompletion] FIM request failed with status', response.status);
+        if (response.status === 503) {
+          // F-e: the 503 body carries the server-side guidance (JSON with a
+          // message field); extract it so the host can show the user why tab
+          // completion is dead instead of silently returning nothing.
+          let guidance = '';
+          try {
+            const raw503 = typeof response.text === 'function' ? await response.text() : '';
+            try {
+              const parsed503 = JSON.parse(raw503);
+              guidance = parsed503 && typeof parsed503.message === 'string' ? parsed503.message : raw503;
+            } catch {
+              guidance = raw503;
+            }
+          } catch (error) {
+            log('[inlineCompletion] failed to read 503 guidance body', error);
+          }
+          notifyFimUnavailable(guidance);
+        }
         return [];
       }
 
@@ -363,4 +414,4 @@ function createInlineCompletionProvider(deps) {
   });
 }
 
-module.exports = { createInlineCompletionProvider };
+module.exports = { createInlineCompletionProvider, resetFimUnavailableNotification };

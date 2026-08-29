@@ -179,5 +179,6 @@
   "The changed DSH settings take effect after the DSH service restarts. Restart now?": "已更改的 DSH 设置需重启 DSH 服务后生效。现在重启吗？",
   "Restart now": "立即重启",
   "actual port {actual} (configured {configured})": "实际端口 {actual}（配置 {configured}）",
-  "DSH server ready": "DSH 服务已就绪"
+  "DSH server ready": "DSH 服务已就绪",
+  "DSH tab completion is unavailable: {guidance}": "DSH Tab 补全不可用：{guidance}"
 }
