@@ -656,3 +656,43 @@ test('ready entries without an owner identity stay legacy-compatible (null keys)
   assert.strictEqual(entry.vscodePid, null);
   assert.strictEqual(entry.windowId, null);
 });
+
+test('stop() waits (bounded) for the killed child port to refuse connections (F-f)', async () => {
+  const probeCalls = [];
+  let refused = false;
+  class WaitingManager extends ServerManager {
+    async _killChild() { /* surgical fake: no real process to kill */ }
+    async probe(host, port) {
+      probeCalls.push({ host, port, refused });
+      return refused ? { reachable: false, reason: 'refused' } : { reachable: true, isDsh: true };
+    }
+  }
+  const manager = new WaitingManager();
+  // exitCode 0 skips the post-kill force-kill fallback branch.
+  manager._child = { exitCode: 0, signalCode: null, pid: 424242, kill() {} };
+  manager._ownedServer = { url: 'http://127.0.0.1:3123', host: '127.0.0.1', port: 3123, pid: 424242, owned: true };
+
+  // The dying listener keeps answering for ~120ms, then the port refuses.
+  const flip = setTimeout(() => { refused = true; }, 120);
+  try {
+    await manager.stop();
+  } finally {
+    clearTimeout(flip);
+  }
+
+  assert.ok(probeCalls.length >= 2, `stop() polls until the port refuses (saw ${probeCalls.length})`);
+  assert.strictEqual(probeCalls[0].port, 3123);
+  assert.strictEqual(probeCalls[probeCalls.length - 1].refused, true);
+});
+
+test('stop() with no owned endpoint never probes (F-f regression guard)', async () => {
+  let probes = 0;
+  class QuietManager extends ServerManager {
+    async _killChild() {}
+    async probe() { probes += 1; return { reachable: false, reason: 'refused' }; }
+  }
+  const manager = new QuietManager();
+  await manager.stop();
+  assert.strictEqual(probes, 0, 'a stop without an owned server must not probe');
+});
+

@@ -47,6 +47,8 @@ const HEALTH_POLL_MS = 700;      // interval between health checks after spawn
 const HEALTH_TIMEOUT_MS = 30000; // overall wait for the spawned service to become ready
 const MAX_BODY_BYTES = 5 * 1024 * 1024; // bound on the probe response body we buffer
 const TASKKILL_TIMEOUT_MS = 5000; // max wait for taskkill /T /F before stop() proceeds
+const PORT_RELEASE_WAIT_MS = 3000; // F-f: max stop() wait for a killed child's port to refuse
+const PORT_RELEASE_POLL_MS = 100; // F-f: poll cadence for the port-release wait
 
 /**
  * Substitute {name} placeholders in a template with the given params.
@@ -714,6 +716,38 @@ class ServerManager {
   }
 
   /**
+   * Bounded wait until a port explicitly refuses connections (F-f,
+   * sporadic restart port race). A killed child's listener can keep
+   * answering — or silently hold — the port for a moment after the process
+   * exits; without this wait the next ensureServer() probe marks the
+   * configured port occupied (drift to port+1) or the replacement child
+   * races the lingering socket. Polls every PORT_RELEASE_POLL_MS and
+   * resolves as soon as the probe reports 'refused'; after `timeoutMs` it
+   * gives up quietly (the conservative port scan still applies). Never
+   * throws.
+   *
+   * @param {string} host - Loopback host.
+   * @param {number} port - Port the killed child was serving on.
+   * @param {number} timeoutMs - Bounded wait.
+   * @returns {Promise<boolean>} True when the port refused in time.
+   */
+  async _waitForPortRefused(host, port, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      let refused = false;
+      try {
+        const result = await this.probe(host, port);
+        refused = !result.reachable && result.reason === 'refused';
+      } catch {
+        return false;
+      }
+      if (refused) return true;
+      if (Date.now() >= deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, PORT_RELEASE_POLL_MS));
+    }
+  }
+
+  /**
    * Resolve the spawn working directory from the caller-provided cwd.
    * null / undefined / empty string mean "not specified" → undefined, so the
    * spawned child inherits the parent process's cwd; any other value passes
@@ -1159,6 +1193,10 @@ class ServerManager {
     this._stopping = true;
 
     const child = this._child;
+    // F-f: capture the owned endpoint before the state is cleared — after
+    // the kill we wait (bounded) for the port to explicitly refuse.
+    const releaseHost = this._ownedServer ? this._ownedServer.host : null;
+    const releasePort = this._ownedServer ? this._ownedServer.port : null;
     if (child) {
       await this._killChild(child);
       // Fallback: if the child has not exited yet (e.g. taskkill failed),
@@ -1172,6 +1210,13 @@ class ServerManager {
     // other VS Code windows must survive.
     if (this._registryFile && child) {
       ServerManager._removeRegistryEntry(this._registryFile, child.pid);
+    }
+
+    // F-f (sporadic restart port race): see _waitForPortRefused. Only a
+    // real owned endpoint is waited for; the wait never throws and a
+    // timeout simply hands over to the conservative port scan.
+    if (Number.isInteger(releasePort)) {
+      await this._waitForPortRefused(releaseHost || DEFAULT_HOST, releasePort, PORT_RELEASE_WAIT_MS);
     }
 
     this._child = null;
