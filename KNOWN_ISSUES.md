@@ -1,7 +1,12 @@
 # Known Issues / 问题记录
 
-> 更新日期：2026-08-28 · 对应版本：**1.0.1** · 当前**无未修复已知问题**
-> Updated 2026-08-28 · tracks release **1.0.1** · **no open known issues**
+> 更新日期：2026-09-03 · 对应版本：**1.1.1** · 扩展侧**无未修复已知问题**；下列两项为 **DSH runtime 依赖的已知行为**（诊断旗标可见，详见 `VERSIONS.md` 与 `docs/dev/upstream-issues.md`）
+> Updated 2026-09-03 · tracks release **1.1.1** · **no open extension-side issues**; the two items below are **runtime-dependent known behaviors** (visible as diagnose flags; see VERSIONS.md and docs/dev/upstream-issues.md)
+
+| # | 问题 / Issue | 影响范围 / Scope |
+|---|---|---|
+| 7 | 会话导出 ZIP 文件名双前缀 `dsh-session-session-<uuid>.zip`（DSH 运行时导出命名，上游未修；本地热修在位，重装 dsh 会回滚）/ session export archives save with a doubled prefix — DSH runtime naming, unfixed upstream | 所有已发布 runtime / every released runtime（纯观感，不影响功能 / cosmetic, no functional impact） |
+| 8 | 冷会话标题缺失显示裸 UUID + HMR 窗口工具崩溃暴露 / cold sessions show bare-UUID titles and the HMR window tool-crash exposure | 仅 DSH < 0.1.2-alpha.1（0.1.2-alpha.1 起上游已修/默认关闭）/ only below DSH 0.1.2-alpha.1 |
 
 历史问题与修复索引（复现细节见 [CHANGELOG.md](CHANGELOG.md) 与 [docs/dev/](docs/dev/)）：
 Past issues and their fixes (details in the changelog and dev notes):

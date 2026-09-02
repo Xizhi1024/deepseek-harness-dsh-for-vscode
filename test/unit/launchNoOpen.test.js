@@ -34,6 +34,23 @@ test('compareDshVersions orders cores, rc tags, and releases', () => {
   assert.strictEqual(compareDshVersions('', '0.1.0'), null);
 });
 
+test('compareDshVersions parses and orders alpha prerelease runtimes (1.1.1 fix)', () => {
+  // Before 1.1.1 the regex only accepted -rc.N: 0.1.2-alpha.x parsed as null.
+  assert.strictEqual(compareDshVersions('0.1.2-alpha.5', '0.1.2-alpha.5'), 0);
+  assert.strictEqual(compareDshVersions('0.1.2-alpha.4', '0.1.2-alpha.5') < 0, true);
+  assert.strictEqual(compareDshVersions('0.1.2-alpha.10', '0.1.2-alpha.9') > 0, true, 'numeric, not lexical');
+  assert.strictEqual(compareDshVersions('0.1.2-alpha.1', '0.1.2-rc.1') < 0, true, 'alpha sorts below rc of the same core');
+  assert.strictEqual(compareDshVersions('0.1.2-beta.1', '0.1.2-alpha.9') > 0, true, 'beta sorts above alpha');
+  assert.strictEqual(compareDshVersions('0.1.2-alpha.1', '0.1.2') < 0, true, 'tagged sorts below its release');
+  assert.strictEqual(compareDshVersions('0.1.1-rc.2', '0.1.2-alpha.1') < 0, true, 'older core line sorts below');
+  assert.strictEqual(compareDshVersions('0.1.2-alpha.1', '0.1.1-rc.2') > 0, true);
+});
+
+test('supportsNoOpenFlag accepts alpha runtimes', () => {
+  assert.strictEqual(supportsNoOpenFlag('0.1.2-alpha.5'), true);
+  assert.strictEqual(supportsNoOpenFlag('0.1.2-alpha.1'), true);
+});
+
 test('supportsNoOpenFlag gates on 0.1.0-rc.7 and stays optimistic on unknown versions', () => {
   assert.strictEqual(supportsNoOpenFlag('0.1.0-rc.6'), false);
   assert.strictEqual(supportsNoOpenFlag('0.1.0-rc.5'), false);

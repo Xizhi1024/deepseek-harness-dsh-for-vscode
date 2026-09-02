@@ -19,6 +19,7 @@ const forbidden = [
   /^\.agents\//i,
   /^\.dsh-[^/]+\//i,
   /^PLAN-/i,
+  /^VERSIONS\.md$/i,
   /^USABILITY-AUDIT\.md$/i,
   /^\.git(?:hub)?\//i,
   /^\.vscode(?:-test)?\//i,

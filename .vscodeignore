@@ -28,6 +28,7 @@ dsh-instances.json
 # Repo-internal planning/audit notes stay out of the VSIX
 USABILITY-AUDIT.md
 PLAN-*.md
+VERSIONS.md
 
 # --- Internal orchestration notes stay in the repository, never in the VSIX ---
 # 内部编排/QA 笔记只留在仓库里，绝不进入发布包

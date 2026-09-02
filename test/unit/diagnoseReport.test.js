@@ -66,6 +66,59 @@ test('buildDiagnoseReport sections: service/bridge/compat/plugins (+ alerts when
   assert.strictEqual(report.json.compat.dshVersion, '0.3.1');
 });
 
+test('buildDiagnoseReport renders runtime issues in the compat section when known', () => {
+  const report = buildDiagnoseReport({
+    snapshot: HEALTHY_SNAPSHOT,
+    hostVersion: '1.106.0',
+    hostCapabilities: { chatParticipant: true, lmProvider: true, mcpServerDefinitions: true },
+    compat: { dshVersion: '0.1.1-rc.2', patchOverlay: true, themeParam: true, toolsV3: true },
+    runtimeIssues: {
+      known: true, supported: true, exportDoublePrefix: true,
+      sparseProjectionTitles: true, moduleHmrWindowCrash: true,
+    },
+  });
+  const compatItems = report.sections.find((section) => section.id === 'compat').items;
+  assert.strictEqual(compatItems.length, 2);
+  const issues = compatItems[1];
+  assert.strictEqual(issues.label, 'runtime issues');
+  assert.strictEqual(issues.severity, 'info');
+  assert.strictEqual(
+    issues.detail,
+    'supported=yes, exportDoublePrefix=yes, sparseTitles=yes, moduleHmrWindowCrash=yes',
+    issues.detail,
+  );
+  assert.ok(issues.hint.includes('0.1.2-alpha.1'), issues.hint);
+  assert.deepStrictEqual(report.json.compat.runtimeIssues, {
+    supported: true, exportDoublePrefix: true,
+    sparseProjectionTitles: true, moduleHmrWindowCrash: true,
+  });
+});
+
+test('buildDiagnoseReport omits runtime issues when unknown and warns when unsupported', () => {
+  const unknown = buildDiagnoseReport({
+    snapshot: HEALTHY_SNAPSHOT,
+    compat: { dshVersion: 'unknown' },
+    runtimeIssues: {
+      known: false, supported: false, exportDoublePrefix: false,
+      sparseProjectionTitles: false, moduleHmrWindowCrash: false,
+    },
+  });
+  const unknownItems = unknown.sections.find((section) => section.id === 'compat').items;
+  assert.strictEqual(unknownItems.length, 1);
+  assert.strictEqual(unknown.json.compat.runtimeIssues, null);
+
+  const unsupported = buildDiagnoseReport({
+    snapshot: HEALTHY_SNAPSHOT,
+    compat: { dshVersion: '0.1.0-rc.6' },
+    runtimeIssues: {
+      known: true, supported: false, exportDoublePrefix: true,
+      sparseProjectionTitles: true, moduleHmrWindowCrash: true,
+    },
+  });
+  const unsupportedItem = unsupported.sections.find((section) => section.id === 'compat').items[1];
+  assert.strictEqual(unsupportedItem.severity, 'warn');
+});
+
 test('buildDiagnoseReport alerts: server down, bridge closed, actions attached', () => {
   const report = buildDiagnoseReport({
     snapshot: {

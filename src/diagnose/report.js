@@ -56,6 +56,9 @@ function humanizeError(err) {
  * @param {string} [options.hostVersion] - VS Code version string.
  * @param {object} [options.hostCapabilities] - deriveVscodeCapabilities() result.
  * @param {object} [options.compat] - { dshVersion, patchOverlay, themeParam, toolsV3 }.
+ * @param {object} [options.runtimeIssues] - deriveRuntimeIssues() result; when
+ *   known, the compat section appends the runtime-defect flags (supported /
+ *   exportDoublePrefix / sparseProjectionTitles / moduleHmrWindowCrash).
  * @param {Array<{id: string, error: *, at: *}>} [options.featureFailures] - Feature-registry failures.
  * @param {number} [options.selfHealCount] - Patch-drop self-heal events.
  * @param {string|null} [options.defaultTerminalProfile] - Default terminal profile name.
@@ -69,6 +72,7 @@ function buildDiagnoseReport({
   hostVersion = 'unknown',
   hostCapabilities = {},
   compat = {},
+  runtimeIssues = null,
   featureFailures = [],
   selfHealCount = 0,
   defaultTerminalProfile = null,
@@ -195,6 +199,18 @@ function buildDiagnoseReport({
           hint: '',
           action: null,
         },
+        ...(runtimeIssues && runtimeIssues.known ? [{
+          label: 'runtime issues',
+          detail: 'supported=' + (runtimeIssues.supported ? 'yes' : 'no')
+            + ', exportDoublePrefix=' + (runtimeIssues.exportDoublePrefix ? 'yes' : 'no')
+            + ', sparseTitles=' + (runtimeIssues.sparseProjectionTitles ? 'yes' : 'no')
+            + ', moduleHmrWindowCrash=' + (runtimeIssues.moduleHmrWindowCrash ? 'yes' : 'no'),
+          severity: runtimeIssues.supported ? 'info' : 'warn',
+          hint: runtimeIssues.sparseProjectionTitles
+            ? 'Cold sessions may show bare UUID titles on this runtime; upgrade DSH to 0.1.2-alpha.1+ for cached projection titles.'
+            : '',
+          action: null,
+        }] : []),
       ],
     },
     {
@@ -249,6 +265,12 @@ function buildDiagnoseReport({
         patchOverlay: Boolean(compat && compat.patchOverlay),
         themeParam: Boolean(compat && compat.themeParam),
         toolsV3: Boolean(compat && compat.toolsV3),
+        runtimeIssues: runtimeIssues && runtimeIssues.known ? {
+          supported: Boolean(runtimeIssues.supported),
+          exportDoublePrefix: Boolean(runtimeIssues.exportDoublePrefix),
+          sparseProjectionTitles: Boolean(runtimeIssues.sparseProjectionTitles),
+          moduleHmrWindowCrash: Boolean(runtimeIssues.moduleHmrWindowCrash),
+        } : null,
       },
       defaultTerminalProfile: defaultTerminalProfile || null,
       platform,

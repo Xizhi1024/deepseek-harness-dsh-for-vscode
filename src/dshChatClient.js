@@ -15,6 +15,13 @@
  * `sessionNavigation` clientRequest / postJson / readJsonBody /
  * assertServerResponse precedent so the DSH_SESSION_API_* error surface stays
  * identical across the extension host.
+ *
+ * Upstream source anchors below cite `dsh-host-apiproxy` paths, which match
+ * runtimes <= 0.1.1-rc.2 (the verified floor install). Upstream removed that
+ * package in 0.1.2-alpha and moved the same wire shapes to
+ * `@deepseek-ai/dsh-api-session-controller`; the envelopes this client
+ * emits and parses are unchanged across both (verified 2026-09-02 against
+ * upstream master 49a606bc5b).
  */
 
 const {

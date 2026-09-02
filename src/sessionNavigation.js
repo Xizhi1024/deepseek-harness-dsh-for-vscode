@@ -8,6 +8,14 @@
  * keep a second session tree: the DSH server stays the single source of truth
  * and the sidebar only remembers the one session id that should be passed to
  * the iframe as the `dsh_session` query parameter.
+ *
+ * Wire compatibility (verified 2026-09-02 against upstream master 49a606bc5b
+ * / 0.1.2-alpha.5): session.list / create / rename keep their envelopes,
+ * payloads, and row keys across runtimes 0.1.0-rc.7 .. 0.1.2-alpha.x. The
+ * upstream source anchors below cite `dsh-host-apiproxy` (runtimes <=
+ * 0.1.1-rc.2); 0.1.2-alpha moved them to `@deepseek-ai/dsh-api-session-
+ * controller` with the same shapes. The projections column stays optional on
+ * every version - rows without it fall back to bare session ids.
  */
 
 const path = require("node:path");

@@ -34,7 +34,7 @@ const { normalizeLaunchMethod, resolveCommandRuntime } = require("./launchMethod
 const { discoverDshWebPorts: defaultDiscoverDshWebPorts } = require("./processDiscovery");
 const { isRetryableStartupError, renderStartupError } = require("./startupErrors");
 const { deriveVscodeCapabilities } = require("./vscodeCapabilities");
-const { deriveFeatureFlags } = require("./dshCompat");
+const { deriveFeatureFlags, deriveRuntimeIssues } = require("./dshCompat");
 const { framePage, statusPage, safeHttpUrl } = require("./webviewHtml");
 const {
   listSessions,
@@ -2600,6 +2600,7 @@ function registerFeatureCommands(context, featureOk) {
           : 'unknown';
         const resolvedRuntime = currentServer && typeof currentServer.resolvedRuntime === 'object' ? currentServer.resolvedRuntime : null;
         const compatFlags = deriveFeatureFlags(resolvedRuntime ? resolvedRuntime.dshVersion : null);
+        const runtimeIssues = deriveRuntimeIssues(resolvedRuntime ? resolvedRuntime.dshVersion : null);
         // D2: sectioned report (service/bridge/compat/plugins/alerts) with
         // humanized startup-error text + suggested actions and a WSL
         // default-terminal detector. The toast keeps only the one-line
@@ -2614,6 +2615,7 @@ function registerFeatureCommands(context, featureOk) {
             themeParam: compatFlags.themeParam,
             toolsV3: compatFlags.toolsV3,
           },
+          runtimeIssues,
           featureFailures: featureFailures.slice(),
           selfHealCount: selfHealEvents.length,
           defaultTerminalProfile: readDefaultTerminalProfile(),

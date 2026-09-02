@@ -3,6 +3,37 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-09-03
+
+> 兼容/适配轮：对照上游 dsh master `49a606bc5b`（0.1.2-alpha.5）逐面核实三个上游问题并落地运行时兼容层。每轮版本更变台账见 `VERSIONS.md`；核实详情见 `docs/dev/upstream-issues.md`。
+> Compatibility round: verified the three upstream issues against dsh master 49a606bc5b (0.1.2-alpha.5) and landed a runtime compatibility layer. Per-round version ledger in VERSIONS.md; verification details in docs/dev/upstream-issues.md.
+
+### Fixed / 修复
+
+- **`compareDshVersions` 无法解析 `-alpha.N` 预发布号**：`0.1.2-alpha.5` 等 alpha 线 runtime 版本解析为 null，所有版本门控（如 `--no-open` 启动旗标）落入乐观路径。现在按 semver 序支持 `alpha &lt; beta &lt; rc &lt; release`（同 core 内）。
+- `compareDshVersions` failed to parse `-alpha.N` prereleases: alpha-line runtimes such as 0.1.2-alpha.5 parsed as null and every version gate fell back to its optimistic path. Semver ordering alpha &lt; beta &lt; rc &lt; release within one core is now supported.
+
+### Added / 新增
+
+- **运行时问题兼容层（`dshCompat.deriveRuntimeIssues`）**：按 runtime 版本推导四个诊断旗标——`supported`（下限 0.1.0-rc.7）/ `exportDoublePrefix`（上游未修，所有已发布版本为 true）/ `sparseProjectionTitles`（&lt;0.1.2-alpha.1 冷会话标题列缺失）/ `moduleHmrWindowCrash`（&lt;0.1.2-alpha.1 HMR 窗口崩溃暴露）。Diagnose 报告 compat 区渲染并给出升级提示；旗标仅作诊断，不改行为。
+- Runtime-issue compatibility layer (`dshCompat.deriveRuntimeIssues`): four diagnostics-gated flags derived from the runtime version - supported (floor 0.1.0-rc.7), exportDoublePrefix (unfixed upstream, true on every release), sparseProjectionTitles (missing cold-session title column below 0.1.2-alpha.1), and moduleHmrWindowCrash (HMR window-crash exposure below 0.1.2-alpha.1). Rendered in the Diagnose compat section with an upgrade hint; flags inform diagnostics only and never gate behavior.
+- **`VERSIONS.md` 版本台账**：每轮会话的扩展版本 ↔ 验证过的 DSH runtime 范围 ↔ 上游问题状态，附 runtime 行为矩阵。
+- VERSIONS.md version ledger: per-round extension version, verified DSH runtime range, and upstream issue status, plus a runtime behavior matrix.
+
+### 上游核实结论 / Upstream verification verdicts
+
+- 双前缀导出命名：**未修**（`sessionLogZipFilename` 移包但拼接不变）；本地热修保留，复现与建议修法已记档。
+- session.list 投影列缺失：**0.1.2-alpha.1 已修**（per-session projection cache）；投影列仍为可选列，双形状标题读取器继续有效。
+- HMR 窗口工具崩溃：**0.1.2-alpha.1 起默认暴露移除**（shipped profiles 全关模块 HMR）；内容感知同步保留为旧 runtime 防线。
+
+### Compatibility matrix / 兼容矩阵
+
+| DSH runtime | 状态 / Status |
+|---|---|
+| &lt; 0.1.0-rc.7 | 不支持（spawn 旗标拒启，自愈重试兜底） / unsupported (flag rejected at spawn; self-heal retries) |
+| 0.1.0-rc.7 .. 0.1.1-rc.2 | 支持（sparse titles + HMR 暴露，诊断旗标可见） / supported (sparse titles + HMR exposure flagged) |
+| 0.1.2-alpha.1 .. alpha.5 | 支持（本轮上游核实基线） / supported (this round's verified baseline) |
+
 ## [1.1.0] - 2026-09-02
 
 > ⚠️ **迁移提示 / Migration note（F-d，Codex 对齐）**：`vscode/changes/push` 改为**直写**——扩展自设的审批弹窗（Allow Once/Session/Reject）与工作区边界拒绝已**删除**；哪条路径可写、要不要批，由 DSH 沙箱单源决定（read-only / workspace-write / full-access 三档在 DSH 侧）。安全网 = 落盘前类型化校验（结构 + 活文档坐标范围）+ journal before-快照 + 变更树文件级 **Undo**（快照整文件还原）——人是 Reviewer，不是守门员。过渡期早前构建产生的 pending 条目仍可在树上 Accept/丢弃；1.0.x 旧条目以 legacy 标记显示。
