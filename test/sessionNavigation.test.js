@@ -318,6 +318,31 @@ test('rootSessionItems filters subagent/child rows and maps title fallback', () 
   ]);
 });
 
+test('rootSessionItems reads the current projections.values.title shape (B2 follow-up)', () => {
+  const items = [
+    // Current runtime rc: plain string title in the projection values.
+    { sessionId: 'cur1', updatedAt: 1, projections: { values: { title: '创建test文件并写入helloworld' } } },
+    // Legacy shape still accepted.
+    { sessionId: 'leg1', updatedAt: 2, projections: { values: { sessionTitle: { title: 'Legacy Title' } } } },
+    // Current shape wins when both are somehow present.
+    { sessionId: 'both', updatedAt: 3, projections: { values: { title: 'Current', sessionTitle: { title: 'Legacy' } } } },
+    // Projection column failed to serve (runtime fail-soft): bare id fallback.
+    { sessionId: 'nocol', updatedAt: 4, projections: null },
+    { sessionId: 'empty', updatedAt: 5, projections: { values: { title: '' } } },
+  ];
+
+  assert.deepStrictEqual(
+    rootSessionItems(items).map((row) => [row.sessionId, row.title]),
+    [
+      ['cur1', '创建test文件并写入helloworld'],
+      ['leg1', 'Legacy Title'],
+      ['both', 'Current'],
+      ['nocol', 'nocol'],
+      ['empty', 'empty'],
+    ],
+  );
+});
+
 test('reuseBlankSession matches blank sessions by platform-normalized cwd', () => {
   const items = [
     { sessionId: 'blank-win', blank: true, cwd: 'C:\\Work\\App' },

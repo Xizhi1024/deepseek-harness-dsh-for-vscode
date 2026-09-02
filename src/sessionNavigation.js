@@ -431,6 +431,34 @@ async function ensureWorkspaceSession(baseUrl, cwd, options = {}) {
 }
 
 /**
+ * Read a human-readable title from a session.list row's projection column.
+ *
+ * Two wire shapes exist across DSH runtime versions: the current rc emits
+ * the plain string `projections.values.title`, while older builds wrapped
+ * it as `projections.values.sessionTitle.title`. Accept both (current
+ * first). A row whose projection column failed to serve (runtime fail-soft
+ * - it logs "projection column ... failed (serving the row without it)") or
+ * a session that never got titled returns "" and the caller falls back to
+ * the bare session id. B2 follow-up: reading only the legacy shape made
+ * EVERY runtime-titled session render as a bare UUID.
+ *
+ * @param {object} item - Raw `session.list` item.
+ * @returns {string} Title, or "" when not derivable.
+ */
+function readableSessionTitle(item) {
+  const values = item && item.projections && item.projections.values;
+  if (!values || typeof values !== "object" || Array.isArray(values)) return "";
+  if (typeof values.title === "string" && values.title.length > 0) {
+    return values.title;
+  }
+  const wrapped = values.sessionTitle;
+  if (wrapped && typeof wrapped.title === "string" && wrapped.title.length > 0) {
+    return wrapped.title;
+  }
+  return "";
+}
+
+/**
  * Reduce raw session items to root (non-subagent, non-child) QuickPick rows.
  *
  * Only `sessionId` is required; every other field is passed through loosely.
@@ -446,13 +474,7 @@ function rootSessionItems(items) {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     if (item.origin === "subagent") continue;
     if (item.parentSessionId) continue;
-    const title = item.projections
-      && item.projections.values
-      && item.projections.values.sessionTitle
-      && typeof item.projections.values.sessionTitle.title === "string"
-      && item.projections.values.sessionTitle.title.length > 0
-      ? item.projections.values.sessionTitle.title
-      : item.sessionId;
+    const title = readableSessionTitle(item) || item.sessionId;
     rows.push({
       sessionId: item.sessionId,
       title,

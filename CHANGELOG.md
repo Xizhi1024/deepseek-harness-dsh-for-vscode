@@ -41,6 +41,8 @@ All notable changes to this project are documented here, following [Keep a Chang
   Undo for accepted entries now uses whole-file snapshot replacement WorkspaceEdits, avoiding rejections from range drift across multiple edits.
 - **服务重启端口抢跑（F-f）**：`stop()` 杀掉子进程后有界等待（100ms 轮询、上限 3s）旧端口显式拒绝连接，再进入探测/扫描——杜绝旧 listener 未释放导致的端口悄悄漂移（+1）或新子进程 bind 竞争偶发早退。
   Restart port race (F-f): stop() now waits (bounded: 100ms polls, 3s cap) for the old port to explicitly refuse connections before the next probe/scan - no more silent port+1 drift or sporadic bind-race early exits from a dying listener.
+- **会话列表标题键名（B2 后续，实测发现）**：现行 DSH 运行时 session.list 投影的标题键是 `projections.values.title`（纯字符串；旧版为 `sessionTitle.title` 包装）——扩展此前只读旧形状，**所有运行时已命名的会话在侧边栏/切换列表/followups 仍显示裸 UUID**。现双形状兼容（现行优先）。另实证：部分行的投影列在运行时侧 fail-soft 缺失（history 里标题存在而 list 行为 null），该场景回退 id 显示，待上游修复。
+  Session-list title key mismatch (B2 follow-up, found live): the current DSH runtime emits the title as a plain `projections.values.title` string (older builds wrapped it as `sessionTitle.title`); reading only the legacy shape made every runtime-titled session still render as a bare UUID in the sidebar/switch list/followups. Both shapes are now accepted (current first). Also verified live: some rows serve without the projection column at all (title exists in history but the list row is null - runtime fail-soft); those fall back to the bare id pending an upstream fix.
 
 ### Changed / 变更
 
