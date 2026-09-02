@@ -428,6 +428,125 @@ test('wizard feature step defaults to current values and skips unchanged switche
   assert.ok(summary.items.some((item) => item.label.includes('Features:')));
 });
 
+// ---------------------------------------------------------------------------
+// D3: profile QuickPick (zero typing) + optional FIM screen
+// ---------------------------------------------------------------------------
+
+test('wizard profile step lists detected profiles and marks the current one', async () => {
+  const host = makeFakeVscode();
+  const workspace = makeWorkspaceAdapter(host);
+  workspace.listProfiles = () => ['web', 'dev', 'staging'];
+  const context = {
+    globalState: { get: () => undefined, async update() {} },
+  };
+
+  const promise = runOnboardingWizard({ context, workspace });
+
+  // Step 1 is now a pick of detected profiles (current first) + new-name entry.
+  const profileScreen = await acceptPick(host, 1); // 'dev'
+  assert.deepStrictEqual(
+    profileScreen.items.map((item) => item.id),
+    ['web', 'dev', 'staging', '__new__'],
+  );
+  assert.strictEqual(profileScreen.items[0].description, 'current');
+  await acceptPick(host, 0); // auto-start
+  await acceptPick(host, 0); // close policy
+  await acceptPick(host, 0); // info
+  await acceptPick(host, []); // features: unselect everything
+  await acceptPick(host, 0); // summary confirm
+
+  const result = await promise;
+  assert.strictEqual(result.completed, true);
+  assert.ok(workspace.updateRecord.some((entry) => entry.key === 'profile' && entry.value === 'dev'));
+});
+
+test('profile QuickPick new-name entry falls through to the validated input', async () => {
+  const host = makeFakeVscode();
+  const workspace = makeWorkspaceAdapter(host);
+  workspace.listProfiles = () => ['web', 'dev'];
+  const context = {
+    globalState: { get: () => undefined, async update() {} },
+  };
+
+  const promise = runOnboardingWizard({ context, workspace });
+
+  await acceptPick(host, 2); // __new__ entry (last item)
+  await acceptInput(host, 'fresh'); // the validated input box appears
+  await acceptPick(host, 0);
+  await acceptPick(host, 0);
+  await acceptPick(host, 0);
+  await acceptPick(host, []);
+  await acceptPick(host, 0);
+
+  const result = await promise;
+  assert.strictEqual(result.completed, true);
+  assert.ok(workspace.updateRecord.some((entry) => entry.key === 'profile' && entry.value === 'fresh'));
+});
+
+test('wizard shows the optional FIM screen when tab-completion ends up enabled', async () => {
+  const host = makeFakeVscode();
+  const switches = [
+    ...FEATURE_SWITCHES,
+    { id: 'tab-completion', label: 'Tab completion (FIM POC)', defaultEnabled: false },
+  ];
+  const workspace = makeWorkspaceAdapter(host, {}, switches);
+  const fimKeys = [];
+  workspace.storeFimKey = async (key) => { fimKeys.push(key); };
+  const context = {
+    globalState: { get: () => undefined, async update() {} },
+  };
+
+  const promise = runOnboardingWizard({ context, workspace });
+
+  await acceptInput(host, 'web'); // profile (no listProfiles seam -> input)
+  await acceptPick(host, 0); // auto-start
+  await acceptPick(host, 0); // close policy
+  await acceptPick(host, 0); // info
+  await acceptPick(host, [5]); // features: only tab-completion (last item)
+  const fimScreen = await acceptPick(host, 0); // FIM: DeepSeek preset
+  assert.strictEqual(fimScreen.items[0].id, 'https://api.deepseek.com/beta');
+  // The key input has no validator, so drive it directly (no _change hook).
+  const keyScreen = host.uiCalls.shift();
+  assert.strictEqual(keyScreen.kind, 'input');
+  keyScreen.control.value = 'k';
+  keyScreen.control._accept();
+  await tick();
+  await acceptPick(host, 0); // summary confirm
+
+  const result = await promise;
+  assert.strictEqual(result.completed, true);
+  assert.ok(workspace.updateRecord.some((entry) => entry.key === 'fim.baseUrl' && entry.value === 'https://api.deepseek.com/beta'));
+  assert.deepStrictEqual(fimKeys, ['k']);
+  assert.ok(host.infos.some((info) => info.message.includes('Restart the DSH server')));
+});
+
+test('wizard FIM screen skip leaves dsh.fim.* untouched', async () => {
+  const host = makeFakeVscode();
+  const switches = [
+    ...FEATURE_SWITCHES,
+    { id: 'tab-completion', label: 'Tab completion (FIM POC)', defaultEnabled: true },
+  ];
+  const workspace = makeWorkspaceAdapter(host, {}, switches);
+  const context = {
+    globalState: { get: () => undefined, async update() {} },
+  };
+
+  const promise = runOnboardingWizard({ context, workspace });
+
+  await acceptInput(host, 'web');
+  await acceptPick(host, 0);
+  await acceptPick(host, 0);
+  await acceptPick(host, 0);
+  await acceptPick(host, [0, 1, 2, 3, 4, 5]); // keep all (tab-completion on)
+  await acceptPick(host, 2); // FIM: skip
+  await acceptPick(host, 0); // summary confirm
+
+  const result = await promise;
+  assert.strictEqual(result.completed, true);
+  assert.ok(!workspace.updateRecord.some((entry) => entry.key === 'fim.baseUrl'));
+  assert.ok(!host.infos.some((info) => info.message.includes('Restart the DSH server')));
+});
+
 test('Esc on every step keeps current values and the wizard still finishes', async () => {
   const host = makeFakeVscode();
   const settings = { autoStart: false, closePolicy: 'never' };
@@ -594,7 +713,22 @@ test('activation registers dsh.onboarding last and the command re-opens the wiza
 
   // Invoke the command: the wizard runs and writes through the global target.
   const promise = fake.commands.get('dsh.onboarding')();
-  await acceptInput(fake, 'dev');
+  // D3: with detectable profiles under the DSH home the profile step is a
+  // QuickPick; drive both shapes so the test is home-state independent.
+  const profileScreen = fake.uiCalls.shift();
+  assert.ok(profileScreen, 'expected the profile step to be shown');
+  if (profileScreen.kind === 'pick') {
+    const newItem = profileScreen.control.items.find((item) => item.id === '__new__');
+    profileScreen.control.selectedItems = [newItem];
+    profileScreen.control._accept();
+    await tick();
+    await acceptInput(fake, 'dev');
+  } else {
+    profileScreen.control.value = 'dev';
+    profileScreen.control._change('dev');
+    profileScreen.control._accept();
+    await tick();
+  }
   await acceptPick(fake, 0);
   await acceptPick(fake, 1);
   await acceptPick(fake, 0);

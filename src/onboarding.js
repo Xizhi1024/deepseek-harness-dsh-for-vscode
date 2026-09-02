@@ -101,7 +101,48 @@ function showInputBox(vscode, { title, prompt, value, validate }) {
   });
 }
 
-async function profileStep(vscode, loc, current) {
+/**
+ * D3: step 1. Zero-typing first — when existing profiles can be detected
+ * under the DSH home (adapter seam `listProfiles`), the step is a
+ * QuickPick of those profiles (current first, marked "current"); Esc
+ * keeps the current value and "Type a new profile name…" falls through
+ * to the validated InputBox. Without the seam (or an empty result) the
+ * step degrades to the original InputBox unchanged.
+ */
+async function profileStep(vscode, loc, current, listProfiles) {
+  let detected = [];
+  if (typeof listProfiles === 'function') {
+    try {
+      // Sync-first: the real seam is a synchronous readdirSync, which keeps
+      // the first wizard screen shown synchronously after the command is
+      // invoked (a pre-existing driver contract). Promise results are still
+      // supported for looser adapters.
+      const result = listProfiles();
+      const names = Array.isArray(result) ? result : await Promise.resolve(result);
+      detected = Array.isArray(names)
+        ? names.filter((name) => isProfileNameValid(name))
+        : [];
+    } catch {
+      detected = [];
+    }
+  }
+  if (detected.length > 0) {
+    const ordered = [current, ...detected.filter((name) => name !== current)];
+    const items = ordered.map((name) => ({
+      id: name,
+      label: name,
+      ...(name === current ? { description: loc('current') } : {}),
+    }));
+    items.push({ id: '__new__', label: '$(add) ' + loc('Type a new profile name…') });
+    const selected = await showQuickPick(vscode, {
+      title: loc('Step 1/6 · Profile'),
+      placeholder: loc('Pick an existing DSH profile, type a new name, or press Esc to keep the current value.'),
+      items,
+    });
+    if (selected === null) return null;
+    if (selected.id !== '__new__') return selected.id;
+    // "Type a new name…" falls through to the validated InputBox.
+  }
   return showInputBox(vscode, {
     title: loc('Step 1/6 · Profile'),
     prompt: loc(
@@ -180,6 +221,26 @@ async function infoStep(vscode, loc) {
 const FEATURE_DESCRIPTIONS = {
   'ctrl-k':
     'Inline edit with DSH: select code, press Ctrl+K (Cmd+K), type an instruction. Checking this box enables the feature and activates the Ctrl+K keybinding in editors; it stays off otherwise.',
+  'changes-review':
+    'Review DSH workspace edits in the Changes tree before or after they land.',
+  'lm-route':
+    'Expose DSH models as VS Code language models for the native chat view.',
+  'mcp-consume':
+    'Consume MCP servers configured in VS Code settings from DSH sessions.',
+  'call-export':
+    'Let DSH call other extensions exported APIs through the bridge (consent-gated).',
+  'ctrl-i':
+    'Gather files into the DSH thread with an inline editor flow (keybinding not bound).',
+  'exports':
+    'Programmable API face for other extensions: ask(), listSessions(), addContext().',
+  'chat-participant':
+    '@dsh in the VS Code chat view — prompts run in the current DSH session and stream back.',
+  'tab-completion':
+    'Ghost-text completions in editors (FIM). Needs an endpoint + API key; an optional setup screen follows this step.',
+  'thread-attachment':
+    'Attach files, folders and selections to the DSH thread from the editor.',
+  'editor-links':
+    'Clickable file links in DSH chat replies jump to the editor.',
 };
 
 async function featureStep(vscode, loc, getSetting, featureSwitches) {
@@ -211,6 +272,59 @@ async function featureStep(vscode, loc, getSetting, featureSwitches) {
     if (value !== currentValues[item.id]) writes.push({ id: item.id, value });
   }
   return { writes, next };
+}
+
+/**
+ * D3: optional Tab-completion configuration — endpoint dropdown + API key
+ * + restart hint, three-in-one on one unnumbered screen shown right after
+ * the feature step when the tab-completion switch ends up enabled. Esc or
+ * "Skip" leaves dsh.fim.* untouched (the dsh.fim.setApiKey command and
+ * settings remain the manual path).
+ */
+async function fimStep(vscode, loc, storeFimKey) {
+  const items = [
+    {
+      id: 'https://api.deepseek.com/beta',
+      label: loc('DeepSeek FIM (api.deepseek.com/beta)'),
+      description: loc('OpenAI-compatible completions endpoint'),
+    },
+    { id: '__custom__', label: loc('Custom endpoint…') },
+    { id: '__skip__', label: loc('Skip — configure later (dsh.fim.baseUrl + DSH: Set FIM API Key)') },
+  ];
+  const selected = await showQuickPick(vscode, {
+    title: loc('Tab completion (optional) · endpoint & API key'),
+    placeholder: loc('Pick a FIM endpoint for Tab completion, or skip for now.'),
+    items,
+  });
+  if (selected === null || selected.id === '__skip__') return { writes: [] };
+  let baseUrl = selected.id;
+  if (selected.id === '__custom__') {
+    const typed = await showInputBox(vscode, {
+      title: loc('Custom FIM endpoint'),
+      prompt: loc('Full URL of an OpenAI-compatible completions endpoint (dsh.fim.baseUrl).'),
+      value: '',
+      validate: (value) => (/^https?:\/\/.+/.test(String(value).trim())
+        ? undefined
+        : loc('Endpoint must be an http(s) URL.')),
+    });
+    if (typed === null) return { writes: [] };
+    baseUrl = typed.trim();
+    if (baseUrl === '') return { writes: [] };
+  }
+  const writes = [{ key: 'fim.baseUrl', value: baseUrl }];
+  const key = await showInputBox(vscode, {
+    title: loc('FIM API key'),
+    prompt: loc('Paste the API key for the FIM endpoint (stored in VS Code secret storage). Leave empty and press Enter to set it later with DSH: Set FIM API Key.'),
+    value: '',
+  });
+  if (typeof key === 'string' && key.trim().length > 0 && typeof storeFimKey === 'function') {
+    try {
+      await storeFimKey(key.trim());
+    } catch {
+      // secret storage unavailable here: the later command still works
+    }
+  }
+  return { writes };
 }
 
 async function summaryStep(vscode, loc, summary) {
@@ -256,11 +370,11 @@ async function finishedMessage(vscode, loc, profileChanged) {
  * @returns {Promise<{completed: boolean, changed: string[]}>}
  */
 async function runOnboardingWizard({ context, workspace }) {
-  const { vscode, loc, getSetting, updateSetting, featureSwitches } = workspace;
+  const { vscode, loc, getSetting, updateSetting, featureSwitches, listProfiles, storeFimKey } = workspace;
   const changed = [];
 
   const previousProfile = String(getSetting('profile', 'web') || 'web');
-  const profile = await profileStep(vscode, loc, previousProfile);
+  const profile = await profileStep(vscode, loc, previousProfile, listProfiles);
   if (profile !== null) {
     changed.push('profile');
     await updateSetting('profile', profile);
@@ -286,6 +400,24 @@ async function runOnboardingWizard({ context, workspace }) {
   for (const entry of featureResult.writes) {
     changed.push('features.' + entry.id);
     await updateSetting('features.' + entry.id, entry.value);
+  }
+
+  // D3: the optional Tab-completion screen (endpoint + key + restart hint)
+  // shows right after the feature step when the switch ends up enabled —
+  // unnumbered, so the step numbering stays stable for the other screens.
+  const hasTabSwitch = (featureSwitches || []).some((feature) => feature.id === 'tab-completion');
+  const tabEnabled = hasTabSwitch
+    ? Boolean(featureResult.next['tab-completion'])
+    : Boolean(getSetting('features.tab-completion', false));
+  if (tabEnabled) {
+    const fim = await fimStep(vscode, loc, storeFimKey);
+    for (const entry of fim.writes) {
+      changed.push(entry.key);
+      await updateSetting(entry.key, entry.value);
+    }
+    if (fim.writes.some((entry) => entry.key === 'fim.baseUrl')) {
+      await vscode.window.showInformationMessage(loc('Restart the DSH server (command: Restart DSH Server) to activate Tab completion.'));
+    }
   }
 
   const onFeatureLabels = (featureSwitches || [])

@@ -1187,7 +1187,7 @@ const ONBOARDING_FEATURE_SWITCHES = FEATURE_CATALOG
  * seams, and the implemented feature switch list so src/onboarding.js stays a
  * pure module (no top-level require('vscode')).
  */
-function createOnboardingWorkspace(vscode, loc) {
+function createOnboardingWorkspace(vscode, loc, context) {
   return {
     vscode,
     loc,
@@ -1198,6 +1198,25 @@ function createOnboardingWorkspace(vscode, loc) {
     async updateSetting(key, value) {
       // Global target: the wizard's choices apply to the user, not one folder.
       return vscode.workspace.getConfiguration('dsh').update(key, value, true);
+    },
+    // D3: existing-profile detection (zero typing) + the FIM secret seam.
+    // Both degrade silently when the DSH home or secretStorage is absent.
+    listProfiles() {
+      try {
+        const homePath = activeDshHomeInfo && typeof activeDshHomeInfo.path === 'string' ? activeDshHomeInfo.path : '';
+        if (!homePath) return [];
+        const profilesRoot = path.join(homePath, 'profiles');
+        return fs.readdirSync(profilesRoot, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => entry.name)
+          .filter((name) => fs.existsSync(path.join(profilesRoot, name, 'package.json')));
+      } catch {
+        return [];
+      }
+    },
+    async storeFimKey(key) {
+      if (!context || !context.secrets || typeof context.secrets.store !== 'function') return;
+      await context.secrets.store('dsh.fim.apiKey', key);
     },
   };
 }
@@ -2875,7 +2894,7 @@ async function activateWithDependencies(context, dependencies = {}) {
   // failed, and the QuickPick/InputBox wizard self-manages (contract: no new
   // context.subscriptions entry).
   vscode.commands.registerCommand("dsh.onboarding", () =>
-    runOnboardingWizard({ context, workspace: createOnboardingWorkspace(vscode, loc) })
+    runOnboardingWizard({ context, workspace: createOnboardingWorkspace(vscode, loc, context) })
   );
 
   // R16 multi-instance: demand-driven editor-area panels, each with its own
@@ -2896,7 +2915,7 @@ async function activateWithDependencies(context, dependencies = {}) {
     vscode,
     context,
     loc,
-    workspace: createOnboardingWorkspace(vscode, loc),
+    workspace: createOnboardingWorkspace(vscode, loc, context),
   }).catch((error) => {
     console.error("dsh-vs-sidebar: onboarding prompt failed:", error);
   });
