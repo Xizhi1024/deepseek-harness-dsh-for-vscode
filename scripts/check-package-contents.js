@@ -77,6 +77,7 @@ for (const required of [
   'src/detection/probeTypes.js',
   'src/detection/profileProbe.js',
   'src/diagnose/pluginSummary.js',
+  'src/diagnose/report.js',
   'src/protocol/ch1.js',
   'src/protocol/webview.js',
   'runtime-integration/dsh-vscode-integration/package.json',

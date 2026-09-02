@@ -32,7 +32,7 @@ const { ensureManagedRuntime } = require("./runtimeProvisioner");
 const { resolveLocalDshRuntime } = require("./localRuntimeResolver");
 const { normalizeLaunchMethod, resolveCommandRuntime } = require("./launchMethodResolver");
 const { discoverDshWebPorts: defaultDiscoverDshWebPorts } = require("./processDiscovery");
-const { STARTUP_ERRORS, isRetryableStartupError, renderStartupError } = require("./startupErrors");
+const { isRetryableStartupError, renderStartupError } = require("./startupErrors");
 const { deriveVscodeCapabilities } = require("./vscodeCapabilities");
 const { deriveFeatureFlags } = require("./dshCompat");
 const { framePage, statusPage, safeHttpUrl } = require("./webviewHtml");
@@ -77,6 +77,7 @@ const { createCtrlKEditCommand } = require('./commands/ctrlKEdit');
 const { createDshChatClient } = require('./dshChatClient');
 const { createChatParticipantModule } = require('./chatParticipant');
 const { createSessionTitler } = require('./sessionTitler');
+const { buildDiagnoseReport, showDiagnoseQuickPick } = require('./diagnose/report');
 const { createInlineCompletionProvider } = require('./inlineCompletion');
 const { createExportsFace } = require('./exportsFace');
 const { createWorkspaceContext } = require("./workspaceContext");
@@ -421,25 +422,26 @@ function isCleanRestartEligible(err) {
   return code === "HEALTH_TIMEOUT" || code === "SPAWN_EXITED_EARLY";
 }
 
-/**
- * Localized dsh.diagnose startup-error table. Every row flows through the
- * startupErrors taxonomy and is rendered via the bilingual l10n template keys
- * (the localized hints live in l10n/bundle.l10n.*.json).
- * @returns {string}
- */
-function localizedStartupErrorTable() {
-  return Object.keys(STARTUP_ERRORS)
-    .sort()
-    .map((code) => {
-      const def = STARTUP_ERRORS[code];
-      return `${code}: ${def.retryable ? loc("retryable") : loc("non-retryable")} — ${loc(def.diagnoseHint)}`;
-    })
-    .join('\n');
-}
-
 // ---------------------------------------------------------------------------
 // C1 watchdog + OutputChannel「DSH」(contract §3/§6 + D6 quad).
 // ---------------------------------------------------------------------------
+
+/**
+ * D2: read the platform-default integrated terminal profile name for the
+ * WSL detector (README compatibility promise: Diagnose warns when the
+ * default terminal is a WSL shell). Null-safe on hosts without the
+ * terminal configuration surface.
+ * @returns {string|null} Default profile name, or null.
+ */
+function readDefaultTerminalProfile() {
+  try {
+    const platformKey = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'osx' : 'linux';
+    const value = vscode.workspace.getConfiguration('terminal.integrated.defaultProfile').get(platformKey);
+    return typeof value === 'string' && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Stable identity for this VS Code window used by the C1 watchdog protocol.
@@ -2572,45 +2574,43 @@ function registerFeatureCommands(context, featureOk) {
           home: activeDshHomeInfo,
           binding: workspaceBinding && workspaceBinding.state() || null,
         });
-        const installed = snapshot.providers.filter((provider) => provider.installed).length;
         snapshot.featureFailures = featureFailures.slice();
-        const failuresSuffix = featureFailures.length === 0
-          ? ""
-          : " — " + loc("Degraded features: {items}", {
-            items: featureFailures.map((f) => f.id + ": " + f.error).join(" | "),
-          });
-        const resolvedRuntime = currentServer && typeof currentServer.resolvedRuntime === 'object' ? currentServer.resolvedRuntime : null;
-        const compatFlags = deriveFeatureFlags(resolvedRuntime ? resolvedRuntime.dshVersion : null);
-        const compatText = (compatFlags.known && resolvedRuntime && resolvedRuntime.dshVersion ? resolvedRuntime.dshVersion : 'unknown')
-          + " (patch=" + (compatFlags.patchOverlay ? "yes" : "no")
-          + ", theme=" + (compatFlags.themeParam ? "yes" : "no")
-          + ", toolsV3=" + (compatFlags.toolsV3 ? "yes" : "no") + ")";
-        const compatSuffix = " — " + loc("DSH compat: {compat}", { compat: compatText });
-        const startupTableSuffix = "\n\n" + localizedStartupErrorTable();
-        const selfHealSuffix = selfHealEvents.length === 0
-          ? ""
-          : " — " + loc("Self-healed without --patch: {count} time(s)", { count: String(selfHealEvents.length) });
         const hostCapabilities = deriveVscodeCapabilities(vscode.version);
         const hostVersion = typeof vscode.version === 'string' && vscode.version.length > 0
           ? vscode.version
           : 'unknown';
-        const capabilityText = "chat=" + (hostCapabilities.chatParticipant ? "yes" : "no")
-          + ", lm=" + (hostCapabilities.lmProvider ? "yes" : "no")
-          + ", mcp=" + (hostCapabilities.mcpServerDefinitions ? "yes" : "no");
-        vscode.window.showInformationMessage(loc(
-          "DSH diagnose: host {hostVersion} ({capabilities}), home {homeMode} ({homePath}), server {server}, bridge {bridge}, catalog {catalog}, providers {installed}/{total} installed",
-          {
-            hostVersion,
-            capabilities: capabilityText,
-            homeMode: snapshot.home.mode,
-            homePath: snapshot.home.path,
-            server: snapshot.server.available ? loc("running") : loc("stopped"),
-            bridge: snapshot.bridge.listening ? loc("listening") : loc("closed"),
-            catalog: String(snapshot.catalogRevision).slice(0, 8),
-            installed: String(installed),
-            total: String(snapshot.providers.length),
-          }
-        ) + failuresSuffix + compatSuffix + startupTableSuffix + selfHealSuffix);
+        const resolvedRuntime = currentServer && typeof currentServer.resolvedRuntime === 'object' ? currentServer.resolvedRuntime : null;
+        const compatFlags = deriveFeatureFlags(resolvedRuntime ? resolvedRuntime.dshVersion : null);
+        // D2: sectioned report (service/bridge/compat/plugins/alerts) with
+        // humanized startup-error text + suggested actions and a WSL
+        // default-terminal detector. The toast keeps only the one-line
+        // summary; the full JSON stays in the DSH OutputChannel.
+        const report = buildDiagnoseReport({
+          snapshot,
+          hostVersion,
+          hostCapabilities,
+          compat: {
+            dshVersion: compatFlags.known && resolvedRuntime && resolvedRuntime.dshVersion ? resolvedRuntime.dshVersion : 'unknown',
+            patchOverlay: compatFlags.patchOverlay,
+            themeParam: compatFlags.themeParam,
+            toolsV3: compatFlags.toolsV3,
+          },
+          featureFailures: featureFailures.slice(),
+          selfHealCount: selfHealEvents.length,
+          defaultTerminalProfile: readDefaultTerminalProfile(),
+          platform: process.platform,
+          loc,
+        });
+        appendDiagnostic('[diagnose] ' + JSON.stringify(report.json, null, 2));
+        vscode.window.showInformationMessage(loc('DSH diagnose: {summary}', { summary: report.summary }));
+        // Fire-and-forget picker: hosts (and test fakes) without picker
+        // events must never hang the command.
+        void showDiagnoseQuickPick(vscode, report, { loc }).then((picked) => {
+          const action = picked && picked.action;
+          if (!action || typeof action.command !== 'string') return;
+          const args = Array.isArray(action.args) ? action.args : [];
+          vscode.commands.executeCommand(action.command, ...args).catch(() => {});
+        }).catch(() => {});
       } catch (err) {
         vscode.window.showErrorMessage(loc("DSH diagnose failed: {message}", {
           message: err && err.message ? err.message : String(err),

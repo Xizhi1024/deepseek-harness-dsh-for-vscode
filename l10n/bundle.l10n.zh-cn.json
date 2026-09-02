@@ -189,5 +189,20 @@
   "Restart now": "立即重启",
   "actual port {actual} (configured {configured})": "实际端口 {actual}（配置 {configured}）",
   "DSH server ready": "DSH 服务已就绪",
-  "DSH tab completion is unavailable: {guidance}": "DSH Tab 补全不可用：{guidance}"
+  "DSH tab completion is unavailable: {guidance}": "DSH Tab 补全不可用：{guidance}",
+  "DSH diagnose: {summary}": "DSH 诊断：{summary}",
+  "DSH diagnose — pick a row for details and actions": "DSH 诊断——选择一行查看详情与操作",
+  "server {server}, bridge {bridge}, providers {installed}/{total} installed, {count} alert(s)": "服务端 {server}，桥 {bridge}，提供者 {installed}/{total} 已安装，{count} 条警报",
+  "Service": "服务",
+  "Bridge": "桥",
+  "Compatibility": "兼容性",
+  "Plugins": "插件",
+  "Alerts": "警报",
+  "DSH server is not running": "DSH 服务未运行",
+  "Start it with the Restart DSH Server command, or enable dsh.autoStart.": "用「Restart DSH Server」命令启动，或开启 dsh.autoStart。",
+  "VS Code bridge is closed": "VS Code 桥已关闭",
+  "Reload the VS Code window to rebuild the bridge.": "重载 VS Code 窗口以重建桥。",
+  "Default terminal profile \"{profile}\" is a WSL shell — extension-host terminals and the terminal bridge become unreliable when the workspace lives in WSL.": "默认终端配置「{profile}」是 WSL shell——工作区位于 WSL 时，扩展宿主终端与终端桥会不稳定。",
+  "Set terminal.integrated.defaultProfile.windows to a Windows shell (PowerShell or cmd); see the README compatibility table.": "将 terminal.integrated.defaultProfile.windows 设为 Windows shell（PowerShell 或 cmd）；详见 README 兼容性表。",
+  "Feature {id} degraded: {message}": "功能 {id} 已降级：{message}"
 }

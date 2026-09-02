@@ -189,5 +189,20 @@
   "Restart now": "Restart now",
   "actual port {actual} (configured {configured})": "actual port {actual} (configured {configured})",
   "DSH server ready": "DSH server ready",
-  "DSH tab completion is unavailable: {guidance}": "DSH tab completion is unavailable: {guidance}"
+  "DSH tab completion is unavailable: {guidance}": "DSH tab completion is unavailable: {guidance}",
+  "DSH diagnose: {summary}": "DSH diagnose: {summary}",
+  "DSH diagnose — pick a row for details and actions": "DSH diagnose — pick a row for details and actions",
+  "server {server}, bridge {bridge}, providers {installed}/{total} installed, {count} alert(s)": "server {server}, bridge {bridge}, providers {installed}/{total} installed, {count} alert(s)",
+  "Service": "Service",
+  "Bridge": "Bridge",
+  "Compatibility": "Compatibility",
+  "Plugins": "Plugins",
+  "Alerts": "Alerts",
+  "DSH server is not running": "DSH server is not running",
+  "Start it with the Restart DSH Server command, or enable dsh.autoStart.": "Start it with the Restart DSH Server command, or enable dsh.autoStart.",
+  "VS Code bridge is closed": "VS Code bridge is closed",
+  "Reload the VS Code window to rebuild the bridge.": "Reload the VS Code window to rebuild the bridge.",
+  "Default terminal profile \"{profile}\" is a WSL shell — extension-host terminals and the terminal bridge become unreliable when the workspace lives in WSL.": "Default terminal profile \"{profile}\" is a WSL shell — extension-host terminals and the terminal bridge become unreliable when the workspace lives in WSL.",
+  "Set terminal.integrated.defaultProfile.windows to a Windows shell (PowerShell or cmd); see the README compatibility table.": "Set terminal.integrated.defaultProfile.windows to a Windows shell (PowerShell or cmd); see the README compatibility table.",
+  "Feature {id} degraded: {message}": "Feature {id} degraded: {message}"
 }
