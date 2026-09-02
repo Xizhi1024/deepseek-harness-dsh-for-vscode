@@ -32,6 +32,8 @@
 - **兼容层**：`dshCompat.js` 新增 `deriveRuntimeIssues`（supported / exportDoublePrefix / sparseProjectionTitles / moduleHmrWindowCrash 四旗标，诊断专用）+ 三个版本常量；Diagnose 报告 compat 区渲染。
 - **适配**：`managedRuntimeLaunch.compareDshVersions` 支持 `-alpha.N`/`-beta.N` 预发布（此前 `0.1.2-alpha.5` 解析为 null，全部版本门控落入乐观路径——本轮修复的 bug）；上游包更名注释化（apiproxy → session-controller，双版本注记）。
 
+**同轮事故处置（00:41 开发测试失败）**：session-49fad0a7 里所有工具调用（含无工具 run_code）0ms 即报 `Cannot read properties of undefined (reading 'kind')`——即问题③在 0.1.1-rc.2 的实测复现。取证链：profile `node_modules/dsh-vscode-integration/lib/` 文件在 00:19:37 与 01:18:29 两次被扩展激活同步改写 → rc.2 base 以 `id: hmr` 启用 cordis-plugin-hmr（module HMR 默认开）→ fiber 热重载 → `tools/pre-execute` waterfall 返回 undefined → `gate.kind` 抛错（dsh-tools lib/index.js:3105-3106）。**本地止血（对齐上游 fd814589fb 方向）**：`~/.dsh/profiles/web/cordis.patch.yml` 追加 `id: hmr` disabled 行（备份 cordis.patch.yml.bak-20260903）；杀掉 3081 旧子进程（17:46 起、已污染）；一次性实例 3099 以修补后 profile 端到端复测原测试——run_code 写盘 + node 执行全通、kind 错误 0 次。后续扩展同步集成文件不再触发模块重载；窗口 runtime 由扩展按需重生（自动带新 profile）。
+
 ## 上游版本 → 扩展行为速查 / Runtime behavior matrix
 
 | DSH runtime | supported | sparseTitles | moduleHmrWindowCrash | 备注 |
