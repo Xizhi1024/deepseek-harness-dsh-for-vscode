@@ -20,6 +20,7 @@ const { createChangeTracker, validateWireEdits, assertEditsWithinDocuments, MAX_
 const MAX_TERMINALS = 8;
 const RING_BYTES = 8 * 1024;
 const MAX_FIND_FILES = 500;
+const MAX_BREAKPOINTS = 50;
 const MAX_PROGRESS = 2;
 const PROGRESS_AUTO_END_MS = 120000;
 const CONFIRM_TIMEOUT_MS = 120000;
@@ -301,6 +302,111 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
         throw v3Error('VSCODE_DEBUG_STACK_FAILED', 'Could not read the debug stack: ' + (error && error.message ? error.message : String(error)));
       }
     };
+    // D1 (issue #8): breakpoint bridge. Official vscode.debug API only
+    // (breakpoints / addBreakpoints / removeBreakpoints with
+    // SourceBreakpoint construction) — customRequest('setBreakpoints') is
+    // deliberately NOT used: its replace semantics would bypass the UI's
+    // breakpoint bookkeeping. The bridge speaks 1-based lines/columns (what
+    // stack frames and editors show); VS Code positions are 0-based and
+    // converted at this boundary.
+    if (Array.isArray(vscode.debug.breakpoints)) {
+      const describeBreakpoint = (bp) => {
+        if (!bp) return null;
+        const base = {
+          enabled: bp.enabled !== false,
+          condition: typeof bp.condition === 'string' ? bp.condition : '',
+          hitCondition: typeof bp.hitCondition === 'string' ? bp.hitCondition : '',
+          logMessage: typeof bp.logMessage === 'string' ? bp.logMessage : '',
+        };
+        if (bp.location && bp.location.uri && bp.location.range && bp.location.range.start) {
+          return {
+            ...base,
+            kind: 'source',
+            uri: String(bp.location.uri),
+            line: bp.location.range.start.line + 1,
+            column: bp.location.range.start.character + 1,
+          };
+        }
+        if (typeof bp.functionName === 'string' || typeof bp.methodName === 'string') {
+          return { ...base, kind: 'function', functionName: bp.functionName || bp.methodName || '' };
+        }
+        return null;
+      };
+      handlers['vscode/debug/listBreakpoints'] = async () => ({
+        breakpoints: (Array.isArray(vscode.debug.breakpoints) ? vscode.debug.breakpoints : [])
+          .map((bp) => describeBreakpoint(bp))
+          .filter((entry) => entry !== null),
+      });
+    }
+    if (typeof vscode.debug.addBreakpoints === 'function'
+      && vscode.SourceBreakpoint && typeof vscode.Location === 'function'
+      && typeof vscode.Position === 'function'
+      && vscode.Uri && typeof vscode.Uri.parse === 'function') {
+      handlers['vscode/debug/addBreakpoints'] = async (params) => {
+        if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'debug/addBreakpoints params must be an object');
+        const requested = Array.isArray(params.breakpoints) ? params.breakpoints : [];
+        if (requested.length === 0) throw v3Error('VSCODE_INVALID_PARAMS', 'debug/addBreakpoints requires a non-empty breakpoints array');
+        if (requested.length > MAX_BREAKPOINTS) {
+          throw v3Error('VSCODE_BREAKPOINT_LIMIT', 'debug/addBreakpoints allows at most ' + MAX_BREAKPOINTS + ' breakpoints per call');
+        }
+        const constructed = [];
+        for (const raw of requested) {
+          if (!isRecord(raw)) throw v3Error('VSCODE_INVALID_PARAMS', 'each breakpoint must be an object');
+          const uri = requireString(raw.uri, 'breakpoint.uri');
+          if (!Number.isInteger(raw.line) || raw.line < 1) {
+            throw v3Error('VSCODE_INVALID_PARAMS', 'breakpoint.line must be a 1-based positive integer');
+          }
+          const column = raw.column === undefined ? 1 : raw.column;
+          if (!Number.isInteger(column) || column < 1) {
+            throw v3Error('VSCODE_INVALID_PARAMS', 'breakpoint.column must be a 1-based positive integer');
+          }
+          // 1-based bridge input -> 0-based VS Code position.
+          const location = new vscode.Location(vscode.Uri.parse(uri), new vscode.Position(raw.line - 1, column - 1));
+          constructed.push(new vscode.SourceBreakpoint(
+            location,
+            raw.enabled === undefined ? true : Boolean(raw.enabled),
+            typeof raw.condition === 'string' ? raw.condition : '',
+            typeof raw.hitCondition === 'string' ? raw.hitCondition : '',
+            typeof raw.logMessage === 'string' ? raw.logMessage : '',
+          ));
+        }
+        await vscode.debug.addBreakpoints(constructed);
+        appendOutputLine('[bridge] breakpoints added: ' + constructed.length);
+        return { added: constructed.length };
+      };
+    }
+    if (typeof vscode.debug.removeBreakpoints === 'function' && Array.isArray(vscode.debug.breakpoints)) {
+      handlers['vscode/debug/removeBreakpoints'] = async (params) => {
+        if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'debug/removeBreakpoints params must be an object');
+        const current = Array.isArray(vscode.debug.breakpoints) ? vscode.debug.breakpoints : [];
+        const matched = [];
+        if (params.all === true) {
+          matched.push(...current);
+        } else {
+          const wanted = Array.isArray(params.breakpoints) ? params.breakpoints : [];
+          if (wanted.length === 0) {
+            throw v3Error('VSCODE_INVALID_PARAMS', 'debug/removeBreakpoints requires all:true or a non-empty breakpoints array');
+          }
+          for (const raw of wanted) {
+            if (!isRecord(raw)) throw v3Error('VSCODE_INVALID_PARAMS', 'each breakpoint filter must be an object');
+            const uri = requireString(raw.uri, 'breakpoint.uri');
+            const line = raw.line;
+            if (line !== undefined && (!Number.isInteger(line) || line < 1)) {
+              throw v3Error('VSCODE_INVALID_PARAMS', 'breakpoint.line must be a 1-based positive integer');
+            }
+            for (const bp of current) {
+              if (!bp || !bp.location || !bp.location.uri || !bp.location.range || !bp.location.range.start) continue;
+              if (bp.location.uri.toString() !== uri) continue;
+              if (line !== undefined && bp.location.range.start.line + 1 !== line) continue;
+              if (!matched.includes(bp)) matched.push(bp);
+            }
+          }
+        }
+        if (matched.length > 0) await vscode.debug.removeBreakpoints(matched);
+        appendOutputLine('[bridge] breakpoints removed: ' + matched.length);
+        return { removed: matched.length };
+      };
+    }
   }
 
   // ---- workspace / window ---------------------------------------------------
@@ -727,6 +833,7 @@ module.exports = {
   CONFIRM_TIMEOUT_MS,
   DEFAULT_FIND_FILES_EXCLUDE,
   FIND_FILES_TIMEOUT_MS,
+  MAX_BREAKPOINTS,
   MAX_FIND_FILES,
   MAX_PROGRESS,
   MAX_TERMINALS,

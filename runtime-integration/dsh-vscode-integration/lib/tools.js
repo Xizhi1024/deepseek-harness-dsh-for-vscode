@@ -93,8 +93,9 @@ function jsonRpcError(bridgeCode, message) {
 }
 
 // ---------------------------------------------------------------------------
-// Method -> tool schema table. This mirrors METHODS_V3 (32 entries: 6
-// inherited v1/v2 methods + 26 v3 additions incl. E-batch callExport).
+// Method -> tool schema table. This mirrors METHODS_V3 (35 entries: 6
+// inherited v1/v2 methods + 29 v3 additions incl. E-batch callExport and
+// the D1 breakpoint bridge).
 // ---------------------------------------------------------------------------
 
 function objectSchema(properties = {}, required = []) {
@@ -132,6 +133,27 @@ function editSchema() {
     range: rangeSchema(),
     text: stringProp('Text payload (max 1 MiB per edit)'),
   }, ['kind', 'uri']);
+}
+
+// D1 (issue #8): the breakpoint bridge speaks 1-based lines/columns; the
+// extension-side v3 handler converts to the 0-based official API.
+function addBreakpointSchema() {
+  return objectSchema({
+    uri: uriProp('Document URI'),
+    line: intProp('1-based line number'),
+    column: intProp('1-based column (default 1)'),
+    enabled: boolProp('Start enabled (default true)'),
+    condition: stringProp('Optional conditional expression'),
+    hitCondition: stringProp('Optional hit condition'),
+    logMessage: stringProp('Optional log message template'),
+  }, ['uri', 'line']);
+}
+
+function removeBreakpointSchema() {
+  return objectSchema({
+    uri: uriProp('Document URI to match'),
+    line: intProp('Optional 1-based line to match (any line when omitted)'),
+  }, ['uri']);
 }
 
 const METHOD_SCHEMAS = {
@@ -211,6 +233,23 @@ const METHOD_SCHEMAS = {
   'vscode/debug/getStack': {
     description: 'Read the active VS Code debug call stack.',
     parameters: objectSchema(),
+  },
+  'vscode/debug/listBreakpoints': {
+    description: 'List VS Code breakpoints (source and function, 1-based lines/columns).',
+    parameters: objectSchema(),
+  },
+  'vscode/debug/addBreakpoints': {
+    description: 'Add source breakpoints through the official addBreakpoints API (1-based line/column, max 50 per call).',
+    parameters: objectSchema({
+      breakpoints: { type: 'array', items: addBreakpointSchema(), description: 'Source breakpoints to add (max 50)' },
+    }, ['breakpoints']),
+  },
+  'vscode/debug/removeBreakpoints': {
+    description: 'Remove VS Code breakpoints: all of them, or those matching a uri (and optional 1-based line).',
+    parameters: objectSchema({
+      all: boolProp('Remove every breakpoint'),
+      breakpoints: { type: 'array', items: removeBreakpointSchema(), description: 'Filters matching breakpoints to remove' },
+    }),
   },
   'vscode/workspace/findFiles': {
     description: 'Find files in the workspace by glob pattern.',

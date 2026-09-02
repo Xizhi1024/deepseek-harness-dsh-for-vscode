@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
-  createV3Handlers, CALL_EXPORT_TIMEOUT_MS, MAX_TERMINALS, MAX_FIND_FILES, MAX_PROGRESS, RING_BYTES,
+  createV3Handlers, CALL_EXPORT_TIMEOUT_MS, MAX_TERMINALS, MAX_FIND_FILES, MAX_BREAKPOINTS, MAX_PROGRESS, RING_BYTES,
 } = require('../../src/bridge/v3');
 const { METHODS_V3, METHODS_BY_VERSION, PROTOCOL_VERSIONS } = require('../../src/protocol/ch1');
 
@@ -111,10 +111,10 @@ const flags = (map = {}) => (key) => Boolean(map[key]);
 test('protocol v3 freezes the full v3 method table and versions', () => {
   assert.ok(PROTOCOL_VERSIONS.includes(3));
   assert.strictEqual(METHODS_BY_VERSION[3], METHODS_V3);
-  for (const method of ['vscode/terminal/create', 'vscode/tasks/run', 'vscode/git/getStatus', 'vscode/editor/read', 'vscode/confirm/ask', 'vscode/changes/push', 'vscode/mcp/callTool', 'vscode/extensions/callExport']) {
+  for (const method of ['vscode/terminal/create', 'vscode/tasks/run', 'vscode/debug/listBreakpoints', 'vscode/debug/addBreakpoints', 'vscode/debug/removeBreakpoints', 'vscode/git/getStatus', 'vscode/editor/read', 'vscode/confirm/ask', 'vscode/changes/push', 'vscode/mcp/callTool', 'vscode/extensions/callExport']) {
     assert.ok(METHODS_V3.includes(method), method + ' must be frozen in v3');
   }
-  assert.strictEqual(METHODS_V3.length, 32, 'E-T2a freezes the v3 method table at 32 entries');
+  assert.strictEqual(METHODS_V3.length, 35, 'E-T2a freezes the v3 method table at 35 entries (D1 breakpoint bridge)');
 });
 
 test('consent gates keep terminal, editor/read and UI surfaces unmounted by default', () => {
@@ -594,4 +594,115 @@ test('extensions/callExport journals only summary metadata and skips when journa
   fake.api.extensions.getExtension = () => ({ isActive: true, exports: { echo: (v) => v } });
   const result = await noJournal['vscode/extensions/callExport']({ extensionId: 'pub.a', method: 'echo', args: { a: 1 } });
   assert.strictEqual(result.called, true);
+});
+
+// ---------------------------------------------------------------------------
+// D1 (issue #8): breakpoint bridge via the official vscode.debug API
+// ---------------------------------------------------------------------------
+
+function makeDebugFake({ initial = [], added = [], removed = [] } = {}) {
+  let current = initial;
+  class FakeLocation {
+    constructor(uri, position) {
+      this.uri = uri;
+      this.range = { start: position };
+    }
+  }
+  class FakeSourceBreakpoint {
+    constructor(location, enabled, condition, hitCondition, logMessage) {
+      Object.assign(this, { location, enabled, condition, hitCondition, logMessage });
+    }
+  }
+  const holder = fakeVscode({
+    SourceBreakpoint: FakeSourceBreakpoint,
+    Location: FakeLocation,
+    debug: {
+      async startDebugging() { return true; },
+      get breakpoints() { return current; },
+      async addBreakpoints(bps) {
+        added.push(...bps);
+        current = [...current, ...bps];
+      },
+      async removeBreakpoints(bps) {
+        removed.push(...bps);
+        const gone = new Set(bps);
+        current = current.filter((bp) => !gone.has(bp));
+      },
+    },
+  });
+  return { api: holder.api, added, removed };
+}
+
+const wireBp = (uri, line0, col0, extra = {}) => ({
+  location: {
+    uri: { toString: () => uri },
+    range: { start: { line: line0, character: col0 } },
+  },
+  enabled: extra.enabled !== false,
+  condition: extra.condition || '',
+  hitCondition: extra.hitCondition || '',
+  logMessage: extra.logMessage || '',
+});
+
+test('D1: list/add/remove breakpoints use the official vscode.debug API with 1-based wire lines', async () => {
+  const fake = makeDebugFake({ initial: [wireBp('file:///ws/a.js', 9, 0), wireBp('file:///ws/b.js', 20, 4)] });
+  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags() });
+
+  const list = await handlers['vscode/debug/listBreakpoints']();
+  assert.deepStrictEqual(
+    list.breakpoints.map((bp) => [bp.kind, bp.uri, bp.line, bp.column]),
+    [
+      ['source', 'file:///ws/a.js', 10, 1],
+      ['source', 'file:///ws/b.js', 21, 5],
+    ],
+    '0-based VS Code positions are reported as 1-based wire lines/columns',
+  );
+
+  const addResult = await handlers['vscode/debug/addBreakpoints']({
+    breakpoints: [{ uri: 'file:///ws/a.js', line: 30, column: 2, condition: 'x > 1' }],
+  });
+  assert.strictEqual(addResult.added, 1);
+  const added = fake.added[0];
+  assert.strictEqual(added.location.range.start.line, 29, '1-based line converted to 0-based');
+  assert.strictEqual(added.location.range.start.character, 1, '1-based column converted to 0-based');
+  assert.strictEqual(added.location.uri.toString(), 'file:///ws/a.js');
+  assert.strictEqual(added.condition, 'x > 1');
+  assert.strictEqual(added.enabled, true);
+
+  const removeResult = await handlers['vscode/debug/removeBreakpoints']({
+    breakpoints: [{ uri: 'file:///ws/a.js', line: 10 }],
+  });
+  assert.strictEqual(removeResult.removed, 1);
+  assert.strictEqual(fake.removed[0].location.range.start.line, 9);
+});
+
+test('D1: removeBreakpoints with all:true clears every breakpoint', async () => {
+  const fake = makeDebugFake({ initial: [wireBp('file:///ws/a.js', 0, 0), wireBp('file:///ws/b.js', 5, 0)] });
+  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags() });
+
+  const result = await handlers['vscode/debug/removeBreakpoints']({ all: true });
+  assert.strictEqual(result.removed, 2);
+  assert.strictEqual(fake.removed.length, 2);
+});
+
+test('D1: addBreakpoints validates params and caps the batch', async () => {
+  const fake = makeDebugFake();
+  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags() });
+
+  await assert.rejects(
+    handlers['vscode/debug/addBreakpoints']({}),
+    /non-empty breakpoints array/,
+  );
+  await assert.rejects(
+    handlers['vscode/debug/addBreakpoints']({ breakpoints: [{ uri: 'file:///ws/a.js', line: 0 }] }),
+    /1-based positive integer/,
+  );
+  await assert.rejects(
+    handlers['vscode/debug/addBreakpoints']({ breakpoints: Array.from({ length: MAX_BREAKPOINTS + 1 }, () => ({ uri: 'file:///ws/a.js', line: 1 })) }),
+    /at most/,
+  );
+  await assert.rejects(
+    handlers['vscode/debug/removeBreakpoints']({}),
+    /all:true or a non-empty breakpoints array/,
+  );
 });

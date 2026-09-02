@@ -276,8 +276,8 @@ test('dsh.features.* configuration keys mirror the featureRegistry catalog (L1/L
   assert.strictEqual(properties['dsh.features.exports'].scope, 'machine', 'exports must be machine-scoped');
 });
 
-test('CH1 v3 method table freezes 32 methods including extensions/callExport', () => {
-  assert.strictEqual(METHODS_V3.length, 32);
+test('CH1 v3 method table freezes 35 methods including extensions/callExport', () => {
+  assert.strictEqual(METHODS_V3.length, 35);
   assert.ok(METHODS_V3.includes('vscode/extensions/callExport'));
 });
 
