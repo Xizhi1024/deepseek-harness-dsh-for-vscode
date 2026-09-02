@@ -82,6 +82,7 @@ const { createWorkspaceBinding, BINDING_STATES } = require("./context/workspaceB
 const { createEditorContext } = require("./editorContext");
 const { createV3Handlers } = require("./bridge/v3");
 const { createChangeTracker } = require("./changeTracker");
+const { createEditEventProjector } = require("./editEventProjector");
 const { createChangeWatcher } = require("./changeWatcher");
 const callExportJournal = require("./callExportJournal");
 const { createChangeTree } = require("./changeTree");
@@ -121,6 +122,23 @@ let lastConfig = null; // last config snapshot used for change detection (reconc
 let restartPromptTimer = null; // A2/U2: debounced "Restart now?" prompt for injection-class settings
 let lifecycle = null; // the one queue for every lifecycle transition
 let viewGeneration = 0; // invalidates delayed connects for disposed/replaced views
+
+/**
+ * C2.5 anchor: every currentSessionId transition re-points the edit-event
+ * projector at the now-current session (or stops following on null).
+ * Best-effort only — a projector failure must never disturb session flow.
+ */
+function followEditProjection(sessionId) {
+  try {
+    if (sessionId) {
+      editEventProjector?.followSession(sessionId);
+    } else {
+      editEventProjector?.unfollow();
+    }
+  } catch (_) {
+    /* projection is advisory attribution, never load-bearing */
+  }
+}
 let textDocumentBridge = null; // per-window authenticated DSH -> vscode.window bridge
 let versionedBridge = null; // per-window versioned JSON-RPC bridge
 let notificationNotifier = null; // CH1 v2 metadata notification coalescer
@@ -128,6 +146,7 @@ let notificationSubscriptions = []; // selection/diagnostics event disposables
 let editorContext = null; // per-window approved editor attachments backing vscode/editor methods
 let changeTracker = null; // R14S1 journal for applied changes (created in L0, no UI)
 let changeWatcher = null; // C1 L3 FileSystemWatcher fallback for source:'external' changes
+let editEventProjector = null; // C2.5 projects edit/write tool calls from the session event stream into the journal
 let changeTree = null; // R14S1 TreeView/command surface (created in L2 changes-review)
 let lmRoute = null; // R23 model-route provider (created in L2 lm-route)
 let mcpManager = null; // S2b MCP consume aggregator (created in L0, no side effects)
@@ -732,6 +751,7 @@ async function bindServer(context, server, cwd) {
     // instances.
     sessionId = await workspaceBinding.resolve(server, cwd);
     currentSessionId = sessionId ? sessionIdFromValue(sessionId) : null;
+    followEditProjection(currentSessionId);
     const bindingState = workspaceBinding.state();
     if (bindingState.state === BINDING_STATES.ERROR) {
       render(statusPage({
@@ -745,6 +765,7 @@ async function bindServer(context, server, cwd) {
     }
   } else {
     currentSessionId = null;
+    followEditProjection(null);
   }
   renderFrame(context);
 }
@@ -938,6 +959,7 @@ async function reconnectNow(context) {
   currentServer = null;
   currentExternalUrl = null;
   currentSessionId = null;
+  followEditProjection(null);
   await connectNow(context);
 }
 
@@ -1019,6 +1041,7 @@ async function rebindToWorkspace(context) {
     currentServer = null;
     currentExternalUrl = null;
     currentSessionId = null;
+    followEditProjection(null);
     await connectNow(context);
     return;
   }
@@ -1027,6 +1050,7 @@ async function rebindToWorkspace(context) {
   // to the new workspace through the workspace registry.
   const sessionId = await workspaceBinding.resolve(currentServer, cwd);
   currentSessionId = sessionId ? sessionIdFromValue(sessionId) : null;
+  followEditProjection(currentSessionId);
   const bindingState = workspaceBinding.state();
   if (bindingState.state === BINDING_STATES.ERROR) {
     render(statusPage({
@@ -1336,6 +1360,7 @@ async function setupCoreServer({ context, services }) {
         currentServer = null;
         currentExternalUrl = null;
         currentSessionId = null;
+        followEditProjection(null);
         boundCwd = null;
         pendingCleanRestart = false;
         appendDiagnostic(`[server] ${s.message ? loc(s.message, s.params) : loc("DSH: unavailable")}`);
@@ -1544,6 +1569,21 @@ async function setupCoreSidebar({ context, services }) {
     },
   };
   services.changeTracker = changeTracker;
+  // C2.5 event-flow attribution: project edit/write tool calls from the DSH
+  // session event stream (bounded export back-scan + live events.mux
+  // subscription) into the change journal. Zero interception: the journal's
+  // (path, sessionId, ±2s) idempotent merge folds duplicates with C2 bridge
+  // notifications. Every projector failure only logs via appendDiagnostic.
+  try {
+    editEventProjector = createEditEventProjector({
+      recordToolEdit: (payload) => changeTracker?.recordToolEdit?.(payload),
+      log: (line) => appendDiagnostic(line),
+      baseUrl: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
+    });
+    services.editEventProjector = editEventProjector;
+  } catch (err) {
+    appendDiagnostic('edit-event projector degraded: ' + (err && err.message ? err.message : String(err)));
+  }
   mcpConsentGate = createConsentGate({
     globalState: context.globalState || { get: () => [], update: () => {} },
     vscode,
@@ -2290,6 +2330,7 @@ function registerFeatureCommands(context, featureOk) {
         currentServer = null;
         currentExternalUrl = null;
         currentSessionId = null;
+        followEditProjection(null);
         boundCwd = null;
         vscode.window.showInformationMessage(loc("DSH server stopped"));
       })),
@@ -2395,6 +2436,7 @@ function registerFeatureCommands(context, featureOk) {
           signal: controller.signal,
         });
         currentSessionId = sessionIdFromValue(sessionId);
+        followEditProjection(currentSessionId);
         renderFrame(context);
         // A4/U5: a successful session switch must also reveal the sidebar —
         // it may still be collapsed, and the toast alone hides the result.
@@ -2436,6 +2478,7 @@ function registerFeatureCommands(context, featureOk) {
         });
         if (selected && selected.sessionId) {
           currentSessionId = sessionIdFromValue(selected.sessionId);
+          followEditProjection(currentSessionId);
           renderFrame(context);
           vscode.commands.executeCommand("dsh.focusSidebar").catch(() => {});
           vscode.window.showInformationMessage(loc("Session switched: {sessionId}", {
@@ -2890,6 +2933,13 @@ async function deactivate() {
     currentServer = null;
     currentExternalUrl = null;
     currentSessionId = null;
+    // C2.5: stop the edit-event projection subscription (if any).
+    try {
+      editEventProjector?.dispose?.();
+    } catch (_) {
+      /* projection teardown is best-effort */
+    }
+    editEventProjector = null;
     currentDshTheme = null;
     boundCwd = null;
     exportsFaceInstance = null;

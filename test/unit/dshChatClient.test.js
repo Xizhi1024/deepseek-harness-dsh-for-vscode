@@ -468,6 +468,95 @@ test('streamSession routes onText failures to onDone consumer-error without reje
 });
 
 // ---------------------------------------------------------------------------
+// streamSession onEvent seam
+// ---------------------------------------------------------------------------
+
+test('streamSession onEvent receives every matching session/event frame before text filtering', async () => {
+  const toolCall = {
+    type: 'tool/call',
+    seq: 2,
+    time: Date.now(),
+    data: { name: 'edit', arguments: { file_path: 'D:/a.ts' } },
+  };
+  const chunks = [
+    sseFrameFor(sessionEventFrame('other', toolCall)), // wrong session: filtered
+    sseFrameFor(sessionEventFrame('s1', toolCall)), // non-text event: still forwarded
+    sseFrameFor(sessionEventFrame('s1', textChunkEvent('Hello'))),
+    sseFrameFor({ type: 'session/subscribed', sessionId: 's1', lastSeq: 0 }), // not session/event
+  ];
+  const fetchImpl = async () => sseResponse(chunks);
+  const client = createDshChatClient({ fetchImpl, baseUrlProvider: () => BASE_URL });
+
+  const seen = [];
+  const order = [];
+  const result = await client.streamSession({
+    sessionId: 's1',
+    onText: (text) => order.push(['onText', text]),
+    onDone: () => {},
+    onEvent: (event, sessionId) => {
+      seen.push(event);
+      order.push(['onEvent', event.type]);
+    },
+  });
+
+  assert.deepStrictEqual(result, { reason: 'stream-end' });
+  assert.equal(seen.length, 2);
+  assert.deepStrictEqual(seen[0], toolCall);
+  assert.deepStrictEqual(seen[1].type, 'assistant/chunk');
+  // the non-text tool/call event is forwarded before the text delta arrives
+  assert.deepStrictEqual(order, [
+    ['onEvent', 'tool/call'],
+    ['onEvent', 'assistant/chunk'],
+    ['onText', 'Hello'],
+  ]);
+});
+
+test('streamSession onEvent is optional and rejects a non-function value', async () => {
+  const client = createDshChatClient({
+    fetchImpl: async () => sseResponse([sseFrameFor(sessionEventFrame('s1', textChunkEvent('x')))]),
+    baseUrlProvider: () => BASE_URL,
+  });
+  const result = await client.streamSession({
+    sessionId: 's1',
+    onText: () => {},
+    onDone: () => {},
+  });
+  assert.deepStrictEqual(result, { reason: 'stream-end' });
+
+  await assert.rejects(
+    client.streamSession({
+      sessionId: 's1',
+      onText: () => {},
+      onDone: () => {},
+      onEvent: 'not-a-function',
+    }),
+    TypeError
+  );
+});
+
+test('streamSession routes an onEvent throw to onDone consumer-error', async () => {
+  const chunks = [
+    sseFrameFor(sessionEventFrame('s1', {
+      type: 'tool/call',
+      data: { name: 'edit', arguments: { file_path: 'D:/a.ts' } },
+    })),
+  ];
+  const fetchImpl = async () => sseResponse(chunks);
+  const client = createDshChatClient({ fetchImpl, baseUrlProvider: () => BASE_URL });
+
+  let done;
+  const result = await client.streamSession({
+    sessionId: 's1',
+    onText: () => {},
+    onDone: (d) => { done = d; },
+    onEvent: () => { throw new Error('event boom'); },
+  });
+
+  assert.deepStrictEqual(done, { reason: 'consumer-error' });
+  assert.deepStrictEqual(result, { reason: 'consumer-error' });
+});
+
+// ---------------------------------------------------------------------------
 // rejection hygiene
 // ---------------------------------------------------------------------------
 

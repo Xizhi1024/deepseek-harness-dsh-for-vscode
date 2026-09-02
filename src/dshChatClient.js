@@ -357,6 +357,10 @@ function createDshChatClient({
    *     is established and the server has subscribed the session bus - at that
    *     point no live session/event can be missed. It is never called when
    *     the connection fails; a throw routes to `consumer-error`.
+   *   - `onEvent(event, sessionId)` (optional) is called once for every
+   *     matching `session/event` frame BEFORE the text-delta filter, so
+   *     non-text events (e.g. `tool/call`) are observable too. A throw routes
+   *     to `consumer-error`, exactly like onText/onReady.
    *   - `onDone({reason})` is called exactly once when the stream ends or is
    *     interrupted. Reasons: `'stream-end'`, `'aborted'`,
    *     `'DSH_SESSION_STREAM_STALLED'`, `'DSH_SESSION_API_INVALID_RESPONSE'`,
@@ -374,10 +378,12 @@ function createDshChatClient({
    * @param {Function} args.onDone - Called once with `{reason}`.
    * @param {Function} [args.onReady] - Called once after the connection is
    *   established (server subscribed; no delta can be missed from this point).
+   * @param {Function} [args.onEvent] - Called with (event, sessionId) for
+   *   every matching session/event frame, before the text-delta filter.
    * @param {AbortSignal} [args.signal] - Caller abort signal.
    * @returns {Promise<{reason: string}>} Terminal reason (also passed to onDone).
    */
-  async function streamSession({ sessionId, onText, onDone, onReady, signal } = {}) {
+  async function streamSession({ sessionId, onText, onDone, onReady, onEvent, signal } = {}) {
     if (typeof sessionId !== "string" || sessionId.length === 0) {
       throw new TypeError("sessionId must be a non-empty string");
     }
@@ -389,6 +395,9 @@ function createDshChatClient({
     }
     if (typeof onReady !== "undefined" && typeof onReady !== "function") {
       throw new TypeError("onReady must be a function when provided");
+    }
+    if (typeof onEvent !== "undefined" && typeof onEvent !== "function") {
+      throw new TypeError("onEvent must be a function when provided");
     }
 
     const resolvedFetch = resolveFetchImpl({ fetchImpl });
@@ -552,6 +561,17 @@ function createDshChatClient({
           }
           if (frame.type !== "session/event") continue;
           if (frame.sessionId !== sessionId) continue;
+          if (typeof onEvent === "function") {
+            try {
+              const maybePromise = onEvent(frame.event, sessionId);
+              if (maybePromise && typeof maybePromise.then === "function") {
+                await maybePromise;
+              }
+            } catch (_) {
+              finish("consumer-error");
+              break;
+            }
+          }
           const text = extractTextDelta(frame.event);
           if (text === null) continue;
           try {
