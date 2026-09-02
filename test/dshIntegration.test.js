@@ -55,6 +55,30 @@ test('DSH integration installs into the selected custom profile', (t) => {
   assert.strictEqual(installed.nodeModulesPath, path.join(root, 'home', 'profiles', 'dev', 'node_modules'));
 });
 
+test('installDshIntegration skips bytes-identical files (no spurious HMR churn)', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-integration-churn-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const { extension } = createSourceTree(root);
+  const home = path.join(root, 'home');
+
+  const first = installDshIntegration(home, extension);
+  assert.strictEqual(first.copied, INTEGRATION_FILES.length);
+  assert.strictEqual(first.skipped, 0);
+
+  // Second run over identical content must not rewrite anything.
+  const second = installDshIntegration(home, extension);
+  assert.strictEqual(second.copied, 0);
+  assert.strictEqual(second.skipped, INTEGRATION_FILES.length);
+
+  // A real content change must still be written (and reload) as before.
+  const changed = path.join(extension, 'runtime-integration', 'dsh-vscode-integration', 'lib', 'tools.js');
+  fs.writeFileSync(changed, 'changed-content');
+  const third = installDshIntegration(home, extension);
+  assert.strictEqual(third.copied, 1);
+  assert.strictEqual(third.skipped, INTEGRATION_FILES.length - 1);
+  assert.strictEqual(fs.readFileSync(path.join(third.packageRoot, 'lib', 'tools.js'), 'utf8'), 'changed-content');
+});
+
 test('DSH integration rejects invalid profile names with CONFIG_PROFILE_INVALID', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-vscode-integration-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

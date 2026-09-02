@@ -39,8 +39,33 @@ function atomicCopy(source, destination, operations = {}) {
 }
 
 /**
+ * True when source and destination hold identical bytes. Missing or
+ * unreadable destinations read as "different" so the copy still happens.
+ *
+ * @param {string} source - Absolute source path.
+ * @param {string} destination - Absolute destination path.
+ * @param {Function} readFileSync - Read seam (injectable in tests).
+ * @returns {boolean} True when the bytes match.
+ */
+function contentEquals(source, destination, readFileSync) {
+  try {
+    return readFileSync(source).equals(readFileSync(destination));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Install the extension-owned DSH dual-half integration package beneath the
  * selected DSH home. Only a fixed allow-list of files is copied from the VSIX.
+ *
+ * Bytes-identical destinations are SKIPPED: rewriting unchanged plugin
+ * files under a live DSH instance (shared home, symlinked profile) forces
+ * cordis-plugin-hmr reloads whose window breaks every in-flight tool call
+ * (live incident 2026-09-03: F5 activation rewrote all 7 lib files, and
+ * during the reload window every tool - run_code included - failed with
+ * "Cannot read properties of undefined (reading 'kind')"). Real content
+ * changes still land (and reload) exactly as before.
  */
 function installDshIntegration(dshHome, extensionPath, options = {}) {
   const home = requireAbsolute(dshHome, 'DSH home');
@@ -51,12 +76,21 @@ function installDshIntegration(dshHome, extensionPath, options = {}) {
   const nodeModulesPath = path.join(home, 'profiles', profileName, 'node_modules');
   const packageRoot = path.join(nodeModulesPath, INTEGRATION_PACKAGE_NAME);
   const existsSync = options.existsSync || fs.existsSync;
+  const readFileSync = options.readFileSync || fs.readFileSync;
+  let copied = 0;
+  let skipped = 0;
   for (const relative of INTEGRATION_FILES) {
     const source = path.join(sourceRoot, ...relative.split('/'));
     if (!existsSync(source)) throw new Error(`DSH integration asset is missing: ${relative}`);
-    atomicCopy(source, path.join(packageRoot, ...relative.split('/')), options);
+    const destination = path.join(packageRoot, ...relative.split('/'));
+    if (existsSync(destination) && contentEquals(source, destination, readFileSync)) {
+      skipped += 1;
+      continue;
+    }
+    atomicCopy(source, destination, options);
+    copied += 1;
   }
-  return Object.freeze({ nodeModulesPath, packageRoot });
+  return Object.freeze({ nodeModulesPath, packageRoot, copied, skipped });
 }
 
 module.exports = {
