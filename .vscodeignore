@@ -22,6 +22,9 @@ scripts/**
 smoke*.js
 dsh-instances.json
 .smoke-storage/**
+# F5 acceptance-scratch dirs must never ship (caught leaking into the 1.1.0 vsix)
+.dsh-accept-test/**
+.dsh-*test*/**
 
 # --- Internal orchestration notes stay in the repository, never in the VSIX ---
 # 内部编排/QA 笔记只留在仓库里，绝不进入发布包

@@ -3,7 +3,7 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.0] - Unreleased
+## [1.1.0] - 2026-09-02
 
 > ⚠️ **迁移提示 / Migration note（F-d，Codex 对齐）**：`vscode/changes/push` 改为**直写**——扩展自设的审批弹窗（Allow Once/Session/Reject）与工作区边界拒绝已**删除**；哪条路径可写、要不要批，由 DSH 沙箱单源决定（read-only / workspace-write / full-access 三档在 DSH 侧）。安全网 = 落盘前类型化校验（结构 + 活文档坐标范围）+ journal before-快照 + 变更树文件级 **Undo**（快照整文件还原）——人是 Reviewer，不是守门员。过渡期早前构建产生的 pending 条目仍可在树上 Accept/丢弃；1.0.x 旧条目以 legacy 标记显示。
 > `vscode/changes/push` is now a **direct write** channel: the extension-side approval modal (Allow Once/Session/Reject) and the workspace-boundary rejection are REMOVED - which paths are writable and whether to approve is single-sourced from the DSH sandbox (its read-only / workspace-write / full-access tiers). The safety net is typed validation before landing (structure + live-document ranges), a before-snapshot in the journal, and file-level **Undo** in the changes tree (whole-file snapshot restore) - humans are reviewers, not gatekeepers. Pending entries from interim builds remain Accept/discard-able in the tree; 1.0.x entries render with a legacy marker.
@@ -14,14 +14,16 @@ All notable changes to this project are documented here, following [Keep a Chang
   Full-source change tracking: the tree groups entries into via-bridge edits / DSH tool writes / external changes. The DSH-side tools/pre-execute waterfall observes edit/write calls (attribution only, never gating; dsh.changes.observe-tools defaults on) and notifies vscode/dshEditObserved into the journal; a FileSystemWatcher fallback captures every on-disk write that bypassed both (500ms debounce, watcherExclude respected, >20 events/s circuit breaker degrading to git polling, snapshot-backed undo); external entries undo via snapshot restore or, after confirmation, git checkout.
 - **MCP env 密钥联动 secretStorage**：MCP server 需要 env 密钥时先查 VS Code secretStorage 同名 key，命中免问；key 名含 KEY/TOKEN/SECRET 时输入框密码化，问完回存。
   MCP env secrets now check VS Code secretStorage first (same-name key skips the prompt); secret-looking keys prompt with password masking and are stored back into secretStorage.
-- *[暂缓 Deferred]* 调试器断点桥（`vscode/debug/listBreakpoints|addBreakpoints|removeBreakpoints`）——本分支未落地，见 PLAN-1.1.0-REMAINING.md。
-  *[Deferred]* Debugger breakpoint bridge — not in this drop; see PLAN-1.1.0-REMAINING.md.
+- **调试器断点桥（D1，#8）**：v3 方法表 32→35——`vscode/debug/listBreakpoints|addBreakpoints|removeBreakpoints` 全部走官方 `vscode.debug` API（breakpoints / addBreakpoints / removeBreakpoints + SourceBreakpoint 构造；不使用 customRequest('setBreakpoints') 的替换语义，避免绕过 UI 断点簿记）；桥侧 1-based 行列与 0-based API 位置在边界转换；批量上限 50；remove 支持 uri（±line）匹配或 all:true。
+  Debugger breakpoint bridge (D1, #8): the v3 method table grows 32->35 - vscode/debug/listBreakpoints|addBreakpoints|removeBreakpoints on the official vscode.debug API only (no customRequest setBreakpoints replace semantics); 1-based wire lines/columns convert to 0-based API positions at the boundary; batch cap 50; remove matches by uri (plus optional line) or all:true.
 - **回复路径 linkify**：聊天消息里的 `file:///...` 与工作区相对路径（含 `:line`）可点击，经 text-document 桥在本窗口打开。
   Clickable file links in chat replies: `file:///...` and workspace-relative paths (with `:line`) open in the current window via the text-document bridge.
 - **主视图入口三层**：视图标题栏"在编辑器中打开"图标 + 编辑器标题栏 DSH 图标 + `Ctrl+Alt+N` 新实例（`dsh.multiInstance.entry` 默认开）。
   Three entries to the main view: view-title open-in-editor icon, editor-title DSH icon, and `Ctrl+Alt+N` for a new instance (`dsh.multiInstance.entry` defaults on).
-- *[暂缓 Deferred]* Diagnose 改版（QuickPick 分区）与 Onboarding 改版（profile 下拉/Tab 补全三并一步）——本分支未落地，见 PLAN-1.1.0-REMAINING.md。
-  *[Deferred]* Diagnose revamp and onboarding revamp — not in this drop; see PLAN-1.1.0-REMAINING.md.
+- **Diagnose 改版（D2）**：分区 QuickPick（服务/桥/兼容性/插件/警报）取代单条巨型消息；启动错误码→人话+建议动作（经 STARTUP_ERRORS 分类表：文本+提示+可重试性），警报带一键动作（重启 DSH / 重载窗口 / 打开终端默认配置）；完整 JSON 报告写入 DSH OutputChannel；兑现 README 兼容性承诺——默认终端为 WSL shell 时告警（仅 win32）。
+  Diagnose redesign (D2): a sectioned QuickPick (service / bridge / compat / plugins / alerts) replaces the single mega-toast; startup error codes humanize through the STARTUP_ERRORS taxonomy (text + hint + retryability) with one-click actions (restart DSH, reload window, open the terminal profile setting); the full JSON report goes to the DSH OutputChannel; the README compatibility promise is honoured - a WSL default terminal warns on win32.
+- **Onboarding 改版（D3）**：profile 步零输入优先——探测 DSH home 下已有 profiles 即下拉选择（当前项置顶标记），"新名称"项回退校验输入框，无可探测时维持原输入框；功能开关步骤全量补充描述（B5 ctrl-k 描述保留）；新增 Tab 补全可选配置屏（端点下拉：DeepSeek / 自定义 http(s) 校验 / 跳过 + API key 直存 secretStorage + 重启提示，三并一），仅在 tab-completion 开关启用后出现且不占步骤编号。
+  Onboarding redesign (D3): the profile step is zero-typing first - detected profiles become a QuickPick (current first, marked), the new-name entry falls back to the validated InputBox; every feature switch gains a description (B5 ctrl-k wording kept); a new optional Tab-completion screen (endpoint dropdown: DeepSeek / custom with http(s) validation / skip + API key straight into secretStorage + restart hint, three-in-one) appears only when the switch ends up enabled, without consuming a step number.
 
 ### Fixed / 修复
 
@@ -31,12 +33,14 @@ All notable changes to this project are documented here, following [Keep a Chang
   dshVersion probing: local DSH package version read failure paths fixed — no more unknown compatibility WARN, theme/toolsV3 gating restored.
 - **MCP forget**：改为下拉选择 consent 记录（零输入），并修复 forget 后复调不再询问 consent 的 bug。
   MCP forget: now a QuickPick over consent records (zero typing), fixing the bug where a post-forget invocation was not re-prompted for consent.
-- *[暂缓 Deferred]* @dsh 参与者会话治理（会话复用/标题/双前缀/流式）——本分支未落地，见 PLAN-1.1.0-REMAINING.md。
-  *[Deferred]* @dsh participant session hygiene — not in this drop; see PLAN-1.1.0-REMAINING.md.
+- **@dsh 参与者会话治理（B2，#4）**：会话复用改为 sticky——绑定工作区**最近更新的根会话**（子代理/子会话排除；sessionIds 或同 cwd 成员判定），窗口重载/服务器重启/重绑不再繁殖会话（3 条消息 0 新会话）；`dsh.newSession`/`dsh.switchSession` 现在同步 pin 绑定缓存，@dsh 提示词跟随用户正在看的会话；会话标题经官方 `session.rename` 从首条 prompt 派生（首行、控制字符剥离、空白折叠、60 码点截断、每会话一次），API 创建的会话不再以裸 UUID 示人。（"session-session-" 双前缀为 DSH 运行时导出命名问题，已在运行时热修待上游。）
+  @dsh participant session hygiene (B2, #4): session reuse is sticky - the binding re-uses the workspace's most recently updated ROOT session (subagent/child excluded), so reloads/restarts/rebinds stop multiplying sessions (3 messages -> 0 new); dsh.newSession/dsh.switchSession now pin the binding cache so @dsh follows the session the user is looking at; session titles derive from the first prompt via the official session.rename (first line, control-strip, whitespace collapse, 60-codepoint cap, once per session) - API-created sessions stop showing bare UUIDs. (The session-session- double prefix was a DSH runtime export-naming bug, hot-fixed locally pending upstream.)
 - **findFiles 防护**：桥 handler 加 5s 超时 + 默认 exclude（node_modules/.git/dist/out），超时返回带提示的空结果。
   findFiles guard: 5s timeout + default excludes (node_modules/.git/dist/out); timeouts return an empty result with a hint.
 - **undo 反向区间**：已接受条目的 undo 改用快照整文件替换式 WorkspaceEdit，规避多 edit 行号漂移导致的拒绝。
   Undo for accepted entries now uses whole-file snapshot replacement WorkspaceEdits, avoiding rejections from range drift across multiple edits.
+- **服务重启端口抢跑（F-f）**：`stop()` 杀掉子进程后有界等待（100ms 轮询、上限 3s）旧端口显式拒绝连接，再进入探测/扫描——杜绝旧 listener 未释放导致的端口悄悄漂移（+1）或新子进程 bind 竞争偶发早退。
+  Restart port race (F-f): stop() now waits (bounded: 100ms polls, 3s cap) for the old port to explicitly refuse connections before the next probe/scan - no more silent port+1 drift or sporadic bind-race early exits from a dying listener.
 
 ### Changed / 变更
 
