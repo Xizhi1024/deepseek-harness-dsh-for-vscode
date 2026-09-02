@@ -17,7 +17,9 @@ if (result.status !== 0) {
 const files = result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 const forbidden = [
   /^\.agents\//i,
-  /^\.dsh-.*test/i,
+  /^\.dsh-[^/]+\//i,
+  /^PLAN-/i,
+  /^USABILITY-AUDIT\.md$/i,
   /^\.git(?:hub)?\//i,
   /^\.vscode(?:-test)?\//i,
   /^ci\//i,
