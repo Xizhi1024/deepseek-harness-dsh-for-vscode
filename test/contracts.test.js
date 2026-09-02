@@ -41,6 +41,10 @@ test('editor title exposes one persistent icon and DSH view title exposes only t
     command: 'dsh.changes.refresh',
     when: 'view == dsh.changes',
     group: 'navigation@1'
+  }, {
+    command: 'dsh.changes.toggleScope',
+    when: 'view == dsh.changes',
+    group: 'navigation@2'
   }]);
   // F-c: terminal-state entries (undone/discarded/accepted) no longer offer
   // actions that would only fail — Accept is limited to pending/legacy, Undo
@@ -201,6 +205,7 @@ test('extension-host smoke expectations cover every contributed command id', () 
     'dsh.changes.focus',
     'dsh.changes.openDiff',
     'dsh.changes.refresh',
+    'dsh.changes.toggleScope',
     'dsh.changes.undo',
     'dsh.cleanupOrphans',
     'dsh.ctrlIEdit',

@@ -166,6 +166,8 @@
   "DSH edits (via bridge)": "DSH edits (via bridge)",
   "DSH tool writes": "DSH tool writes",
   "External changes": "External changes",
+  "Current session": "Current session",
+  "Switch to a DSH session to see its changes": "Switch to a DSH session to see its changes",
   "No before snapshot for this change; showing the current file": "No before snapshot for this change; showing the current file",
   "Undo will discard uncommitted changes in {file}. Continue?": "Undo will discard uncommitted changes in {file}. Continue?",
   "Undo": "Undo",

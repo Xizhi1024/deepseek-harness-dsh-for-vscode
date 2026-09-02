@@ -58,6 +58,7 @@
   "dsh.cmd.changes.undo": "撤销变更",
   "dsh.cmd.changes.refresh": "刷新变更",
   "dsh.cmd.changes.focus": "聚焦 DSH 变更",
+  "dsh.cmd.changes.toggleScope": "切换变更视图：当前会话 / 全部",
   "dsh.cmd.ctrlKEdit": "用 DSH 编辑（Ctrl+K）",
   "dsh.cmd.ctrlIEdit": "用 DSH 文件编辑（Ctrl+I）",
   "dsh.cmd.mcp.refresh": "刷新 MCP 服务器",

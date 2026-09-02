@@ -55,6 +55,7 @@ async function main() {
         'dsh.addProblems',
         'dsh.addSelectionToThread',
         'dsh.capabilities',
+        'dsh.changes.toggleScope',
         'dsh.cleanupOrphans',
         'dsh.diagnose',
         'dsh.focusSidebar',

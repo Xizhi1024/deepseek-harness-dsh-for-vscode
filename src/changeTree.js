@@ -177,6 +177,10 @@ function createTreeEvent() {
  * @param {Function} [options.gitRestore] - Optional injectable seam for the
  *   external-undo `git checkout -- <file>` path (defaults to the built-in
  *   vscode.git API when available).
+ * @param {'session'|'all'} [options.scope] - Which entries the tree shows.
+ *   'session' (default) follows the sidebar's active DSH session: only
+ *   bridge/tool-intercept entries attributed to that session are listed, in a
+ *   single flat group. 'all' keeps the global three-source grouped view.
  * @returns {object} Change tree API.
  */
 function createChangeTree({
@@ -186,9 +190,16 @@ function createChangeTree({
   loc = (value) => value,
   checkpointRollback = null,
   gitRestore = null,
+  scope = 'session',
 } = {}) {
   if (!vscode || !vscode.window) throw new TypeError('createChangeTree requires a vscode facade');
   if (!tracker || typeof tracker.list !== 'function') throw new TypeError('createChangeTree requires a change tracker');
+
+  // Session-following scope (default 'session'): the tree tracks the
+  // sidebar's active DSH session. 'all' restores the global grouped view.
+  let activeScope = scope === 'all' ? 'all' : 'session';
+  let activeSessionId = null;
+  let activeSessionLabel = null;
 
   const onDidChangeTreeData = createTreeEvent();
 
@@ -222,6 +233,27 @@ function createChangeTree({
     external: 'External changes',
   };
 
+  // Session scope: only bridge/tool-intercept entries attributed to the
+  // active session. External (watcher) entries carry no session attribution
+  // and stay visible only in the 'all' scope.
+  function sessionFilteredEntries() {
+    return tracker.list().filter((entry) => (
+      entry.source !== 'external' && entry.sessionId === activeSessionId
+    ));
+  }
+
+  function computeRoots() {
+    if (activeScope !== 'session') {
+      return groupEntries(tracker.list());
+    }
+    if (!activeSessionId) {
+      return [{ type: 'info', id: 'dsh.changes.scope-hint' }];
+    }
+    const entries = sessionFilteredEntries();
+    if (entries.length === 0) return [];
+    return [{ type: 'group', source: 'session', entries }];
+  }
+
   function groupEntries(entries) {
     const groups = [];
     const bySource = new Map();
@@ -244,7 +276,7 @@ function createChangeTree({
 
   function getChildren(element) {
     if (!element) {
-      return groupEntries(tracker.list());
+      return computeRoots();
     }
     if (element && element.type === 'group') {
       return element.entries;
@@ -287,8 +319,17 @@ function createChangeTree({
 
   function getTreeItem(element) {
     if (!element) return null;
+    if (element.type === 'info') {
+      const item = new vscode.TreeItem(loc('Switch to a DSH session to see its changes'), 0);
+      item.id = element.id;
+      item.contextValue = 'dsh.changes.info';
+      return item;
+    }
     if (element.type === 'group') {
-      const item = new vscode.TreeItem(loc(SOURCE_GROUP_LABELS[element.source] || element.source), 1);
+      const groupLabel = element.source === 'session'
+        ? (activeSessionLabel || loc('Current session'))
+        : loc(SOURCE_GROUP_LABELS[element.source] || element.source);
+      const item = new vscode.TreeItem(groupLabel, 1);
       item.id = 'dsh.changes.source:' + element.source;
       item.description = String(element.entries.length);
       item.contextValue = 'dsh.changes.source';
@@ -314,7 +355,8 @@ function createChangeTree({
     // group wrappers carry type === 'group'. Anything that is not a group is
     // an entry leaf, so resolve its owning source group by id.
     if (element && element.type !== 'group') {
-      return groupEntries(tracker.list())
+      return computeRoots()
+        .filter((node) => node.type === 'group')
         .find((group) => group.entries.some((entry) => entry.id === element.id)) || null;
     }
     return null;
@@ -333,6 +375,37 @@ function createChangeTree({
 
   function entries() {
     return tracker.list();
+  }
+
+  /**
+   * Point the session scope at a DSH session (null/'' clears it back to the
+   * empty state). Triggers a tree refresh.
+   *
+   * @param {string|null} sessionId - Active sidebar session id.
+   * @param {string} [label] - Optional display name for the session group.
+   * @returns {string|null} The stored session id.
+   */
+  function setActiveSession(sessionId, label) {
+    activeSessionId = typeof sessionId === 'string' && sessionId.length > 0 ? sessionId : null;
+    activeSessionLabel = typeof label === 'string' && label.length > 0 ? label : null;
+    refresh();
+    return activeSessionId;
+  }
+
+  /**
+   * Toggle between the session-following and the global ('all') view.
+   * Triggers a tree refresh.
+   *
+   * @returns {'session'|'all'} The new scope.
+   */
+  function toggleScope() {
+    activeScope = activeScope === 'session' ? 'all' : 'session';
+    refresh();
+    return activeScope;
+  }
+
+  function getScope() {
+    return activeScope;
   }
 
   /**
@@ -601,10 +674,13 @@ function createChangeTree({
     accept,
     dispose,
     entries,
+    getScope,
     openDiff,
     provider,
     refresh,
     reveal,
+    setActiveSession,
+    toggleScope,
     treeView,
     undo,
   });

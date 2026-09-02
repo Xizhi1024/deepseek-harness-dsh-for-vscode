@@ -75,6 +75,7 @@
     "onCommand:dsh.changes.undo",
     "onCommand:dsh.changes.refresh",
     "onCommand:dsh.changes.focus",
+    "onCommand:dsh.changes.toggleScope",
     "onCommand:dsh.ctrlIEdit",
     "onCommand:dsh.ctrlKEdit",
     "onLanguageModelChatProvider:dsh",
@@ -280,6 +281,12 @@
         "category": "%dsh.cmd.category%"
       },
       {
+        "command": "dsh.changes.toggleScope",
+        "title": "%dsh.cmd.changes.toggleScope%",
+        "category": "%dsh.cmd.category%",
+        "icon": "$(filter)"
+      },
+      {
         "command": "dsh.ctrlIEdit",
         "title": "%dsh.cmd.ctrlIEdit%",
         "category": "%dsh.cmd.category%"
@@ -341,6 +348,11 @@
           "command": "dsh.changes.refresh",
           "when": "view == dsh.changes",
           "group": "navigation@1"
+        },
+        {
+          "command": "dsh.changes.toggleScope",
+          "when": "view == dsh.changes",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [

@@ -654,6 +654,10 @@ function render(page) {
  */
 function renderFrame(context) {
   if (!currentExternalUrl) return;
+  // Session-following change tree: every frame render follows a session
+  // change (bind / new / switch), so this is the single setActiveSession
+  // anchor; the tree tolerates being absent (L0) via optional chaining.
+  try { changeTree?.setActiveSession?.(currentSessionId); } catch (_) { /* advisory */ }
   render(framePage({
     url: currentExternalUrl,
     lang: vscode.env.language,
@@ -2128,7 +2132,11 @@ async function setupChangesReview({ context, services }) {
     tracker: changeTracker,
     storageUri: context.globalStorageUri,
     loc,
+    // Session-following default: the tree shows only the sidebar's active
+    // session; dsh.changes.toggleScope flips to the global 'all' view.
+    scope: "session",
   });
+  changeTree.setActiveSession(currentSessionId);
   services.changesTree = changeTree;
   // Wire the L0 tracker wrapper to the L2 tree so every newly recorded
   // change reveals itself in the view.
@@ -2603,7 +2611,8 @@ function registerFeatureCommands(context, featureOk) {
           }));
         }
       }),
-      vscode.commands.registerCommand("dsh.changes.refresh", () => changeTree.refresh())
+      vscode.commands.registerCommand("dsh.changes.refresh", () => changeTree.refresh()),
+      vscode.commands.registerCommand("dsh.changes.toggleScope", () => changeTree.toggleScope())
     );
   }
 

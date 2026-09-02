@@ -24,6 +24,7 @@ async function run() {
     'dsh.newSession',
     'dsh.switchSession',
     'dsh.capabilities',
+    'dsh.changes.toggleScope',
     'dsh.cleanupOrphans',
     'dsh.diagnose',
   ];

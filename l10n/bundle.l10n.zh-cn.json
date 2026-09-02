@@ -166,6 +166,8 @@
   "DSH edits (via bridge)": "DSH 编辑（经桥）",
   "DSH tool writes": "DSH 工具写入",
   "External changes": "外部变更",
+  "Current session": "当前会话",
+  "Switch to a DSH session to see its changes": "切换到 DSH 会话后即可查看其更改",
   "No before snapshot for this change; showing the current file": "此变更没有变更前快照；显示当前文件",
   "Undo will discard uncommitted changes in {file}. Continue?": "撤销将丢弃 {file} 中未提交的改动，是否继续？",
   "Undo": "撤销",

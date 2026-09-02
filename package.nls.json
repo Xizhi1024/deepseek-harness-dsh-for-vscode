@@ -58,6 +58,7 @@
   "dsh.cmd.changes.undo": "Undo Change",
   "dsh.cmd.changes.refresh": "Refresh Changes",
   "dsh.cmd.changes.focus": "Focus DSH Changes",
+  "dsh.cmd.changes.toggleScope": "Toggle Changes View: This Session / All",
   "dsh.cmd.ctrlKEdit": "Edit with DSH (Ctrl+K)",
   "dsh.cmd.ctrlIEdit": "Edit with DSH Files (Ctrl+I)",
   "dsh.cmd.mcp.refresh": "Refresh MCP Servers",

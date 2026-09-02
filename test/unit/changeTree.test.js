@@ -129,6 +129,8 @@ test('change tree registers the dsh.changes provider and groups entries by sourc
     vscode,
     tracker,
     storageUri: { fsPath: root },
+    // The grouped-by-source view is the explicit 'all' scope.
+    scope: 'all',
     loc: (value) => {
       labels.push(value);
       return value;
@@ -166,6 +168,101 @@ test('change tree registers the dsh.changes provider and groups entries by sourc
   // getParent resolves the owning source group.
   const parent = provider.getParent(groups[1].entries[0]);
   assert.strictEqual(parent.source, 'tool-intercept');
+  tree.dispose();
+});
+
+test('session scope shows only the active session entries and hides external ones', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-change-tree-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  await tracker.record({ sessionId: 's-1', label: 'mine', edits: [] });
+  await tracker.record({ sessionId: 's-2', label: 'theirs', edits: [] });
+  await tracker.recordToolEdit({ tool: 'write', path: '/ws/mine.js', sessionId: 's-1', size: 3, truncated: false });
+  await tracker.record({ source: 'external', label: 'watched.js', edits: [], status: 'accepted' });
+  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root }, scope: 'session' });
+  const provider = vscode.registeredProviders[0].provider;
+
+  let refreshes = 0;
+  provider.onDidChangeTreeData(() => { refreshes += 1; });
+  tree.setActiveSession('s-1');
+  assert.ok(refreshes >= 1, 'setActiveSession must trigger a refresh');
+
+  const roots = provider.getChildren(null);
+  assert.strictEqual(roots.length, 1);
+  assert.strictEqual(roots[0].type, 'group');
+  assert.strictEqual(roots[0].source, 'session');
+  // Same-session bridge + tool-intercept entries only; other-session and
+  // external entries stay hidden in the session scope.
+  assert.deepStrictEqual(roots[0].entries.map((entry) => entry.label), ['mine', 'write mine.js']);
+  assert.strictEqual(provider.getChildren(roots[0]).length, 2);
+
+  const groupItem = provider.getTreeItem(roots[0]);
+  assert.strictEqual(groupItem.label, 'Current session');
+  assert.strictEqual(groupItem.collapsibleState, 1);
+  assert.strictEqual(provider.getParent(roots[0].entries[0]).source, 'session');
+
+  // Switching the active session re-filters the flat group.
+  tree.setActiveSession('s-2');
+  assert.deepStrictEqual(provider.getChildren(null)[0].entries.map((entry) => entry.label), ['theirs']);
+  tree.dispose();
+});
+
+test('session scope without an active session renders the empty-state hint', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-change-tree-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  await tracker.record({ sessionId: 's-1', label: 'a', edits: [] });
+  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root } });
+  const provider = vscode.registeredProviders[0].provider;
+
+  // Default scope is 'session' and no active session is set: hint node only.
+  assert.strictEqual(tree.getScope(), 'session');
+  const roots = provider.getChildren(null);
+  assert.strictEqual(roots.length, 1);
+  assert.strictEqual(roots[0].type, 'info');
+  const item = provider.getTreeItem(roots[0]);
+  assert.strictEqual(item.label, 'Switch to a DSH session to see its changes');
+  assert.strictEqual(item.contextValue, 'dsh.changes.info');
+  assert.deepStrictEqual(provider.getChildren(roots[0]), []);
+  assert.strictEqual(provider.getParent(roots[0]), null);
+
+  // Clearing the session id restores the same empty state.
+  tree.setActiveSession('s-1');
+  assert.strictEqual(provider.getChildren(null)[0].type, 'group');
+  tree.setActiveSession(null);
+  assert.strictEqual(provider.getChildren(null)[0].type, 'info');
+  tree.dispose();
+});
+
+test('toggleScope flips between the session view and the all-scope grouped view', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-change-tree-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  await tracker.record({ sessionId: 's-1', label: 'a', edits: [] });
+  await tracker.record({ sessionId: 's-2', label: 'b', edits: [] });
+  await tracker.recordToolEdit({ tool: 'write', path: '/ws/c.js', sessionId: 's-1', size: 3, truncated: false });
+  await tracker.record({ source: 'external', label: 'watched.js', edits: [], status: 'accepted' });
+  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root }, scope: 'session' });
+  const provider = vscode.registeredProviders[0].provider;
+  tree.setActiveSession('s-1');
+
+  assert.strictEqual(tree.getScope(), 'session');
+  assert.strictEqual(tree.toggleScope(), 'all');
+  assert.strictEqual(tree.getScope(), 'all');
+  const groups = provider.getChildren(null);
+  assert.deepStrictEqual(groups.map((group) => group.source), ['bridge', 'tool-intercept', 'external']);
+  assert.strictEqual(provider.getChildren(groups[0]).length, 2);
+  assert.strictEqual(provider.getChildren(groups[2]).length, 1);
+
+  // And back: the single flat session group returns.
+  assert.strictEqual(tree.toggleScope(), 'session');
+  const roots = provider.getChildren(null);
+  assert.strictEqual(roots.length, 1);
+  assert.strictEqual(roots[0].source, 'session');
+  assert.strictEqual(roots[0].entries.length, 2);
   tree.dispose();
 });
 
@@ -324,7 +421,7 @@ test('entry contextValue reflects the journal status for menu gating', async (t)
   await mk('undone');
   await mk('discarded');
   await mk('legacy');
-  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root } });
+  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root }, scope: 'all' });
   const provider = vscode.registeredProviders[0].provider;
 
   const groups = provider.getChildren(null);
