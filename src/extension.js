@@ -39,6 +39,7 @@ const { framePage, statusPage, safeHttpUrl } = require("./webviewHtml");
 const {
   listSessions,
   createSession,
+  renameSession,
   ensureWorkspaceSession,
   rootSessionItems,
   reuseBlankSession,
@@ -75,6 +76,7 @@ const { createCtrlIEditCommand } = require('./commands/ctrlIEdit');
 const { createCtrlKEditCommand } = require('./commands/ctrlKEdit');
 const { createDshChatClient } = require('./dshChatClient');
 const { createChatParticipantModule } = require('./chatParticipant');
+const { createSessionTitler } = require('./sessionTitler');
 const { createInlineCompletionProvider } = require('./inlineCompletion');
 const { createExportsFace } = require('./exportsFace');
 const { createWorkspaceContext } = require("./workspaceContext");
@@ -160,6 +162,7 @@ let ensureRuntime = null; // resolves/verifies (and optionally provisions) the m
 let discoverRunningDshWebPorts = null; // process-scan fallback for silent ports (injectable)
 let ensureWorkspaceSessionFn = null; // retained injection seam; defaults to workspaceBinding.resolve
 let workspaceBinding = null; // SM-2 workspace registry binding (created in activate)
+let sessionTitleFn = null; // B2 shared one-shot session titler (chat participant + exports face)
 let runtimeAbort = new AbortController(); // cancels in-flight runtime provisioning on deactivate
 let threadAttachmentCoordinator = null; // owning-window request/ack bridge into the DSH composer
 let injectedDependencies = {}; // activation seams shared with the feature setups (deps stays { context, services })
@@ -1305,6 +1308,15 @@ async function setupCoreServer({ context, services }) {
     const server = currentServer || { url: baseUrl, owned: true };
     return workspaceBinding.resolve(server, cwd);
   });
+  // B2: shared one-shot session titler. Both the @dsh participant and the
+  // exports face derive a readable session title from the first prompt
+  // (sessions created through the API otherwise keep bare-UUID titles);
+  // createSessionTitler memoizes per session id so at most one
+  // session.rename is issued per session per extension lifetime.
+  sessionTitleFn = (injectedDependencies.createSessionTitler || createSessionTitler)((sessionId, title) => renameSession(
+    currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
+    { sessionId, title }
+  ));
   try {
     prepareDshHome(hostContext.config(), context);
   } catch (err) {
@@ -1925,6 +1937,7 @@ function buildExportsFace(context) {
   };
   return createExportsFace({
     isEnabled: () => vscode.workspace.getConfiguration('dsh').get('features.exports', false),
+    titleSession: sessionTitleFn || undefined,
     chatClient: createDshChatClient({
       baseUrlProvider: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
       ensureConnected,
@@ -1981,6 +1994,7 @@ async function setupChatParticipant({ context, services }) {
   });
   const participantModule = createChatParticipantModule({
     chatClient,
+    titleSession: sessionTitleFn || undefined,
     resolveSessionId: async () => {
       if (typeof ensureWorkspaceSessionFn !== 'function') {
         throw new Error('DSH workspace session seam is unavailable');
@@ -2436,6 +2450,9 @@ function registerFeatureCommands(context, featureOk) {
           signal: controller.signal,
         });
         currentSessionId = sessionIdFromValue(sessionId);
+        // B2: an explicit New Session must move the cached binding too,
+        // otherwise @dsh prompts keep targeting the previous session.
+        workspaceBinding?.setActiveSession?.(sessionId);
         followEditProjection(currentSessionId);
         renderFrame(context);
         // A4/U5: a successful session switch must also reveal the sidebar —
@@ -2478,6 +2495,9 @@ function registerFeatureCommands(context, featureOk) {
         });
         if (selected && selected.sessionId) {
           currentSessionId = sessionIdFromValue(selected.sessionId);
+          // B2: the sidebar switch must move the cached binding so @dsh
+          // prompts follow the session the user is looking at.
+          workspaceBinding?.setActiveSession?.(selected.sessionId);
           followEditProjection(currentSessionId);
           renderFrame(context);
           vscode.commands.executeCommand("dsh.focusSidebar").catch(() => {});

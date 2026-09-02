@@ -356,3 +356,53 @@ test('provideFollowups silently returns [] when listSessionsFn throws', async ()
   assert.deepStrictEqual(followups, []);
   assert.equal(listCalls.length, 1);
 });
+
+// ---------------------------------------------------------------------------
+// B2 session titles
+// ---------------------------------------------------------------------------
+
+test('handleRequest renames the session from the first prompt via titleSession (once per session)', async () => {
+  const { deps } = makeDeps();
+  const titleCalls = [];
+  deps.titleSession = async (sessionId, title) => {
+    titleCalls.push({ sessionId, title });
+    return true;
+  };
+  const module = createChatParticipantModule(deps);
+
+  await module.handleRequest({ prompt: 'Fix the login bug\n\nstack trace follows' }, {}, makeResponse(), makeToken());
+  await module.handleRequest({ prompt: 'second message' }, {}, makeResponse(), makeToken());
+
+  assert.deepStrictEqual(titleCalls, [{ sessionId: 'session-1', title: 'Fix the login bug' }]);
+});
+
+test('handleRequest skips the rename when no title is derivable', async () => {
+  const { deps } = makeDeps();
+  const titleCalls = [];
+  deps.titleSession = async (sessionId, title) => {
+    titleCalls.push({ sessionId, title });
+  };
+  const module = createChatParticipantModule(deps);
+
+  await module.handleRequest({ prompt: '\n   \t' }, {}, makeResponse(), makeToken());
+
+  assert.deepStrictEqual(titleCalls, []);
+});
+
+test('handleRequest keeps the response intact when titleSession rejects', async () => {
+  const { deps, promptCalls } = makeDeps();
+  deps.titleSession = async () => { throw new Error('rename failed'); };
+  const module = createChatParticipantModule(deps);
+  const response = makeResponse();
+
+  await module.handleRequest({ prompt: 'hello' }, {}, response, makeToken());
+
+  assert.strictEqual(promptCalls.length, 1);
+  assert.ok(!response.calls.some((text) => String(text).includes('rename')), 'rename failure must not surface');
+});
+
+test('createChatParticipantModule rejects a non-function titleSession', () => {
+  const { deps } = makeDeps();
+  deps.titleSession = 'nope';
+  assert.throws(() => createChatParticipantModule(deps), /titleSession must be a function/);
+});

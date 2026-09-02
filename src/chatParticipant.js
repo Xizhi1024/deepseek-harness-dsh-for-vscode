@@ -14,6 +14,8 @@
  * never the vscode.lm provider.
  */
 
+const { deriveSessionTitle } = require("./sessionTitler");
+
 /**
  * Maximum segment length passed to a single `response.markdown` call. The SSE
  * frame cap (1 MiB) lets the DSH stream produce very long text deltas, so a
@@ -74,6 +76,11 @@ function isRootSessionItem(item) {
  * @param {Function} deps.listSessionsFn - Session list function accepting
  *   `{ signal }`; result sorted by `updatedAt` descending (asm:
  *   sessionNavigation.listSessions).
+ * @param {Function} [deps.titleSession] - Optional one-shot rename hook
+ *   (asm: the shared sessionTitler bound to sessionNavigation.renameSession)
+ *   called once per session id with a title derived from the first prompt
+ *   (B2 bare-UUID-title guard). Failures are swallowed and never affect
+ *   the chat response.
  * @param {Function} [deps.loc] - Localization helper.
  * @returns {{handleRequest: Function, provideFollowups: Function}} Frozen
  *   participant module.
@@ -83,6 +90,7 @@ function createChatParticipantModule({
   resolveSessionId,
   isEnabled,
   listSessionsFn,
+  titleSession,
   loc = defaultLoc,
 }) {
   if (!chatClient || typeof chatClient.prompt !== 'function' || typeof chatClient.streamSession !== 'function') {
@@ -97,6 +105,12 @@ function createChatParticipantModule({
   if (typeof listSessionsFn !== 'function') {
     throw new TypeError('listSessionsFn must be a function');
   }
+  if (typeof titleSession !== 'undefined' && typeof titleSession !== 'function') {
+    throw new TypeError('titleSession must be a function when provided');
+  }
+
+  /** Session ids already handed to titleSession (one attempt each). */
+  const titledSessions = new Set();
   if (typeof loc !== 'function') {
     throw new TypeError('loc must be a function');
   }
@@ -275,6 +289,20 @@ function createChatParticipantModule({
       return;
     }
 
+    // B2: sessions reached through the API keep bare-UUID titles; give the
+    // session a readable title derived from this first prompt. One attempt
+    // per session per module lifetime; failures never affect the response.
+    let titlePromise = null;
+    if (typeof titleSession === 'function' && !titledSessions.has(sessionId)) {
+      const title = deriveSessionTitle(request.prompt);
+      if (title.length > 0) {
+        titledSessions.add(sessionId);
+        titlePromise = Promise.resolve()
+          .then(() => titleSession(sessionId, title))
+          .catch(() => {});
+      }
+    }
+
     const streamResult = await streamPromise;
     if (
       !streamBroken
@@ -292,6 +320,7 @@ function createChatParticipantModule({
         /* response stream itself failed */
       }
     }
+    if (titlePromise) await titlePromise;
     cleanup();
   }
 

@@ -7,6 +7,7 @@ const {
   DshSessionError,
   listSessions,
   createSession,
+  renameSession,
   ensureWorkspaceSession,
   rootSessionItems,
   reuseBlankSession,
@@ -378,4 +379,81 @@ test('sessionIdFromValue accepts non-empty strings ≤ 200 without NUL', () => {
       (err) => err instanceof DshSessionError && err.code === 'DSH_SESSION_INVALID_SESSION_ID'
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// renameSession (B2 readable titles)
+// ---------------------------------------------------------------------------
+
+test('renameSession posts the session.rename envelope and returns the normalized title', async () => {
+  let capturedUrl;
+  let capturedInit;
+  const result = await renameSession(BASE_URL, {
+    sessionId: 'session-1',
+    title: 'Fix the login bug',
+    fetchImpl: async (url, init) => {
+      capturedUrl = url;
+      capturedInit = init;
+      const request = JSON.parse(init.body);
+      return jsonResponse(200, {
+        type: 'server-response',
+        rpcId: request.rpcId,
+        result: { ok: true, value: { title: 'Fix the login bug', seq: 3 } },
+      });
+    },
+  });
+
+  assert.strictEqual(capturedUrl, BASE_URL + '/api/session.rename');
+  const request = JSON.parse(capturedInit.body);
+  assert.strictEqual(request.method, 'session.rename');
+  assert.deepStrictEqual(request.payload, { sessionId: 'session-1', title: 'Fix the login bug' });
+  assert.deepStrictEqual(result, { title: 'Fix the login bug', seq: 3 });
+});
+
+test('renameSession rejects missing sessionId/title before any fetch', async () => {
+  let fetched = false;
+  const fetchImpl = async () => {
+    fetched = true;
+    return jsonResponse(200, { result: { ok: true, value: { title: 'x', seq: 0 } } });
+  };
+  await assert.rejects(renameSession(BASE_URL, { title: 'x', fetchImpl }), TypeError);
+  await assert.rejects(renameSession(BASE_URL, { sessionId: 's', fetchImpl }), TypeError);
+  assert.strictEqual(fetched, false);
+});
+
+test('renameSession wraps an invalid value shape as DSH_SESSION_API_INVALID_RESPONSE', async () => {
+  await assert.rejects(
+    renameSession(BASE_URL, {
+      sessionId: 's',
+      title: 't',
+      fetchImpl: async () => jsonResponse(200, { result: { ok: true, value: { title: 'x' } } }),
+    }),
+    (err) => err instanceof DshSessionError && err.code === 'DSH_SESSION_API_INVALID_RESPONSE'
+  );
+});
+
+test('renameSession surfaces business errors (title-invalid)', async () => {
+  await assert.rejects(
+    renameSession(BASE_URL, {
+      sessionId: 's',
+      title: 't',
+      fetchImpl: async () => jsonResponse(200, { result: { ok: false, error: { code: 'title-invalid' } } }),
+    }),
+    (err) => err instanceof DshSessionError && err.code === 'DSH_SESSION_API_BUSINESS_ERROR' && err.businessCode === 'title-invalid'
+  );
+});
+
+test('renameSession propagates AbortError unchanged', async () => {
+  const abortError = new Error('aborted');
+  abortError.name = 'AbortError';
+  await assert.rejects(
+    renameSession(BASE_URL, {
+      sessionId: 's',
+      title: 't',
+      fetchImpl: async () => {
+        throw abortError;
+      },
+    }),
+    (err) => err === abortError
+  );
 });

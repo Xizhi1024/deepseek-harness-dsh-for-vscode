@@ -529,3 +529,31 @@ test('addContext rethrows plain non-EditorContextError errors unchanged', async 
 
   await assert.rejects(face.addContext('file:///ws/a.ts'), (err) => err === plain);
 });
+
+// ---------------------------------------------------------------------------
+// B2 session titles
+// ---------------------------------------------------------------------------
+
+test('ask derives a readable session title through titleSession', async () => {
+  const titleCalls = [];
+  const { deps, calls } = makeDeps({ titleSession: async (sessionId, title) => { titleCalls.push({ sessionId, title }); } });
+  const face = createExportsFace(deps);
+
+  const result = await face.ask('Fix the login bug\n\nmore');
+  assert.deepStrictEqual(result, { accepted: true, sessionId: 'ws-session-1' });
+  assert.strictEqual(calls.prompt.length, 1);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepStrictEqual(titleCalls, [{ sessionId: 'ws-session-1', title: 'Fix the login bug' }]);
+});
+
+test('ask without a titleSession dep still works', async () => {
+  const { deps } = makeDeps();
+  const face = createExportsFace(deps);
+  const result = await face.ask('hello');
+  assert.deepStrictEqual(result, { accepted: true, sessionId: 'ws-session-1' });
+});
+
+test('createExportsFace rejects a non-function titleSession', () => {
+  const { deps } = makeDeps({ titleSession: 'nope' });
+  assert.throws(() => createExportsFace(deps), /titleSession must be a function/);
+});

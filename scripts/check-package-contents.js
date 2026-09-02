@@ -57,6 +57,7 @@ for (const required of [
   'src/runtimeResolver.js',
   'src/serverManager.js',
   'src/sessionNavigation.js',
+  'src/sessionTitler.js',
   'src/textDocumentBridge.js',
   'src/types.js',
   'src/vscodeFacade.js',

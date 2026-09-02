@@ -273,3 +273,81 @@ test('cache reuses bound mapping and refresh forces a new workspace.list', async
   assert.strictEqual(await binding.refresh(), 's1');
   assert.strictEqual(api.calls.workspaceList, 2, 'refresh must force a new workspace.list');
 });
+
+// ---------------------------------------------------------------------------
+// B2 sticky binding (issue #4 session explosion)
+// ---------------------------------------------------------------------------
+
+test('sticky binding reuses the freshest root session even when non-blank', async () => {
+  const api = createApi({
+    workspaces: [
+      { workspaceId: 'w1', path: 'D:\\work', sessionIds: ['s-used', 's-blank'] },
+    ],
+    sessions: [
+      // Unsorted on purpose: listSessions sorts by updatedAt desc.
+      { sessionId: 's-blank', blank: true, updatedAt: 100 },
+      { sessionId: 's-used', blank: false, updatedAt: 200 },
+    ],
+  });
+  const binding = makeBinding(api);
+  const sessionId = await binding.resolve({ url: BASE_URL, owned: true }, 'D:\\work');
+
+  assert.strictEqual(sessionId, 's-used');
+  assert.strictEqual(api.calls.sessionCreate, 0);
+});
+
+test('sticky binding skips subagent and child sessions and creates when only those exist', async () => {
+  const api = createApi({
+    workspaces: [
+      { workspaceId: 'w1', path: 'D:\\work', sessionIds: ['s-sub', 's-child'] },
+    ],
+    sessions: [
+      { sessionId: 's-sub', origin: 'subagent', updatedAt: 900 },
+      { sessionId: 's-child', parentSessionId: 's-other', updatedAt: 800 },
+    ],
+  });
+  const binding = makeBinding(api);
+  const sessionId = await binding.resolve({ url: BASE_URL, owned: true }, 'D:\\work');
+
+  assert.strictEqual(sessionId, 'w1-session');
+  assert.strictEqual(api.calls.sessionCreate, 1);
+});
+
+test('sticky binding falls back to same-cwd membership for cwd-created sessions', async () => {
+  const api = createApi({
+    workspaces: [
+      { workspaceId: 'w1', path: 'D:\\work', sessionIds: [] },
+    ],
+    sessions: [
+      // Created via dsh.newSession (bare cwd payload): not in sessionIds.
+      { sessionId: 's-cli', blank: true, cwd: 'D:\\work', updatedAt: 5 },
+    ],
+  });
+  const binding = makeBinding(api);
+  const sessionId = await binding.resolve({ url: BASE_URL, owned: true }, 'D:\\work');
+
+  assert.strictEqual(sessionId, 's-cli');
+  assert.strictEqual(api.calls.sessionCreate, 0);
+});
+
+test('setActiveSession pins the cache so later resolves follow the user switch', async () => {
+  const api = createApi({
+    workspaces: [
+      { workspaceId: 'w1', path: 'D:\\work', sessionIds: ['s1'] },
+    ],
+    sessions: [
+      { sessionId: 's1', blank: true },
+    ],
+  });
+  const binding = makeBinding(api);
+  const server = { url: BASE_URL, owned: true };
+
+  assert.strictEqual(await binding.resolve(server, 'D:\\work'), 's1');
+  assert.strictEqual(binding.setActiveSession('s-manual'), true);
+  assert.strictEqual(binding.setActiveSession(''), false);
+
+  // Cached pin wins without any API pass.
+  assert.strictEqual(await binding.resolve(server, 'D:\\work'), 's-manual');
+  assert.strictEqual(api.calls.workspaceList, 1);
+  assert.strictEqual(binding.state().sessionId, 's-manual');
+});

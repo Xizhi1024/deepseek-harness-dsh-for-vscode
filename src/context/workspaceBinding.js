@@ -158,24 +158,62 @@ function createWorkspaceBinding({
   }
 
   /**
-   * Find a blank root session already attached to the workspace, otherwise
-   * create one with `{ workspaceId }` (never a bare cwd).
+   * True when both paths resolve to the same directory (platform-aware).
+   *
+   * @param {string} a - First path.
+   * @param {string} b - Second path.
+   * @returns {boolean} True when equal after resolution.
+   */
+  function sameResolvedPath(a, b) {
+    if (typeof a !== "string" || typeof b !== "string" || a.length === 0 || b.length === 0) {
+      return false;
+    }
+    const left = path.resolve(a);
+    const right = path.resolve(b);
+    return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+  }
+
+  /**
+   * B2 sticky binding: reuse the workspace's most recently updated ROOT
+   * session (blank or not), creating one only when no root session matches
+   * at all.
+   *
+   * The previous blank-only reuse multiplied sessions: once a conversation
+   * started the session stopped being blank, so every reconnect / window
+   * reload / rebind created yet another session (issue #4 session
+   * explosion). The freshest-root rule keeps @dsh prompts, the sidebar
+   * iframe and reloads on ONE session (3 messages -> 0 new sessions),
+   * while a freshly created "New Session" still wins because its
+   * updatedAt is newest.
+   *
+   * Membership: workspace.sessionIds when present, with a same-cwd
+   * fallback so sessions created through dsh.newSession (bare cwd payload)
+   * also stick. Subagent-origin and child sessions never bind (they follow
+   * their own parents).
    *
    * @param {string} baseUrl - DSH loopback base URL.
    * @param {object} workspace - WorkspaceView.
+   * @param {string} cwd - Workspace root being bound.
    * @param {Function} [fetchImpl] - Optional fetch implementation.
    * @returns {Promise<string>} Session id.
    */
-  async function ensureBlankSession(baseUrl, workspace, fetchImpl) {
+  async function ensureWorkspaceRootSession(baseUrl, workspace, cwd, fetchImpl) {
     const items = await listSessions(baseUrl, { fetchImpl });
     const sessionIds = Array.isArray(workspace.sessionIds) ? workspace.sessionIds : [];
-    const reused = items.find((item) => (
-      item
-      && item.blank === true
-      && typeof item.sessionId === "string"
-      && sessionIds.includes(item.sessionId)
-    ));
-    if (reused) return reused.sessionId;
+    // listSessions sorts by updatedAt descending: the first matching root
+    // session IS the freshest.
+    for (const item of items) {
+      if (
+        item
+        && item.origin !== "subagent"
+        && !item.parentSessionId
+        && typeof item.sessionId === "string"
+        && item.sessionId.length > 0
+        && (sessionIds.includes(item.sessionId) || sameResolvedPath(item.cwd, cwd))
+      ) {
+        return item.sessionId;
+      }
+    }
     return createSession(baseUrl, { workspaceId: workspace.workspaceId, fetchImpl });
   }
 
@@ -301,7 +339,7 @@ function createWorkspaceBinding({
         owned,
         error: null,
       });
-      const sessionId = await ensureBlankSession(baseUrl, workspace, fetchImpl);
+      const sessionId = await ensureWorkspaceRootSession(baseUrl, workspace, cwd, fetchImpl);
       cache.set(key, { workspaceId: workspace.workspaceId, sessionId });
       setState({
         state: BINDING_STATES.BOUND,
@@ -389,6 +427,32 @@ function createWorkspaceBinding({
         for (const resolve of pending) resolve(sessionId);
       });
       return promise;
+    },
+
+    /**
+     * Pin the binding's cached session for the current workspace root (B2:
+     * explicit user switches - dsh.newSession / dsh.switchSession - must
+     * move the cached binding too, otherwise @dsh prompts keep targeting
+     * the previously bound session).
+     *
+     * @param {string|null|undefined} sessionId - Session id to pin.
+     * @returns {boolean} True when the cache was updated.
+     */
+    setActiveSession(sessionId) {
+      if (disposed) return false;
+      if (typeof sessionId !== "string" || sessionId.length === 0) return false;
+      if (!currentCwd) return false;
+      const key = cacheKey(currentCwd);
+      const previous = cache.get(key);
+      cache.set(key, { workspaceId: previous ? previous.workspaceId : null, sessionId });
+      if (binding.cwd && cacheKey(binding.cwd) === key) {
+        setState({
+          state: BINDING_STATES.BOUND,
+          sessionId,
+          error: null,
+        });
+      }
+      return true;
     },
 
     /**

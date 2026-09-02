@@ -17,6 +17,8 @@ const crypto = require("node:crypto");
 const SESSION_LIST_PATH = "/api/session.list";
 /** API path for the JSON-RPC session methods. @type {string} */
 const SESSION_CREATE_PATH = "/api/session.create";
+/** API path for the session.rename method. @type {string} */
+const SESSION_RENAME_PATH = "/api/session.rename";
 
 /** Valid base URL hostnames for the loopback DSH Web API. */
 const ALLOWED_HOSTNAMES = new Set(["127.0.0.1", "localhost"]);
@@ -343,6 +345,63 @@ async function createSession(baseUrl, options = {}) {
 }
 
 /**
+ * Rename a DSH session through POST <baseUrl>/api/session.rename (B2:
+ * sessions created through the API otherwise keep bare-UUID titles).
+ *
+ * Wire schema pinned from real source:
+ *   dsh-host-apiproxy/lib/types/api/sessions.schema.js L79-88 -
+ *   sessionRenameRequestSchema { sessionId, title } (raw title) and
+ *   sessionRenameValueSchema { title, seq }. The host normalizes the raw
+ *   title (control characters stripped, whitespace collapsed, UTF-8 byte
+ *   budget enforced); a title that normalizes to empty rejects with the
+ *   "title-invalid" business error.
+ *
+ * @param {string} baseUrl - Loopback base URL (http://127.0.0.1:<port> or
+ *   http://localhost:<port>).
+ * @param {object} [options]
+ * @param {string} options.sessionId - Non-empty session id.
+ * @param {string} options.title - Non-empty raw title.
+ * @param {Function} [options.fetchImpl] - Fetch-compatible function;
+ *   defaults to globalThis.fetch.
+ * @param {AbortSignal} [options.signal] - Optional abort signal.
+ * @returns {Promise<{title: string, seq: number}>} The accepted normalized
+ *   title and its event seq.
+ * @throws {TypeError} When sessionId/title is missing or empty.
+ * @throws {DshSessionError} With the DSH_SESSION_API_* error codes.
+ */
+async function renameSession(baseUrl, options = {}) {
+  if (typeof options.sessionId !== "string" || options.sessionId.length === 0) {
+    throw new TypeError("sessionId must be a non-empty string");
+  }
+  if (typeof options.title !== "string" || options.title.length === 0) {
+    throw new TypeError("title must be a non-empty string");
+  }
+  const fetchImpl = resolveFetchImpl(options);
+  const parsed = assertLoopbackBaseUrl(baseUrl);
+  const response = await postJson(
+    parsed,
+    SESSION_RENAME_PATH,
+    clientRequest("session.rename", { sessionId: options.sessionId, title: options.title }),
+    fetchImpl,
+    options.signal
+  );
+  const body = await readJsonBody(response);
+  const result = assertServerResponse(body);
+  const value = result.value;
+  if (
+    !value || typeof value !== "object" || Array.isArray(value)
+    || typeof value.title !== "string" || value.title.length === 0
+    || typeof value.seq !== "number" || !Number.isInteger(value.seq) || value.seq < 0
+  ) {
+    throw new DshSessionError(
+      "DSH_SESSION_API_INVALID_RESPONSE",
+      "DSH session API invalid response: result.value must be { title: string, seq: number }"
+    );
+  }
+  return { title: value.title, seq: value.seq };
+}
+
+/**
  * Ensure a DSH root session exists for the given workspace root.
  *
  * This is the automatic workspace-binding entry point used by owned (managed)
@@ -588,6 +647,7 @@ module.exports = {
   resolveFetchImpl,
   listSessions,
   createSession,
+  renameSession,
   ensureWorkspaceSession,
   rootSessionItems,
   reuseBlankSession,
