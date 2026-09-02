@@ -17,6 +17,22 @@ function createSourceTree(root) {
   return { extension, source };
 }
 
+test('INTEGRATION_FILES covers every runtime plugin lib file (missing-file crash guard)', () => {
+  // Three production incidents (fimRoutes 1.0.2, linkRoutes gate session,
+  // editObserver C2) all shared one shape: index.js gained a static import of
+  // a new lib file that was never added to the sync manifest, so the synced
+  // plugin crashed the DSH server at startup with exit 1. This test fails the
+  // build the moment a new lib/*.js exists without its manifest entry.
+  const pluginRoot = path.resolve(__dirname, '..', 'runtime-integration', 'dsh-vscode-integration');
+  const onDisk = fs.readdirSync(path.join(pluginRoot, 'lib'), { recursive: false })
+    .filter((name) => name.endsWith('.js'))
+    .map((name) => 'lib/' + name)
+    .sort();
+  const listed = [...INTEGRATION_FILES].filter((relative) => relative.startsWith('lib/')).sort();
+  assert.deepStrictEqual(listed, onDisk,
+    'every runtime-integration/dsh-vscode-integration/lib/*.js must appear in INTEGRATION_FILES');
+});
+
 test('DSH integration installs its fixed package files inside the selected home', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-vscode-integration-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

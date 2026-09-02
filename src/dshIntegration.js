@@ -13,6 +13,7 @@ const INTEGRATION_FILES = Object.freeze([
   'lib/lmRoute.js',
   'lib/fimRoutes.js',
   'lib/linkRoutes.js',
+  'lib/editObserver.js',
 ]);
 
 function requireAbsolute(value, label) {
