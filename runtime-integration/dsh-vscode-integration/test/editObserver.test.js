@@ -23,7 +23,13 @@ function fakeCtx() {
       };
     },
     fire(event, exec) {
-      return [...(handlers.get(event) || [])].map((handler) => handler(exec));
+      // Model the cordis waterfall continuation: each listener receives next()
+      // and the DELEGATED sentinel must come back for the chain to continue.
+      const DELEGATED = Symbol('waterfall-delegated');
+      return [...(handlers.get(event) || [])].map((handler) => {
+        const delegated = handler(exec, () => DELEGATED);
+        return { delegated, DELEGATED };
+      });
     },
   };
 }
@@ -55,8 +61,10 @@ test('editObserver: edit tool with exec.arguments.file_path notifies the contrac
     size: Buffer.byteLength('héllo wörld', 'utf8'),
     truncated: false,
   }]);
-  // observe-only: the handler must never gate the waterfall.
-  assert.deepStrictEqual(results, [undefined]);
+  // observe-only: the handler must DELEGATE through next() — returning any
+  // value (even undefined) without delegating short-circuits the cordis
+  // waterfall and kills the tool call with the 'reading kind' error.
+  assert.deepStrictEqual(results.map((r) => r.delegated === r.DELEGATED), [true]);
   observer.dispose();
 });
 
@@ -77,6 +85,52 @@ test('editObserver: write tool with exec.args.path and agent.id fallback session
     size: 3,
     truncated: false,
   }]);
+});
+
+test('editObserver: regression — every tool call delegates through next() (reading-kind incident)', () => {
+  // Between 2026-09-02 00:19 and this fix the listener returned a value
+  // without calling next(), short-circuiting tools/pre-execute for EVERY
+  // tool (run_code included) on bridge-attached extension children:
+  // dsh-tools then read gate.kind of undefined and every tool call died.
+  const { path } = tempFile('abc');
+  const ctx = fakeCtx();
+  const outcomes = [];
+  const saved = ctx.fire;
+  ctx.fire = (event, exec) => {
+    const results = saved(event, exec);
+    outcomes.push(...results);
+    return results;
+  };
+  createEditObserver({ ctx, notify: () => {} });
+  ctx.fire('tools/pre-execute', { name: 'edit', arguments: { file_path: path } });
+  ctx.fire('tools/pre-execute', { name: 'write', arguments: { path } });
+  ctx.fire('tools/pre-execute', { name: 'run_code', arguments: { code: 'return 1' } });
+  ctx.fire('tools/pre-execute', { name: 'read', arguments: { file_path: path } });
+  ctx.fire('tools/pre-execute', {});
+  ctx.fire('tools/pre-execute', null);
+  ctx.fire('tools/pre-execute', {
+    name: 'edit',
+    arguments: { file_path: path },
+  });
+  assert.strictEqual(outcomes.length, 7);
+  for (const outcome of outcomes) {
+    assert.strictEqual(outcome.delegated, outcome.DELEGATED, 'listener must delegate via next()');
+  }
+});
+
+test('editObserver: notify that throws still delegates and never breaks the call', () => {
+  const { path } = tempFile('abc');
+  const ctx = fakeCtx();
+  createEditObserver({
+    ctx,
+    notify: () => { throw new Error('bridge gone'); },
+    log: () => {},
+  });
+  const results = ctx.fire('tools/pre-execute', {
+    name: 'edit',
+    arguments: { file_path: path, old_string: 'a', new_string: 'b' },
+  });
+  assert.strictEqual(results[0].delegated, results[0].DELEGATED);
 });
 
 test('editObserver: non edit/write tool names never notify', () => {
@@ -109,15 +163,15 @@ test('editObserver: unreadable file notifies nothing and never throws', () => {
     notify: (payload) => payloads.push(payload),
     readFileSyncFn: () => { throw new Error('ENOENT'); },
   });
-  let result;
+  let outcome;
   assert.doesNotThrow(() => {
-    result = ctx.fire('tools/pre-execute', {
+    outcome = ctx.fire('tools/pre-execute', {
       name: 'edit',
       arguments: { file_path: '/definitely/missing/file.txt' },
     })[0];
   });
   assert.strictEqual(payloads.length, 0);
-  assert.strictEqual(result, undefined);
+  assert.strictEqual(outcome.delegated, outcome.DELEGATED);
 });
 
 test('editObserver: oversized beforeText is truncated at 1 MiB and flagged', () => {
@@ -150,7 +204,7 @@ test('editObserver: a throwing notify sink is contained (tool execution unaffect
     result = ctx.fire('tools/pre-execute', { name: 'edit', arguments: { file_path: path } })[0];
     observer.dispose();
   });
-  assert.strictEqual(result, undefined);
+  assert.strictEqual(result.delegated, result.DELEGATED);
 });
 
 test('editObserver: dispose removes the listener', () => {

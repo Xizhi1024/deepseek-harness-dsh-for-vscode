@@ -7,6 +7,8 @@
 |---|---|---|
 | 7 | 会话导出 ZIP 文件名双前缀 `dsh-session-session-<uuid>.zip`（DSH 运行时导出命名，上游未修；本地热修在位，重装 dsh 会回滚）/ session export archives save with a doubled prefix — DSH runtime naming, unfixed upstream | 所有已发布 runtime / every released runtime（纯观感，不影响功能 / cosmetic, no functional impact） |
 | 8 | 冷会话标题缺失显示裸 UUID + HMR 窗口工具崩溃暴露 / cold sessions show bare-UUID titles and the HMR window tool-crash exposure | 仅 DSH < 0.1.2-alpha.1（0.1.2-alpha.1 起上游已修/默认关闭）/ only below DSH 0.1.2-alpha.1 |
+| 9 | 1.0.0 VSIX 捆绑了过期的 runtime-integration 快照（client.js 缺 dsh_session 跟随桥）：每次激活把回归文件同步进 DSH profile，侧栏丢失会话路由、输入框异常 / the 1.0.0 VSIX bundled a stale runtime-integration snapshot whose client.js lost the dsh_session follow bridge; activations re-synced the regressed files into the DSH profile | 修复于 1.1.1：发版门禁强制打包树==提交树 + sessionFollow 金丝雀；F5 测试期间请禁用装着的 1.0.0 扩展 / fixed in 1.1.1 (packaging gate + canary); disable the installed 1.0.0 extension while F5-testing |
+| 10 | editObserver 监听器不调 next() 即返回，短路 tools/pre-execute waterfall → 桥接子进程内所有工具调用（含 run_code）报 reading 'kind' / the editObserver listener returned without delegating next(), short-circuiting the pre-execute waterfall — every tool call on bridge-attached children failed with reading 'kind' | 修复于 1.1.1（监听器恒委托 next()，回归测试覆盖全部工具名）/ fixed in 1.1.1 (listener always delegates; regression tests cover every tool name) |
 
 历史问题与修复索引（复现细节见 [CHANGELOG.md](CHANGELOG.md) 与 [docs/dev/](docs/dev/)）：
 Past issues and their fixes (details in the changelog and dev notes):

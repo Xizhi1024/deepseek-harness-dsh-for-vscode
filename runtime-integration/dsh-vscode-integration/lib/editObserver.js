@@ -5,8 +5,12 @@
 // 'write' DSH tools and reports metadata-only notifications
 // ('vscode/dshEditObserved') to the VS Code extension so it can attribute the
 // write in the changes tree. This is observe-ONLY:
-//  - the handler always returns undefined (never a gate), so the waterfall
-//    proceeds and the DSH sandbox stays the single permission source;
+//  - the handler ALWAYS delegates through next(): a cordis waterfall listener
+//    that returns without calling next() short-circuits the chain with its
+//    return value, and dsh-tools then reads gate.kind of undefined — the
+//    "Cannot read properties of undefined (reading 'kind')" incident that
+//    killed EVERY tool call (run_code included) on bridge-attached children
+//    between 2026-09-02 00:19 and this fix;
 //  - every failure path is contained: observation can never break the tool
 //    execution it watches.
 //
@@ -107,29 +111,34 @@ function createEditObserver({ ctx, notify, log = () => {}, readFileSyncFn = read
   if (typeof notify !== 'function') {
     throw new TypeError('createEditObserver requires a notify function');
   }
-  const disposeListener = ctx.on('tools/pre-execute', (exec) => {
+  const disposeListener = ctx.on('tools/pre-execute', (exec, next) => {
     try {
-      if (!exec || !OBSERVED_TOOLS.has(exec.name)) return undefined;
-      const path = extractPath(exec);
-      if (!path) {
-        log('[dsh-vscode-integration] edit observer: no path in exec, skipping');
-        return undefined;
+      if (exec && OBSERVED_TOOLS.has(exec.name)) {
+        const path = extractPath(exec);
+        if (path) {
+          const snapshot = readBeforeSnapshot(path, readFileSyncFn);
+          if (snapshot) {
+            notify({
+              tool: exec.name,
+              path,
+              sessionId: extractSessionId(exec),
+              size: snapshot.size,
+              truncated: snapshot.truncated,
+            });
+          }
+        } else {
+          log('[dsh-vscode-integration] edit observer: no path in exec, skipping');
+        }
       }
-      const snapshot = readBeforeSnapshot(path, readFileSyncFn);
-      if (!snapshot) return undefined; // unreadable before-state: no attribution possible
-      notify({
-        tool: exec.name,
-        path,
-        sessionId: extractSessionId(exec),
-        size: snapshot.size,
-        truncated: snapshot.truncated,
-      });
     } catch (error) {
       log('[dsh-vscode-integration] edit observer failed: ' + (error && error.message ? error.message : error));
     }
-    // Observe-only: undefined never gates the waterfall, and a denied or
-    // failed observation must not influence the tool execution.
-    return undefined;
+    // Observe-only: ALWAYS delegate. Returning a value (even undefined)
+    // without calling next() short-circuits the cordis waterfall and makes
+    // dsh-tools read gate.kind of undefined — every tool call in the child
+    // then fails with the 'reading kind' error. A denied or failed
+    // observation must not influence the tool execution.
+    return typeof next === 'function' ? next() : undefined;
   });
   return {
     dispose() {

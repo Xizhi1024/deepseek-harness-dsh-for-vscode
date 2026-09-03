@@ -34,6 +34,13 @@
 
 **同轮事故处置（00:41 开发测试失败）**：session-49fad0a7 里所有工具调用（含无工具 run_code）0ms 即报 `Cannot read properties of undefined (reading 'kind')`——即问题③在 0.1.1-rc.2 的实测复现。取证链：profile `node_modules/dsh-vscode-integration/lib/` 文件在 00:19:37 与 01:18:29 两次被扩展激活同步改写 → rc.2 base 以 `id: hmr` 启用 cordis-plugin-hmr（module HMR 默认开）→ fiber 热重载 → `tools/pre-execute` waterfall 返回 undefined → `gate.kind` 抛错（dsh-tools lib/index.js:3105-3106）。**本地止血（对齐上游 fd814589fb 方向）**：`~/.dsh/profiles/web/cordis.patch.yml` 追加 `id: hmr` disabled 行（备份 cordis.patch.yml.bak-20260903）；杀掉 3081 旧子进程（17:46 起、已污染）；一次性实例 3099 以修补后 profile 端到端复测原测试——run_code 写盘 + node 执行全通、kind 错误 0 次。后续扩展同步集成文件不再触发模块重载；窗口 runtime 由扩展按需重生（自动带新 profile）。
 
+### Round 2026-09-03 深夜 · 1.1.1 P0 修复（reading-kind 事故闭环 + 发版门禁）
+
+- **根因（984d0aad/49fad0a7 等 reading-kind 全灭事故）**：runtime-integration/lib/editObserver.js 的 tools/pre-execute 监听器返回值不调 next()——cordis waterfall 语义为「不调 next() 即以返回值短路整条链」（上游 AGENTS.md 明文），于是 gate=undefined → dsh-tools 读 gate.kind 崩溃 → 该子进程内所有工具调用 0ms 报错（run_code 也是工具）。挂载条件 = 扩展子进程且 versioned bridge 成功启动（index.js:389），故 API 直连探针与无 bridge 实例全部健康、用户侧栏会话必死——「时好时坏」表象由此而来。事故起点 2026-09-02 00:19（C2 文件首次进 profile），今日 21:23/21:59 两轮复现同一根因。
+- **次生根因（输入框消失 / #6 回归）**：1.0.0 VSIX 从落后于提交树的脏工作区打包，捆绑 client.js 缺 startEmbeddedSessionFollow；1.0.0 窗口每次激活把回归字节同步进 profile junction，与 F5 dev-host（同步仓库正确字节）乒乓互覆。
+- **修复**：① editObserver 恒 return next()（回归测试覆盖全部工具名与抛错路径）；② 发版门禁新增「打包树==git HEAD 逐文件 + sessionFollow 金丝雀」；③ junction 已恢复为仓库字节（editObserver 5823B 修复版在位）。
+- **运维事实**：rc.2 不支持 --patch（PATCH_OVERLAY_MIN=0.1.0 断言错误）——扩展子进程全部经 patch-drop 自愈启动，embed overlay 在 rc.2 上从不生效；双窗口（1.0.0 + F5 dev-host）争夺子进程/端口（3082 四次重生、3080 于 21:52 被抢占重生）。F5 测试期间建议禁用 1.0.0 扩展窗口。
+- 门禁：integration 101/101、editObserver 12/12、check:w0 全绿后提交。
 ## 上游版本 → 扩展行为速查 / Runtime behavior matrix
 
 | DSH runtime | supported | sparseTitles | moduleHmrWindowCrash | 备注 |
