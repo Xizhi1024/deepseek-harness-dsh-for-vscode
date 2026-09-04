@@ -252,21 +252,41 @@ window.__ModuleLoader__.load({
     // submit/steer gesture. Inside the VS Code sidebar that reads as a bug:
     // write a multi-line reply over an attachment, press Ctrl+Enter for the
     // line break, and the draft submits instead ("the composer emptied
-    // itself"). The embedded shell restores the chord by capturing the
-    // keydown before the DSH handler can see it. The newline itself rides the
-    // browser edit pipeline (execCommand insertText -> input event -> React
-    // onChange -> keyboard.setDraft), so it enters the machine's own draft
-    // history as an ordinary edit instead of forking a browser-owned one.
-    // An empty draft passes the chord through unchanged: the upstream
-    // empty-draft Cmd/Ctrl+Enter queue-steer gesture keeps working.
-    function insertComposerNewline(el) {
+    // itself"). The embedded shell restores the chord by rewriting the
+    // keydown in the capture phase: shiftKey is shadowed to true and the
+    // event continues to propagate, so BOTH the app's composer handler (its
+    // Shift+Enter branch returns without preventing) and the Lexical keydown
+    // mapping (Enter with shiftKey=true, ctrl/meta/alt "any" → its managed
+    // line-break command, the same path a physical Shift+Enter takes) run
+    // their own newline code — no DOM writes, no editor-model surgery. The
+    // textarea composer of newer dev builds has no native default action for
+    // the chord, so there the bridge claims the event and inserts through
+    // execCommand's input event (React onChange -> setDraft). An empty draft
+    // passes the chord through unchanged: the upstream empty-draft
+    // Cmd/Ctrl+Enter queue-steer gesture keeps working.
+    function composerEditorOf(target) {
+      // Released runtimes: DIV[contenteditable][data-composer-input] (Lexical).
+      // Dev builds: a plain textarea. Both live inside [data-composer-card].
+      if (!target || typeof target.closest !== 'function') return null;
+      let el;
+      try {
+        el = target.closest('[data-composer-input="true"], [contenteditable="true"], textarea');
+      } catch { /* detached node */ }
+      if (!el) return null;
+      let card;
+      try {
+        card = el.closest('[data-composer-card]');
+      } catch { /* detached node */ }
+      return card ? el : null;
+    }
+
+    function insertTextareaNewline(el) {
       let inserted = false;
       try {
         inserted = document.execCommand('insertText', false, '\n');
       } catch { /* some engines refuse programmatic edits */ }
       if (inserted) return;
-      // Engines without execCommand support: splice the value and synthesize
-      // the input event so the controlled component still picks it up.
+      if (typeof el.setRangeText !== 'function' || typeof el.value !== 'string') return;
       const start = typeof el.selectionStart === 'number' ? el.selectionStart : el.value.length;
       const end = typeof el.selectionEnd === 'number' ? el.selectionEnd : start;
       try {
@@ -283,23 +303,25 @@ window.__ModuleLoader__.load({
         // keyCode 229 is the legacy IME-composition signal engines emit
         // without isComposing; a composition-closing Enter belongs to the IME.
         if (event.isComposing || event.keyCode === 229) return;
-        const target = event.target;
-        if (!target || typeof target.closest !== 'function') return;
-        let card;
-        try {
-          card = target.closest('[data-composer-card]');
-        } catch { /* detached node */ }
-        if (!card || typeof card.querySelector !== 'function') return;
-        let el;
-        try {
-          el = card.querySelector('textarea');
-        } catch { /* detached node */ }
+        const el = composerEditorOf(event.target);
         if (!el || el !== document.activeElement) return;
         if (el.disabled || el.readOnly) return;
-        if (typeof el.value !== 'string' || el.value.length === 0) return;
+        const draft = typeof el.value === 'string' ? el.value : el.textContent;
+        if (typeof draft !== 'string' || draft.length === 0) return;
+        if (el.isContentEditable) {
+          // Rewrite the chord as Shift+Enter and let it propagate: the app's
+          // own Shift+Enter handling performs the newline through the editor
+          // stack. The instance property shadows KeyboardEvent's prototype
+          // getter for every later listener; the browser's default action
+          // (none for Ctrl/Cmd+Enter in a contenteditable) is irrelevant.
+          try {
+            Object.defineProperty(event, 'shiftKey', { configurable: true, get: () => true });
+            return;
+          } catch { /* non-configurable event: claim below */ }
+        }
         event.preventDefault();
         event.stopImmediatePropagation();
-        insertComposerNewline(el);
+        insertTextareaNewline(el);
       };
       document.addEventListener('keydown', onKeyDown, true);
       return () => document.removeEventListener('keydown', onKeyDown, true);
