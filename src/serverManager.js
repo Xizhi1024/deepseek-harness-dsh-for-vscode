@@ -28,6 +28,7 @@ const {
   supportsNoOpenFlag,
 } = require('./managedRuntimeLaunch');
 const { STARTUP_ERRORS } = require('./startupErrors');
+const { tokenFromUrl } = require('./dshWebAuth');
 
 // Shared contract constants normally come from ./types. Fall back to local
 // defaults so this file stays independently testable when copied in isolation.
@@ -49,6 +50,27 @@ const MAX_BODY_BYTES = 5 * 1024 * 1024; // bound on the probe response body we b
 const TASKKILL_TIMEOUT_MS = 5000; // max wait for taskkill /T /F before stop() proceeds
 const PORT_RELEASE_WAIT_MS = 3000; // F-f: max stop() wait for a killed child's port to refuse
 const PORT_RELEASE_POLL_MS = 100; // F-f: poll cadence for the port-release wait
+
+/** Bound on the spawn-log excerpt embedded in early-exit error messages. */
+const EXCERPT_MAX_BYTES = 1600;
+/** Lines of the spawn-log excerpt embedded in early-exit error messages. */
+const EXCERPT_MAX_LINES = 10;
+
+/**
+ * Turn a spawn-log tail into the ''-or-'\n\n…' suffix used by the early-exit
+ * error templates, so the sidebar shows WHY dsh died (its own stderr names
+ * the unresolvable bundle / failing plugin / bad flag) instead of a bare
+ * exit code — the difference between an agent self-debugging and a dead end.
+ *
+ * @param {string} tail - Raw log tail (may be '' when no log exists).
+ * @returns {string} '' or a newline-led bounded excerpt.
+ */
+function excerptSuffix(tail) {
+  if (typeof tail !== 'string' || tail.trim().length === 0) return '';
+  const lines = tail.split('\n').map((line) => line.trimEnd()).filter((line) => line.trim().length > 0);
+  const picked = lines.slice(-EXCERPT_MAX_LINES).join('\n').slice(-EXCERPT_MAX_BYTES);
+  return picked.length === 0 ? '' : '\n\n' + picked;
+}
 
 /**
  * Substitute {name} placeholders in a template with the given params.
@@ -299,12 +321,18 @@ function killProcessTree(pid, { platform = process.platform, spawnFn = spawn, ti
 }
 
 class ServerManager {
-  constructor({ onStatus, spawnEnv, resolvedRuntime, embedPatchPath = null, cleanPatchPath = null, spawnFn = spawn, runtimeProfileGuard = null } = {}) {
+  constructor({ onStatus, spawnEnv, resolvedRuntime, embedPatchPath = null, cleanPatchPath = null, spawnFn = spawn, runtimeProfileGuard = null, profileBundleGuard = null } = {}) {
     this.onStatus = typeof onStatus === 'function' ? onStatus : () => {};
     // Optional pre-spawn profile guard (2026-09-04 incident follow-up): the
     // extension injects ensureHmrDisabled so every owned spawn boots a
     // profile whose server module HMR cannot break the tool layer.
     this.runtimeProfileGuard = typeof runtimeProfileGuard === 'function' ? runtimeProfileGuard : null;
+    // Optional pre-spawn manifest guard (same incident): strips
+    // dsh.profile.bundles entries whose packages are installed nowhere —
+    // resolveBundleDir kills the boot on the first orphan (exit 1 before
+    // any health probe), which is exactly the "cannot enter after update"
+    // crash loop this prevents.
+    this.profileBundleGuard = typeof profileBundleGuard === 'function' ? profileBundleGuard : null;
     this.spawnEnv = spawnEnv && typeof spawnEnv === 'object' ? { ...spawnEnv } : {};
     this.resolvedRuntime = resolvedRuntime === undefined
       ? null
@@ -526,14 +554,25 @@ class ServerManager {
    * network inspector, whose node:http instrumentation can throw
    * `Missing dataLength in event` and strand the probe Promise forever.
    * Redirects are never followed.
+   *
+   * With no token (the only mode before dsh 0.1.2-rc.1) the probe requests
+   * `/` and requires 200 + BOOT_MARKER. With `{ token }` — parsed from the
+   * child's own `dsh web: …/?token=…` stdout line — it requests
+   * `/?token=…`, where dsh's auth fence answers 303 (token accepted, cookie
+   * minted) or 401 (rejected); 303 + BOOT_MARKER-on-200 both count as DSH.
    * Returns:
-   *   { reachable: true,  isDsh: true  } — HTTP 200 + BOOT_MARKER in body
-   *   { reachable: true,  isDsh: false } — responded, but no BOOT_MARKER
+   *   { reachable: true,  isDsh: true  } — HTTP 200 + BOOT_MARKER, or 303
+   *                                         answering a valid token probe
+   *   { reachable: true,  isDsh: false } — responded, but not DSH (or auth
+   *                                         rejected the token)
    *   { reachable: false, reason: 'refused' } — connection refused: port free
    *   { reachable: false, reason: 'timeout' } — listener silent: port busy
    *   { reachable: false, reason: '<code>' }  — other transport failure
    */
-  async probe(host, port) {
+  async probe(host, port, { token = null } = {}) {
+    const requestTarget = token
+      ? `/?token=${encodeURIComponent(token)}`
+      : '/';
     return new Promise((resolve) => {
       let done = false;
       let raw = '';
@@ -550,7 +589,7 @@ class ServerManager {
       socket.setTimeout(PROBE_TIMEOUT_MS);
       socket.on('connect', () => {
         socket.write(
-          `GET / HTTP/1.1\r\nHost: ${host}:${port}\r\nConnection: close\r\nAccept: text/html\r\n\r\n`
+          `GET ${requestTarget} HTTP/1.1\r\nHost: ${host}:${port}\r\nConnection: close\r\nAccept: text/html\r\n\r\n`
         );
       });
       socket.on('data', (chunk) => {
@@ -558,6 +597,10 @@ class ServerManager {
         if (remaining > 0) raw += chunk.slice(0, remaining);
         const status = /^HTTP\/1\.[01]\s+(\d{3})\b/.exec(raw);
         if (status && Number(status[1]) === 200 && raw.includes(BOOT_MARKER)) {
+          finish({ reachable: true, isDsh: true });
+        } else if (status && Number(status[1]) === 303 && token !== null) {
+          // dsh 0.1.2+ auth fence accepting the launch token: the 303 cookie
+          // redirect only exists on that path, so it identifies DSH exactly.
           finish({ reachable: true, isDsh: true });
         } else if (raw.length >= MAX_BODY_BYTES) {
           finish({ reachable: true, isDsh: false });
@@ -567,7 +610,9 @@ class ServerManager {
         const status = /^HTTP\/1\.[01]\s+(\d{3})\b/.exec(raw);
         finish({
           reachable: true,
-          isDsh: Boolean(status && Number(status[1]) === 200 && raw.includes(BOOT_MARKER)),
+          isDsh: Boolean(status
+            && (Number(status[1]) === 200 && raw.includes(BOOT_MARKER)
+              || (Number(status[1]) === 303 && token !== null))),
         });
       });
       socket.on('timeout', () => finish({ reachable: false, reason: 'timeout' }));
@@ -610,14 +655,16 @@ class ServerManager {
   async healthCheck(url) {
     let host;
     let port;
+    let token = null;
     try {
       const parsed = new URL(url);
       host = parsed.hostname;
       port = parsed.port ? Number(parsed.port) : parsed.protocol === 'https:' ? 443 : 80;
+      token = tokenFromUrl(parsed.href);
     } catch {
       return false;
     }
-    const result = await this.probe(host, port);
+    const result = await this.probe(host, port, token === null ? {} : { token });
     return Boolean(result.isDsh);
   }
 
@@ -900,14 +947,32 @@ class ServerManager {
   _applyRuntimeProfileGuard() {
     const guard = this.runtimeProfileGuard;
     const runtime = this.resolvedRuntime;
-    if (!guard || !runtime) return;
-    try {
-      const result = guard(runtime);
-      if (result && result.applied) {
-        this._emit('selfheal', 'Disabled server module HMR in the DSH profile (tool-crash guard for runtimes below 0.1.2-alpha.1)');
+    if (!runtime) return;
+    if (guard) {
+      try {
+        const result = guard(runtime);
+        if (result && result.applied) {
+          this._emit('selfheal', 'Disabled server module HMR in the DSH profile (tool-crash guard for runtimes below 0.1.2-alpha.1)');
+        }
+      } catch (error) {
+        console.error('dsh-vs-sidebar: runtime profile guard failed:', error && error.message ? error.message : error);
       }
-    } catch (error) {
-      console.error('dsh-vs-sidebar: runtime profile guard failed:', error && error.message ? error.message : error);
+    }
+    const bundleGuard = this.profileBundleGuard;
+    if (bundleGuard) {
+      try {
+        const result = bundleGuard(runtime);
+        if (result && result.applied && Array.isArray(result.removed) && result.removed.length > 0) {
+          this._selfHealCount += 1;
+          this._emit('selfheal', 'Removed {count} unresolvable DSH profile bundle entries ({names}); manifest backup: {backup}', {
+            count: result.removed.length,
+            names: result.removed.join(', '),
+            backup: result.backupPath || 'none',
+          });
+        }
+      } catch (error) {
+        console.error('dsh-vs-sidebar: profile bundle guard failed:', error && error.message ? error.message : error);
+      }
     }
   }
 
@@ -950,6 +1015,18 @@ class ServerManager {
   }
 
   /** Tail (last 8 KiB) of the most recent per-spawn log, or '' when absent. */
+  /**
+   * Launch token printed by dsh 0.1.2+ in its ready line
+   * (`dsh web: http://…/?token=…`), read from the most recent spawn log.
+   * Null on older runtimes (plain URL) and before the ready line appears.
+   */
+  _extractLaunchToken() {
+    const tail = this._readLastSpawnLogTail();
+    const match = /^dsh web: (\S+)\s*$/m.exec(tail);
+    if (!match) return null;
+    return tokenFromUrl(match[1]);
+  }
+
   _readLastSpawnLogTail(maxBytes = 8192) {
     const logPath = this._lastSpawnLogPath;
     if (typeof logPath !== 'string' || logPath.length === 0) return '';
@@ -1058,10 +1135,11 @@ class ServerManager {
         // code/signal are null on the opposite exit paths (Windows clean
         // exit has signal=null); the {placeholder} renderer keeps nulls as
         // literal "{signal}", so normalize both to a visible value.
-        this._emit('error', 'DSH process exited unexpectedly (pid={pid}, code={code}, signal={signal})', {
+        this._emit('error', 'DSH process exited unexpectedly (pid={pid}, code={code}, signal={signal}){excerpt}', {
           pid: child.pid,
           code: code == null ? 'none' : code,
           signal: signal == null ? 'none' : signal,
+          excerpt: excerptSuffix(this._readLastSpawnLogTail()),
           log: logPath,
         });
       };
@@ -1083,10 +1161,15 @@ class ServerManager {
           reject(new ServerError('DSH process was stopped'));
           return;
         }
-        reject(new ServerError(STARTUP_ERRORS.SPAWN_EXITED_EARLY.template, {
+        const error = new ServerError(STARTUP_ERRORS.SPAWN_EXITED_EARLY.template, {
           code: code == null ? 'none' : code,
           signal: signal == null ? 'none' : signal,
-        }, 'SPAWN_EXITED_EARLY'));
+          // Agent-debuggable: the child's own stderr names the startup
+          // blocker (unresolvable bundle, plugin import failure, bad flag);
+          // surface its tail instead of a bare exit code.
+          excerpt: excerptSuffix(this._readLastSpawnLogTail()),
+        }, 'SPAWN_EXITED_EARLY');
+        reject(error);
       });
 
       const poll = async () => {
@@ -1099,12 +1182,15 @@ class ServerManager {
           reject(new ServerError('DSH lifecycle operation was cancelled'));
           return;
         }
-        const probeResult = await this.probe(host, port);
+        // dsh 0.1.2+ prints its authenticated URL (…/?token=…) to stdout at
+        // readiness; older runtimes never do, so this stays null for them.
+        const token = this._extractLaunchToken();
+        const probeResult = await this.probe(host, port, token === null ? {} : { token });
         if (settled) return;
 
         if (probeResult.reachable && probeResult.isDsh) {
           settled = true;
-          resolve(this._finalizeReady(host, port, cwd, child.pid, registryFile, logPath));
+          resolve(this._finalizeReady(host, port, cwd, child.pid, registryFile, logPath, token));
           return;
         }
 
@@ -1134,7 +1220,7 @@ class ServerManager {
    * registry (same-port entry replaced, others kept), emit {state:"ready"}
    * and return the RunningServer object.
    */
-  _finalizeReady(host, port, cwd, pid, registryFile, logPath = null) {
+  _finalizeReady(host, port, cwd, pid, registryFile, logPath = null, authToken = null) {
     this._registryFile = registryFile || null;
     if (registryFile) {
       const entryCwd = cwd === null || cwd === undefined || cwd === '' ? null : cwd;
@@ -1153,10 +1239,24 @@ class ServerManager {
         ...(logPath ? { log: logPath } : {}),
       });
     }
-    const server = { url: `http://${host}:${port}`, host, port, pid, owned: true };
+    // The plain URL stays canonical for every internal consumer; the tokened
+    // authUrl exists only for consumers that load the page (sidebar iframe,
+    // open-in-browser) on dsh 0.1.2+ where the auth fence would otherwise
+    // answer 401.
+    const server = {
+      url: `http://${host}:${port}`,
+      host,
+      port,
+      pid,
+      owned: true,
+      ...(authToken ? {
+        authToken,
+        authUrl: `http://${host}:${port}/?token=${encodeURIComponent(authToken)}`,
+      } : {}),
+    };
     this._ownedServer = server;
     this._emit('ready', 'DSH web ready: http://{host}:{port} (pid={pid})', { host, port, pid }, server);
-    this._startHealthWatch(host, port);
+    this._startHealthWatch(host, port, authToken);
     return server;
   }
 
@@ -1186,7 +1286,7 @@ class ServerManager {
    * of silently showing a dead iframe. The timer self-clears on loss; stop()
    * and a fresh ensureServer cycle clear it as well.
    */
-  _startHealthWatch(host, port, intervalMs = 30000) {
+  _startHealthWatch(host, port, token = null, intervalMs = 30000) {
     this._clearHealthWatch();
     // Instance-level override (mainly a test seam) beats the default cadence.
     const cadence = Number.isInteger(this._healthIntervalMs) && this._healthIntervalMs > 0
@@ -1194,7 +1294,7 @@ class ServerManager {
       : intervalMs;
     this._healthPort = port;
     this._healthTimer = setInterval(() => {
-      Promise.resolve(this.probe(host, port))
+      Promise.resolve(this.probe(host, port, token === null ? {} : { token }))
         .then((result) => {
           if (this._healthTimer === null) return;
           if (result && result.reachable && result.isDsh) return;

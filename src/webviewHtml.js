@@ -178,7 +178,7 @@ ${WEBVIEW_CSP_META}
     text-align: center;
   }
   h1 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
-  p { margin: 0 0 10px; font-size: 13px; opacity: 0.85; word-break: break-word; }
+  p { margin: 0 0 10px; font-size: 13px; opacity: 0.85; word-break: break-word; white-space: pre-wrap; }
   code.url {
     display: inline-block; margin-bottom: 12px;
     font-size: 12px; opacity: 0.7; word-break: break-all;

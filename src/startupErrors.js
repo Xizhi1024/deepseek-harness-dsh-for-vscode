@@ -72,7 +72,7 @@ const STARTUP_ERRORS = Object.freeze({
   }),
   SPAWN_EXITED_EARLY: Object.freeze({
     retryable: true,
-    template: 'DSH process exited early (code={code}, signal={signal})',
+    template: 'DSH process exited early (code={code}, signal={signal}){excerpt}',
     diagnoseHint: 'Inspect the DSH log; retry after fixing the startup blocker.',
   }),
   HEALTH_TIMEOUT: Object.freeze({

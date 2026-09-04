@@ -405,6 +405,18 @@ function createChangeTree({
 
   function refresh() {
     onDidChangeTreeData.fire();
+    try {
+      // Pending-approval count as the view badge: the non-intrusive
+      // reminder that replaces focus-stealing reveals. Best-effort —
+      // facades without the badge property simply skip it.
+      if (treeView && 'badge' in treeView) {
+        const pending = tracker.list().filter((entry) => entry
+          && entry.source === 'bridge' && entry.status === 'pending').length;
+        treeView.badge = pending > 0 ? { value: pending, tooltip: String(pending) } : undefined;
+      }
+    } catch {
+      // badge is cosmetic best-effort
+    }
   }
 
   function entries() {
@@ -797,19 +809,29 @@ function createChangeTree({
     return announceUndoResult(result);
   }
 
-  async function reveal(entry) {
+  /**
+   * Reveal one entry in the view. Focus stealing is opt-in: the keyboard
+   * belongs to whatever the user is doing. An incoming change may select
+   * its row and scroll it into view, but never yanks focus by default —
+   * the 2026-09-04 regression revealed every external save with
+   * focus:true plus dsh.changes.focus and made the editor untypeable.
+   */
+  async function reveal(entry, options = {}) {
+    const focus = Boolean(options.focus);
     refresh();
     try {
       if (treeView && typeof treeView.reveal === 'function') {
-        await treeView.reveal(entry, { select: true, focus: true });
+        await treeView.reveal(entry, { select: true, focus });
       }
     } catch {
       // reveal is best-effort; the refresh above already updates the list
     }
-    try {
-      await vscode.commands.executeCommand('dsh.changes.focus');
-    } catch {
-      // the focus command may be unavailable in tests
+    if (focus) {
+      try {
+        await vscode.commands.executeCommand('dsh.changes.focus');
+      } catch {
+        // the focus command may be unavailable in tests
+      }
     }
   }
 
@@ -864,4 +886,17 @@ function createChangeTree({
   });
 }
 
-module.exports = { createChangeTree };
+/**
+ * Which journal sources deserve an in-place surface (selected row) when a
+ * new entry lands: only approval-pending bridge pushes. Tool-attributed and
+ * external edits (the watcher records every on-disk save) refresh the tree
+ * silently — surfacing them stole editor focus mid-typing (2026-09-04).
+ *
+ * @param {*} entry - Journal entry (may be anything).
+ * @returns {boolean} True when the entry should be revealed in place.
+ */
+function shouldSurfaceEntry(entry) {
+  return Boolean(entry) && entry.source === 'bridge';
+}
+
+module.exports = { createChangeTree, shouldSurfaceEntry };

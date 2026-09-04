@@ -61,6 +61,8 @@ const {
 } = require('./interactionBridge');
 const { installDshIntegration } = require('./dshIntegration');
 const { ensureHmrDisabled } = require('./hmrGuard');
+const { ensureResolvableBundles } = require('./profileBundleGuard');
+const { createAuthedFetch } = require('./dshWebAuth');
 const {
   ThreadAttachmentCoordinator,
   formatFileAttachment,
@@ -89,7 +91,7 @@ const { createChangeTracker, normalizeToolEditPath } = require("./changeTracker"
 const { createEditEventProjector } = require("./editEventProjector");
 const { createChangeWatcher } = require("./changeWatcher");
 const callExportJournal = require("./callExportJournal");
-const { createChangeTree } = require("./changeTree");
+const { createChangeTree, shouldSurfaceEntry } = require("./changeTree");
 const { createLmRoute } = require("./lmRoute");
 const { createMcpManager } = require("./mcp/manager");
 const { createConsentGate } = require("./mcp/consent");
@@ -116,6 +118,13 @@ let vscode = null; // injected during activation; avoids loading vscode in node:
 let hostContext = null; // workspace/config facade bound during activation
 let manager = null; // ServerManager instance (created in activate)
 let currentServer = null; // RunningServer | null
+// Shared auth-aware fetch for every DSH /api consumer (session create/list/
+// rename, chat prompt + SSE, workspace binding, LM route). On dsh 0.1.2+
+// the server's auth fence requires a Cookie minted from the launch token;
+// on older runtimes tokenProvider yields null and this is a pass-through.
+const dshApiFetch = createAuthedFetch({
+  tokenProvider: () => (currentServer && typeof currentServer.authToken === 'string' ? currentServer.authToken : null),
+});
 let currentExternalUrl = null; // client-reachable URL (forwarded in remote workspaces)
 let currentSessionId = null; // DSH session id to pass to the iframe (dsh_session)
 let currentDshTheme = null; // active VS Code theme ('dark'|'light') for dsh_theme / dshThemeChanged
@@ -237,7 +246,7 @@ function focusedComposerWebview() {
  */
 async function openInstancePanel({
   server = currentServer,
-  createSessionFn = createSession,
+  createSessionFn = (baseUrl, opts = {}) => createSession(baseUrl, { fetchImpl: dshApiFetch, ...opts }),
   vscode: facade = vscode,
 } = {}) {
   if (server === null) {
@@ -260,7 +269,7 @@ async function openInstancePanel({
     panel.dispose();
     throw error;
   }
-  const externalUrl = await externalize(server.url);
+  const externalUrl = await externalize(server.authUrl || server.url);
   const sessionValue = sessionIdFromValue(sessionId);
   const paint = () => {
     panel.webview.html = framePage({
@@ -276,7 +285,9 @@ async function openInstancePanel({
   paint();
   panel.webview.onDidReceiveMessage(createWebviewMessageHandler({
     openBrowser: () => {
-      const candidate = safeHttpUrl(server.url);
+      // Prefer the tokened authUrl (dsh 0.1.2+ auth fence); plain URL on
+      // older servers.
+      const candidate = safeHttpUrl(server.authUrl || server.url);
       if (candidate && candidate !== "about:blank") {
         facade.env.openExternal(vscode.Uri.parse(candidate));
       }
@@ -754,7 +765,9 @@ async function stopOwnedServer() {
 async function bindServer(context, server, cwd) {
   currentServer = server;
   boundCwd = cwd;
-  const url = await externalize(server.url);
+  // dsh 0.1.2+: embed the tokened authUrl so the iframe passes the auth
+  // fence; older servers have no authUrl and externalize their plain URL.
+  const url = await externalize(server.authUrl || server.url);
   currentExternalUrl = url;
   const mode = loc(server.owned ? "managed" : "reused");
   // A6/U9: when the port-conflict fallback moved the server off the
@@ -1314,6 +1327,7 @@ async function setupCoreServer({ context, services }) {
   workspaceBinding = (injectedDependencies.createWorkspaceBinding || createWorkspaceBinding)({
     vscode,
     baseUrlProvider: () => currentServer && currentServer.url,
+    fetchImpl: dshApiFetch,
   });
   notificationSubscriptions = [];
   notificationNotifier = null;
@@ -1361,7 +1375,7 @@ async function setupCoreServer({ context, services }) {
   // session.rename is issued per session per extension lifetime.
   sessionTitleFn = (injectedDependencies.createSessionTitler || createSessionTitler)((sessionId, title) => renameSession(
     currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
-    { sessionId, title }
+    { sessionId, title, fetchImpl: dshApiFetch }
   ));
   try {
     prepareDshHome(hostContext.config(), context);
@@ -1383,6 +1397,15 @@ async function setupCoreServer({ context, services }) {
       dshHome: runtime.dshHome,
       profileName: runtime.profileName,
       dshVersion: runtime.dshVersion,
+    }),
+    // 2026-09-04 incident follow-up #2: a plugin-manager operation can leave
+    // orphan entries in dsh.profile.bundles; resolveBundleDir kills the boot
+    // on the first orphan (exit 1 before any probe). Strip them pre-spawn
+    // with a one-time manifest backup, mirroring the HMR guard contract.
+    profileBundleGuard: (runtime) => ensureResolvableBundles({
+      dshHome: runtime.dshHome,
+      profileName: runtime.profileName,
+      executablePath: runtime.executablePath,
     }),
     onStatus: (s) => {
       if (s.state === "lost") {
@@ -2026,6 +2049,7 @@ function buildExportsFace(context) {
     chatClient: createDshChatClient({
       baseUrlProvider: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
       ensureConnected,
+      fetchImpl: dshApiFetch,
     }),
     resolveSessionId: async () => {
       if (typeof ensureWorkspaceSessionFn !== 'function') {
@@ -2038,7 +2062,7 @@ function buildExportsFace(context) {
     },
     listSessionsFn: ({ signal }) => listSessions(
       currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
-      { signal }
+      { signal, fetchImpl: dshApiFetch }
     ),
     getBaseUrl: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
     editorContext,
@@ -2076,6 +2100,7 @@ async function setupChatParticipant({ context, services }) {
   const chatClient = createDshChatClient({
     baseUrlProvider: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
     ensureConnected,
+    fetchImpl: dshApiFetch,
   });
   const participantModule = createChatParticipantModule({
     chatClient,
@@ -2092,7 +2117,7 @@ async function setupChatParticipant({ context, services }) {
     isEnabled: () => vscode.workspace.getConfiguration('dsh').get('features.chat-participant', false),
     listSessionsFn: ({ signal }) => listSessions(
       currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
-      { signal }
+      { signal, fetchImpl: dshApiFetch }
     ),
     loc,
   });
@@ -2228,6 +2253,7 @@ async function setupLmRoute({ context, services }) {
     baseUrlProvider: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : ''),
     token,
     mode,
+    fetchImpl: dshApiFetch,
   });
   services.manager?.setSpawnEnv?.({ DSH_LM_BRIDGE_TOKEN: token });
   context.subscriptions.push(lmRoute.disposable);
@@ -2281,12 +2307,19 @@ async function setupChangesReview({ context, services }) {
   });
   changeTree.setActiveSession(currentSessionId);
   services.changesTree = changeTree;
-  // Wire the L0 tracker wrapper to the L2 tree so every newly recorded
-  // change reveals itself in the view.
+  // Wire the L0 tracker wrapper to the L2 tree: only approval-pending
+  // bridge entries surface in place (selected row, never focus-stealing —
+  // the pending badge on the view carries the reminder); tool-attributed
+  // and external edits (every on-disk save) refresh silently. Surfacing
+  // all of them stole editor focus mid-typing (2026-09-04 user report).
   services.changesReview = {
     onEntry: (entry) => {
       try {
-        void changeTree?.reveal(entry);
+        if (shouldSurfaceEntry(entry)) {
+          void changeTree?.reveal(entry);
+        } else {
+          void changeTree?.refresh?.();
+        }
       } catch (_) {
         // reveal is advisory; the view still refreshes on next expansion
       }
@@ -2532,11 +2565,12 @@ function registerFeatureCommands(context, featureOk) {
         // Session API calls must use the raw loopback URL, never the
         // externalized (port-forwarded) client URL.
         const baseUrl = currentServer.url;
-        const items = await listSessions(baseUrl, { signal: controller.signal });
+        const items = await listSessions(baseUrl, { signal: controller.signal, fetchImpl: dshApiFetch });
         const reused = reuseBlankSession(items, boundCwd);
         const sessionId = reused || await createSession(baseUrl, {
           cwd: boundCwd,
           signal: controller.signal,
+          fetchImpl: dshApiFetch,
         });
         currentSessionId = sessionIdFromValue(sessionId);
         // B2: an explicit New Session must move the cached binding too,

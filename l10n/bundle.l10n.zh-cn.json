@@ -22,10 +22,8 @@
   "Found a running DSH instance at http://{host}:{port}, reusing": "检测到本地 DSH 实例：http://{host}:{port}，直接复用",
   "Found a workspace-matched DSH instance at http://{host}:{port}, reusing": "检测到匹配工作区的 DSH 实例：http://{host}:{port}，复用",
   "Starting DSH web (pid={pid}, port={port})…": "正在启动 DSH web（pid={pid}，端口 {port}）…",
-  "DSH process exited unexpectedly (pid={pid}, code={code}, signal={signal})": "DSH 进程意外退出（pid={pid}，code={code}，signal={signal}）",
   "Failed to start dsh: {error}": "启动 dsh 失败：{error}",
   "DSH process was stopped": "DSH 进程已被停止",
-  "DSH process exited early (code={code}, signal={signal})": "DSH 进程提前退出（code={code}，signal={signal}）",
   "DSH service did not become ready within {seconds}s; process terminated (pid={pid})": "DSH 服务 {seconds} 秒内未就绪，已终止进程（pid={pid}）",
   "DSH is not running and dsh.autoStart is disabled": "DSH 未运行且已关闭 dsh.autoStart",
   "Unsupported dsh.host \"{host}\"; this extension requires {expected}": "不支持 dsh.host“{host}”；本扩展要求使用 {expected}",
@@ -229,5 +227,7 @@
   "@dsh in the VS Code chat view — prompts run in the current DSH session and stream back.": "在 VS Code 聊天视图使用 @dsh——提示词进入当前 DSH 会话并流式返回。",
   "Ghost-text completions in editors (FIM). Needs an endpoint + API key; an optional setup screen follows this step.": "编辑器幽灵文本补全（FIM）。需要端点 + API Key；随后有可选配置屏。",
   "Attach files, folders and selections to the DSH thread from the editor.": "从编辑器把文件、目录与选区附加到 DSH 会话。",
-  "Clickable file links in DSH chat replies jump to the editor.": "DSH 聊天回复中的文件链接可点击跳转到编辑器。"
+  "Clickable file links in DSH chat replies jump to the editor.": "DSH 聊天回复中的文件链接可点击跳转到编辑器。",
+  "DSH process exited early (code={code}, signal={signal}){excerpt}": "DSH 进程提前退出（code={code}，signal={signal}）{excerpt}",
+  "DSH process exited unexpectedly (pid={pid}, code={code}, signal={signal}){excerpt}": "DSH 进程意外退出（pid={pid}，code={code}，signal={signal}）{excerpt}"
 }

@@ -22,10 +22,8 @@
   "Found a running DSH instance at http://{host}:{port}, reusing": "Found a running DSH instance at http://{host}:{port}, reusing",
   "Found a workspace-matched DSH instance at http://{host}:{port}, reusing": "Found a workspace-matched DSH instance at http://{host}:{port}, reusing",
   "Starting DSH web (pid={pid}, port={port})…": "Starting DSH web (pid={pid}, port={port})…",
-  "DSH process exited unexpectedly (pid={pid}, code={code}, signal={signal})": "DSH process exited unexpectedly (pid={pid}, code={code}, signal={signal})",
   "Failed to start dsh: {error}": "Failed to start dsh: {error}",
   "DSH process was stopped": "DSH process was stopped",
-  "DSH process exited early (code={code}, signal={signal})": "DSH process exited early (code={code}, signal={signal})",
   "DSH service did not become ready within {seconds}s; process terminated (pid={pid})": "DSH service did not become ready within {seconds}s; process terminated (pid={pid})",
   "DSH is not running and dsh.autoStart is disabled": "DSH is not running and dsh.autoStart is disabled",
   "Unsupported dsh.host \"{host}\"; this extension requires {expected}": "Unsupported dsh.host \"{host}\"; this extension requires {expected}",
@@ -229,5 +227,7 @@
   "@dsh in the VS Code chat view — prompts run in the current DSH session and stream back.": "@dsh in the VS Code chat view — prompts run in the current DSH session and stream back.",
   "Ghost-text completions in editors (FIM). Needs an endpoint + API key; an optional setup screen follows this step.": "Ghost-text completions in editors (FIM). Needs an endpoint + API key; an optional setup screen follows this step.",
   "Attach files, folders and selections to the DSH thread from the editor.": "Attach files, folders and selections to the DSH thread from the editor.",
-  "Clickable file links in DSH chat replies jump to the editor.": "Clickable file links in DSH chat replies jump to the editor."
+  "Clickable file links in DSH chat replies jump to the editor.": "Clickable file links in DSH chat replies jump to the editor.",
+  "DSH process exited early (code={code}, signal={signal}){excerpt}": "DSH process exited early (code={code}, signal={signal}){excerpt}",
+  "DSH process exited unexpectedly (pid={pid}, code={code}, signal={signal}){excerpt}": "DSH process exited unexpectedly (pid={pid}, code={code}, signal={signal}){excerpt}"
 }
