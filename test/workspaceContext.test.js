@@ -35,7 +35,7 @@ test('workspace context reads normalized settings and stable storage path', () =
     host: '127.0.0.1',
     port: 4100,
     autoStart: false,
-    profile: 'web',
+    profile: 'vscode',
     closePolicy: 'never',
     runtimeManifestUrl: '',
     executablePath: '',

@@ -61,8 +61,8 @@ test('verified managed runtime can be rebound to the selected DSH home', () => {
   const home = path.join(os.tmpdir(), 'selected-dsh-home');
   const runtime = bindRuntimeHome({ executablePath: path.join(os.tmpdir(), 'dsh.exe') }, home);
   assert.strictEqual(runtime.dshHome, home);
-  assert.strictEqual(runtime.profileHome, path.join(home, 'profiles', 'web'));
-  assert.strictEqual(runtime.profileName, 'web');
+  assert.strictEqual(runtime.profileHome, path.join(home, 'profiles', 'vscode'));
+  assert.strictEqual(runtime.profileName, 'vscode');
 });
 
 test('verified managed runtime can be rebound to a custom DSH profile', () => {

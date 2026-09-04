@@ -25,6 +25,7 @@ const DEV_FILES = [
   'lib/lmRoute.js',
   'lib/fimRoutes.js',
   'lib/linkRoutes.js',
+  'lib/compatSessionRoutes.js',
   'lib/editObserver.js',
 ];
 const OLD_FILES = DEV_FILES.slice(0, 5); // 0.9.x/1.0.x shipped exactly these

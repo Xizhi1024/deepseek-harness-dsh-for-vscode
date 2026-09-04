@@ -8,6 +8,7 @@ const {
   parseRuntimeArtifactManifest,
   verifyRuntimeDirectory,
 } = require('./runtimeArtifact');
+const { MANAGED_PROFILE } = require('./managedRuntimeLaunch');
 
 class RuntimeResolver {
   /**
@@ -85,9 +86,9 @@ class RuntimeResolver {
       entrypointArgs: Object.freeze(entrypointArgs),
       manifestPath,
       manifest,
-      profileHome: path.join(this.storageRoot, 'profiles', 'web'),
+      profileHome: path.join(this.storageRoot, 'profiles', MANAGED_PROFILE),
       dshHome: this.storageRoot,
-      profileName: 'web',
+      profileName: MANAGED_PROFILE,
     });
   }
 }

@@ -65,7 +65,7 @@ test('RuntimeResolver returns only a fully verified current or last-good runtime
   const current = await resolver.resolveCurrent();
   assert.strictEqual(current.executablePath, path.join(payloadRoot, 'bin', 'dsh.cmd'));
   assert.deepStrictEqual(current.entrypointArgs, [path.join(payloadRoot, 'bin', 'dsh.js')]);
-  assert.strictEqual(current.profileHome, path.join(storageRoot, 'profiles', 'web'));
+  assert.strictEqual(current.profileHome, path.join(storageRoot, 'profiles', 'vscode'));
   assert.strictEqual(current.dshHome, storageRoot);
   assert.strictEqual((await resolver.resolveLastGood()).manifest.dshVersion, '0.1.0-rc.5');
 

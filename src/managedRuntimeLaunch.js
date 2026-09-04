@@ -5,7 +5,10 @@ const path = require('node:path');
 
 const { compareDshVersions } = require('./dshCompat');
 
-const MANAGED_PROFILE = 'web';
+// Extension-owned default profile. Deliberately not 'web' (the profile a
+// terminal `dsh web` boots): the embed gets its own plugin tree and patch
+// layer so the two never fight over one profile directory.
+const MANAGED_PROFILE = 'vscode';
 const PROFILE_NAME_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 
 // `--no-open` first shipped in @deepseek-ai/dsh 0.1.0-rc.7 (dsh-web-app

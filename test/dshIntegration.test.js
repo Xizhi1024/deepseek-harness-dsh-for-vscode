@@ -41,7 +41,7 @@ test('DSH integration installs its fixed package files inside the selected home'
   for (const relative of INTEGRATION_FILES) {
     assert.strictEqual(fs.readFileSync(path.join(installed.packageRoot, ...relative.split('/')), 'utf8'), relative);
   }
-  assert.strictEqual(installed.nodeModulesPath, path.join(root, 'home', 'profiles', 'web', 'node_modules'));
+  assert.strictEqual(installed.nodeModulesPath, path.join(root, 'home', 'profiles', 'vscode', 'node_modules'));
 });
 
 test('DSH integration installs into the selected custom profile', (t) => {

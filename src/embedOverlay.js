@@ -3,6 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { MANAGED_PROFILE } = require('./managedRuntimeLaunch');
+
 /**
  * DSH plugin ids disabled by the VS Code embed overlay. The embedded webview
  * already provides the sidebar and the AION UI panel, so launching the managed
@@ -165,12 +167,13 @@ function renderCleanOverlay(patchText) {
  * patch file degrades to an embed-only overlay.
  *
  * @param {string} dshHome non-empty absolute DSH home.
- * @param {string} [profileName] profile directory under the home (default 'web').
+ * @param {string} [profileName] profile directory under the home (default: the
+ *   extension-owned profile, MANAGED_PROFILE).
  * @param {{ readFileSync?: typeof fs.readFileSync, writeFileSync?: typeof fs.writeFileSync, mkdirSync?: typeof fs.mkdirSync, renameSync?: typeof fs.renameSync, chmodSync?: typeof fs.chmodSync }} [options]
  *   injectable fs operations for tests.
  * @returns {string} absolute path of the written clean overlay file.
  */
-function writeCleanOverlay(dshHome, profileName = 'web', options = {}) {
+function writeCleanOverlay(dshHome, profileName = MANAGED_PROFILE, options = {}) {
   if (typeof dshHome !== 'string' || dshHome.length === 0 || !path.isAbsolute(dshHome)) {
     throw new Error('DSH home must be a non-empty absolute path');
   }

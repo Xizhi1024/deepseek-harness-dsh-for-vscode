@@ -23,6 +23,17 @@ const HMR_ENTRY = [
   '  disabled: true',
 ].join('\n');
 
+function replaceEmptySequenceDocument(text, replacement) {
+  const semanticLines = String(text)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith('#'));
+  if (semanticLines.length !== 1 || semanticLines[0] !== '[]') {
+    return null;
+  }
+  return String(text).replace(/^\s*\[\]\s*$/m, replacement);
+}
+
 function ensureHmrDisabled({ dshHome, profileName, dshVersion = null, fsOps = {} } = {}) {
   if (typeof dshHome !== 'string' || dshHome.length === 0) {
     throw new TypeError('ensureHmrDisabled requires dshHome');
@@ -71,8 +82,16 @@ function ensureHmrDisabled({ dshHome, profileName, dshVersion = null, fsOps = {}
       // best-effort backup: the atomic replace below is the real safety net
     }
   }
-  const previous = text.endsWith('\n') ? text : text + '\n';
-  writeFileSync(temporary, previous + entry, 'utf8');
+  // A freshly scaffolded custom profile uses `[]` as its complete empty YAML
+  // document. Appending a list item after it creates two top-level values and
+  // makes DSH abort while parsing the profile. Replace that sentinel instead;
+  // existing non-empty patch lists still use the append path below.
+  const replacement = entry.replace(/^\n/, '');
+  const emptyDocumentReplacement = replaceEmptySequenceDocument(text, replacement);
+  const nextText = emptyDocumentReplacement === null
+    ? (text.endsWith('\n') ? text : text + '\n') + entry
+    : emptyDocumentReplacement;
+  writeFileSync(temporary, nextText, 'utf8');
   renameSync(temporary, patchPath);
   return { applied: true, created: false, patchPath, dshVersion };
 }

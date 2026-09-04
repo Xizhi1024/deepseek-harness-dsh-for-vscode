@@ -452,8 +452,8 @@ test('autoStart resolves the configured runtime before spawn and hands it to Ser
   assert.deepStrictEqual(setResolvedRuntimeArgs, [{
     ...runtime,
     dshHome: path.join(context.globalStorageUri.fsPath, '.dsh'),
-    profileHome: path.join(context.globalStorageUri.fsPath, '.dsh', 'profiles', 'web'),
-    profileName: 'web',
+    profileHome: path.join(context.globalStorageUri.fsPath, '.dsh', 'profiles', 'vscode'),
+    profileName: 'vscode',
   }]);
   assert.deepStrictEqual(ensureServerOptions, {
     host: '127.0.0.1',

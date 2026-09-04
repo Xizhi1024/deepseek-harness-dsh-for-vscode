@@ -34,9 +34,11 @@ test('deriveFeatureFlags compares numerically, not lexically', () => {
 
 const {
   deriveRuntimeIssues,
+  deriveRuntimeAdapter,
   SUPPORTED_DSH_MIN,
   PROJECTION_CACHE_MIN,
   MODULE_HMR_OPTIN_MIN,
+  SESSION_CONTROLLER_MIN,
 } = require('../../src/dshCompat');
 
 test('deriveRuntimeIssues reports unknown for missing or unparseable versions', () => {
@@ -70,4 +72,38 @@ test('deriveRuntimeIssues flags runtimes below the supported floor', () => {
   assert.strictEqual(SUPPORTED_DSH_MIN, '0.1.0-rc.7');
   assert.strictEqual(PROJECTION_CACHE_MIN, '0.1.2-alpha.1');
   assert.strictEqual(MODULE_HMR_OPTIN_MIN, '0.1.2-alpha.1');
+});
+
+test('deriveRuntimeAdapter selects the expected old/new host service line', () => {
+  assert.deepStrictEqual(deriveRuntimeAdapter('0.1.1-rc.2'), {
+    known: true,
+    line: 'legacy-apiproxy',
+    openPathService: 'apiProxy',
+    sessionRoutes: 'native',
+  });
+  assert.deepStrictEqual(deriveRuntimeAdapter('0.1.2-alpha.5'), {
+    known: true,
+    line: 'legacy-apiproxy',
+    openPathService: 'apiProxy',
+    sessionRoutes: 'native',
+  });
+  assert.deepStrictEqual(deriveRuntimeAdapter('0.1.2-rc.1'), {
+    known: true,
+    line: 'session-controller',
+    openPathService: 'sessionController',
+    sessionRoutes: 'compat',
+  });
+  assert.deepStrictEqual(deriveRuntimeAdapter('0.1.2'), deriveRuntimeAdapter('0.1.2-rc.1'));
+  assert.strictEqual(SESSION_CONTROLLER_MIN, '0.1.2-rc.1');
+});
+
+test('deriveRuntimeAdapter leaves unknown/fork version labels on capability negotiation', () => {
+  for (const version of [null, '', 'master', 'v0.1.2']) {
+    assert.deepStrictEqual(deriveRuntimeAdapter(version), {
+      known: false,
+      line: 'negotiate',
+      openPathService: 'apiProxy|sessionController',
+      sessionRoutes: 'negotiate',
+    });
+  }
 });

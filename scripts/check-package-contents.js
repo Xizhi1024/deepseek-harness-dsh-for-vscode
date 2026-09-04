@@ -32,6 +32,7 @@ const forbidden = [
   /(?:^|\/)(?:credentials?|secrets?)(?:\.|\/|$)/i,
   /\.log$/i,
   /\.vsix$/i,
+  /^thinking-effort-loaded\.json$/i,
 ];
 const rejected = files.filter((file) => forbidden.some((pattern) => pattern.test(file)));
 assert.deepStrictEqual(rejected, [], `Forbidden package entries: ${rejected.join(', ')}`);

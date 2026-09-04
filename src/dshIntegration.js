@@ -13,6 +13,7 @@ const INTEGRATION_FILES = Object.freeze([
   'lib/lmRoute.js',
   'lib/fimRoutes.js',
   'lib/linkRoutes.js',
+  'lib/compatSessionRoutes.js',
   'lib/editObserver.js',
 ]);
 // Records which extension version last owned the synced package directory.

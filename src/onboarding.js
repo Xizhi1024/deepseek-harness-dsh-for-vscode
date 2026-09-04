@@ -373,7 +373,7 @@ async function runOnboardingWizard({ context, workspace }) {
   const { vscode, loc, getSetting, updateSetting, featureSwitches, listProfiles, storeFimKey } = workspace;
   const changed = [];
 
-  const previousProfile = String(getSetting('profile', 'web') || 'web');
+  const previousProfile = String(getSetting('profile', 'vscode') || 'vscode');
   const profile = await profileStep(vscode, loc, previousProfile, listProfiles);
   if (profile !== null) {
     changed.push('profile');

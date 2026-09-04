@@ -46,6 +46,15 @@ const PROJECTION_CACHE_MIN = "0.1.2-alpha.1";
 const MODULE_HMR_OPTIN_MIN = "0.1.2-alpha.1";
 
 /**
+ * First released DSH line where dsh-host-apiproxy (and its apiProxy service)
+ * disappeared in favour of sessionController. The integration never
+ * statically injects either optional service; this boundary is diagnostic and
+ * selects the expected adapter while live service negotiation stays
+ * authoritative for forks and prereleases. @type {string}
+ */
+const SESSION_CONTROLLER_MIN = "0.1.2-rc.1";
+
+/**
  * Parse a semver-ish string ("1.2.3", "0.1.0-rc.7") into comparable parts.
  * Pre-release/build suffixes are ignored; each core part must be numeric.
  *
@@ -183,11 +192,47 @@ function deriveRuntimeIssues(dshVersion) {
   };
 }
 
+/**
+ * Describe the expected host-service line for a detected DSH version.
+ * Unknown/non-semver runtimes stay on dynamic negotiation instead of being
+ * guessed into either incompatible static dependency set.
+ *
+ * @param {string|null|undefined} dshVersion
+ * @returns {{known: boolean, line: string, openPathService: string, sessionRoutes: string}}
+ */
+function deriveRuntimeAdapter(dshVersion) {
+  const comparison = compareDshVersions(dshVersion, SESSION_CONTROLLER_MIN);
+  if (comparison === null) {
+    return {
+      known: false,
+      line: "negotiate",
+      openPathService: "apiProxy|sessionController",
+      sessionRoutes: "negotiate",
+    };
+  }
+  if (comparison < 0) {
+    return {
+      known: true,
+      line: "legacy-apiproxy",
+      openPathService: "apiProxy",
+      sessionRoutes: "native",
+    };
+  }
+  return {
+    known: true,
+    line: "session-controller",
+    openPathService: "sessionController",
+    sessionRoutes: "compat",
+  };
+}
+
 module.exports = {
   deriveFeatureFlags,
   deriveRuntimeIssues,
+  deriveRuntimeAdapter,
   compareDshVersions,
   SUPPORTED_DSH_MIN,
   PROJECTION_CACHE_MIN,
   MODULE_HMR_OPTIN_MIN,
+  SESSION_CONTROLLER_MIN,
 };

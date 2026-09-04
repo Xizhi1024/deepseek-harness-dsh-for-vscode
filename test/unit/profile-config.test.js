@@ -85,7 +85,7 @@ test('custom dsh.profile flows consistently through all five startup seams', (t)
   assert.strictEqual(isRetryableStartupError({ code: 'CONFIG_PROFILE_INVALID' }), false);
 });
 
-test('default dsh.profile=web keeps the master web path snapshot', (t) => {
+test('default dsh.profile=vscode stays off the terminal web profile', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-profile-config-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const home = path.join(root, 'home');
@@ -94,21 +94,21 @@ test('default dsh.profile=web keeps the master web path snapshot', (t) => {
   const cfg = createWorkspaceContext(createFakeVscode(), {
     globalStorageUri: { fsPath: path.join(root, 'state') },
   }).config();
-  assert.strictEqual(cfg.profile, 'web');
+  assert.strictEqual(cfg.profile, 'vscode');
 
   const bound = bindRuntimeHome({ executablePath: path.join(root, 'dsh.exe') }, home);
-  assert.strictEqual(bound.profileHome, path.join(home, 'profiles', 'web'));
-  assert.strictEqual(bound.profileName, 'web');
+  assert.strictEqual(bound.profileHome, path.join(home, 'profiles', 'vscode'));
+  assert.strictEqual(bound.profileName, 'vscode');
 
   const integration = installDshIntegration(home, extension);
-  assert.strictEqual(integration.nodeModulesPath, path.join(home, 'profiles', 'web', 'node_modules'));
+  assert.strictEqual(integration.nodeModulesPath, path.join(home, 'profiles', 'vscode', 'node_modules'));
 
   const runtime = createRuntime(home, cfg.profile, bound.profileHome, root);
   const normalized = normalizeResolvedRuntime(runtime, process.platform);
-  assert.strictEqual(normalized.profileName, 'web');
+  assert.strictEqual(normalized.profileName, 'vscode');
   const launch = buildManagedLaunchSpec(runtime, '127.0.0.1', 3080, process.platform);
   const profileIndex = launch.args.indexOf('--profile');
-  assert.strictEqual(launch.args[profileIndex + 1], 'web');
+  assert.strictEqual(launch.args[profileIndex + 1], 'vscode');
 });
 
 test('invalid profile names are rejected with CONFIG_PROFILE_INVALID across all validators', (t) => {

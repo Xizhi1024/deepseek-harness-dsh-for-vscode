@@ -14,6 +14,8 @@
 
 ## ⚠️ 兼容性
 
+扩展会在启动前读取已安装官方 DSH 包的版本。`0.1.2-rc.1` 之前预期使用旧 `apiProxy` 主机和原生 session REST 路由；`0.1.2-rc.1+` 预期使用 `sessionController`，由内置集成包补回已移除的 REST 面。版本号只决定诊断预期，最终仍以运行时服务探测为准，因此 fork 与预发布版本不会因静态等待不存在的服务而阻塞启动。
+
 | 项 | 要求 |
 |---|---|
 | VS Code | ≥ 1.106，仅桌面版；不支持远程 / 虚拟 / 不受信任工作区 |
@@ -44,7 +46,7 @@
 | `dsh.port` | 3080 | DSH Web 服务端口 |
 | `dsh.autoStart` | true | VS Code 启动即拉起服务 |
 | `dsh.home.mode` | shared | shared=共享官方 ~/.dsh；isolated=扩展私有目录 |
-| `dsh.profile` | web | DSH profile 目录名 |
+| `dsh.profile` | vscode | 扩展专用 profile，与终端 `dsh web` 隔离（见下方备注） |
 | `dsh.executablePath` | (空) | 手动指定 DSH 可执行文件/包目录/shim，优先于自动发现 |
 | `dsh.closePolicy` | onVscodeExit | 何时停止自有服务 |
 | `dsh.features.changes-review` | true | DSH 变更评审（写前审批） |
@@ -58,6 +60,10 @@
 | `dsh.bridge.terminal` / `editorRead` / `ui` | false | 终端 / 编辑器读取 / UI 表面桥（同意开关） |
 
 完整键列表见 `package.json`；诊断用命令 **DSH: Diagnose**。
+
+### 独立 profile
+
+扩展拉起的 DSH 子进程使用自己的 profile（默认 `vscode`），与终端 `dsh web` 所用的 `web` profile 完全隔离——插件树、cordis patch 层、服务实例互不共享。profile 目录不存在时，扩展会自动脚手架一次（web app bundles 清单 + 空 patch 层 + pnpm 设置）。干净重启只作用于扩展自己的子进程，绝不影响终端里跑的 `dsh web`。想改回共用：把 `dsh.profile` 设为 `"web"` 后重载窗口。
 
 ## License
 

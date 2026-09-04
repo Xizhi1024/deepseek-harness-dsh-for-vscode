@@ -21,6 +21,8 @@ Embeds the full DSH web UI in the VS Code auxiliary sidebar: every window automa
 | Node.js | auto-detected; set `dsh.local.nodePath` for non-standard locations |
 | Windows + WSL | when the workspace lives in WSL, set the default terminal profile to a **Windows** shell (PowerShell/cmd) — a WSL default profile makes extension-host terminals and the terminal bridge unreliable; Diagnose warns when it detects a WSL default terminal |
 
+The extension reads the installed official DSH package version before launch. Versions before `0.1.2-rc.1` are expected to expose the legacy `apiProxy` host and native session REST routes; `0.1.2-rc.1+` is expected to expose `sessionController`, so the bundled integration restores the removed REST surface. The version selects the diagnostic expectation only: live capability negotiation claims whichever service actually exists, keeping forks and prereleases fail-open instead of blocking plugin activation.
+
 ## 📦 Install
 
 - **Marketplace (recommended)**: search **DeepSeek Harness** (publisher Xizhi1024) in the Extensions view, or `code --install-extension Xizhi1024.dsh-vs-sidebar`
@@ -44,7 +46,7 @@ Common commands (palette, `DSH:` prefix): New / Switch Session · Open Session H
 | `dsh.port` | 3080 | Port for the DSH web server |
 | `dsh.autoStart` | true | Start the service when VS Code opens |
 | `dsh.home.mode` | shared | shared = official ~/.dsh; isolated = extension-private home |
-| `dsh.profile` | web | DSH profile directory name |
+| `dsh.profile` | vscode | Extension-owned profile, separate from a terminal `dsh web` (see note below) |
 | `dsh.executablePath` | (empty) | Explicit DSH executable / package dir / shim; takes precedence over discovery |
 | `dsh.closePolicy` | onVscodeExit | When to stop the owned server |
 | `dsh.features.changes-review` | true | DSH changes review (approval-gated writes) |
@@ -58,6 +60,10 @@ Common commands (palette, `DSH:` prefix): New / Switch Session · Open Session H
 | `dsh.bridge.terminal` / `editorRead` / `ui` | false | Terminal / editor-read / UI surface bridges (consent switches) |
 
 Full key list in `package.json`; run **DSH: Diagnose** for a health summary.
+
+### Dedicated profile
+
+The extension launches its DSH child on its own profile (`vscode` by default), fully separate from the `web` profile a terminal `dsh web` uses — separate plugin tree, separate cordis patch layer, separate server instance. When the profile directory does not exist yet, the extension scaffolds it once (manifest with the web app bundles, empty patch layer, pnpm settings). Clean-restart (**Restart-Clean**) only restarts the extension's own child and never touches a terminal `dsh web`. To share one profile again, set `"dsh.profile": "web"` and reload the window.
 
 ## License
 

@@ -42,6 +42,23 @@ test('appends to an existing patch file, keeps content, writes one backup', () =
   assert.equal(fs.readFileSync(patchPath(home) + '.bak-dshext', 'utf8'), before);
 });
 
+test('replaces a scaffolded empty sequence instead of creating invalid YAML', () => {
+  const home = makeHome();
+  fs.mkdirSync(path.dirname(patchPath(home)), { recursive: true });
+  const scaffold = [
+    '# Your patch layer for this dsh profile.',
+    '[]',
+    '',
+  ].join('\n');
+  fs.writeFileSync(patchPath(home), scaffold, 'utf8');
+  const result = ensureHmrDisabled({ dshHome: home, profileName: 'web' });
+  assert.equal(result.applied, true);
+  const after = fs.readFileSync(patchPath(home), 'utf8');
+  assert.doesNotMatch(after, /^\s*\[\]\s*$/m);
+  assert.match(after, /- id: hmr[\s\S]*disabled: true/);
+  assert.equal(fs.readFileSync(patchPath(home) + '.bak-dshext', 'utf8'), scaffold);
+});
+
 test('never appends a duplicate hmr entry (duplicate loader ids crash dsh)', () => {
   const home = makeHome();
   fs.mkdirSync(path.dirname(patchPath(home)), { recursive: true });

@@ -7,6 +7,7 @@ import { createEditObserver } from './editObserver.js';
 import { createLmRoutes } from './lmRoute.js';
 import { createFimRoutes } from './fimRoutes.js';
 import { createLinkRoutes, editorOpenViaBridge } from './linkRoutes.js';
+import { installCompatSessionRoutes } from './compatSessionRoutes.js';
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
@@ -16,7 +17,7 @@ const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.me
 // process exits before the sidebar ever connects). This package is only
 // installed into extension-owned homes, where the web profile always
 // provides the webServer service.
-const inject = ['apiProxy', 'tools', 'llm', 'webServer'];
+const inject = ['tools', 'llm', 'webServer'];
 const name = 'dsh-vscode-integration';
 
 // ---------------------------------------------------------------------------
@@ -341,23 +342,119 @@ function createWatchdogMonitor({
   return monitor;
 }
 
-function apply(ctx) {
-  ctx.effect(() => {
-    const host = ctx.apiProxy.host;
-    const original = host.openPath;
-    host.openPath = async (request, signal) => {
-      const target = request && request.payload && request.payload.path;
-      if (typeof target !== 'string' || target.length === 0) {
+// ---------------------------------------------------------------------------
+// Cross-version openPath bridge (0.8.1). The apiProxy service — provided by
+// dsh-host-apiproxy — was removed upstream in 0.1.2-rc.1; the capability
+// moved to the sessionController service with a plain (path, signal)
+// signature instead of the Typert client-request envelope. Static-injecting
+// either name now aborts boot on the other runtime line ("N entries did not
+// activate"), so both surfaces are claimed dynamically via ctx.inject:
+// whichever service this runtime provides gets wrapped; a runtime with
+// neither keeps its native opener and logs one warning.
+// ---------------------------------------------------------------------------
+const OPEN_PATH_SURFACES = Object.freeze([
+  {
+    service: 'apiProxy',
+    envelope: true,
+    pick: (ctx) => (ctx.apiProxy && typeof ctx.apiProxy.host === 'object' ? ctx.apiProxy.host : null),
+  },
+  {
+    service: 'sessionController',
+    envelope: false,
+    pick: (ctx) => (ctx.sessionController && typeof ctx.sessionController === 'object' ? ctx.sessionController : null),
+  },
+]);
+
+/**
+ * Wrap one host surface's openPath. Envelope mode keeps the Typert
+ * client-request shape (request.rpcId / request.payload.path); plain mode
+ * takes (path, signal) and falls back to the runtime's original opener when
+ * the bridge declines or fails.
+ * @param {object} ctx service scope carrying the surface.
+ * @param {{service: string, envelope: boolean, pick: Function}} surface
+ * @param {Function} openImpl bridge opener (path, signal) => Promise.
+ * @returns {Function|null} unwrap function when claimed, null otherwise.
+ */
+function claimOpenPathSurface(ctx, surface, openImpl) {
+  const target = surface.pick(ctx);
+  if (!target || typeof target.openPath !== 'function') return null;
+  const original = target.openPath;
+  if (surface.envelope) {
+    target.openPath = async (request, signal) => {
+      const targetPath = request && request.payload && request.payload.path;
+      if (typeof targetPath !== 'string' || targetPath.length === 0) {
         return failure(request, 'path open failed: a path is required');
       }
       try {
-        await openThroughBridge(target, signal);
+        await openImpl(targetPath, signal);
         return { rpcId: request.rpcId, result: { ok: true, value: { opened: true } } };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return failure(request, `path open failed: ${message}`);
       }
     };
+  } else {
+    target.openPath = async (path, signal) => {
+      if (typeof path === 'string' && path.length > 0) {
+        try {
+          await openImpl(path, signal);
+          return;
+        } catch {
+          // bridge declined — fall through to the runtime's native opener
+        }
+      }
+      return original.call(target, path, signal);
+    };
+  }
+  return () => {
+    target.openPath = original;
+  };
+}
+
+/**
+ * Register dynamic inject claims for every known openPath surface. The
+ * first service that appears and carries an openPath function wins; later
+ * candidates are ignored, and surfaces that never appear cost nothing. When
+ * no surface shows up within warnDelayMs, one warning is logged (path
+ * opening stays native) instead of blocking activation.
+ */
+function installOpenPathBridge(ctx, options = {}) {
+  const openImpl = options.openImpl || openThroughBridge;
+  const warnDelayMs = options.warnDelayMs === undefined ? 10000 : options.warnDelayMs;
+  if (typeof ctx.inject !== 'function') {
+    console.warn('[dsh-vscode-integration] ctx.inject unavailable; path opening stays native');
+    return () => {};
+  }
+  let teardown = null;
+  for (const surface of OPEN_PATH_SURFACES) {
+    ctx.inject([surface.service], (scope) => {
+      if (teardown) return;
+      const release = claimOpenPathSurface(scope, surface, openImpl);
+      if (!release) return;
+      teardown = release;
+      console.log(`[dsh-vscode-integration] openPath bridge armed via ${surface.service}`);
+      return () => {
+        release();
+        if (teardown === release) teardown = null;
+      };
+    });
+  }
+  if (typeof warnDelayMs === 'number' && warnDelayMs > 0) {
+    const timer = setTimeout(() => {
+      if (!teardown) {
+        console.warn('[dsh-vscode-integration] no apiProxy/sessionController service appeared; path opening stays native');
+      }
+    }, warnDelayMs);
+    if (typeof timer.unref === 'function') timer.unref();
+  }
+  return () => {
+    if (teardown) teardown();
+    teardown = null;
+  };
+}
+
+function apply(ctx) {
+  ctx.effect(() => {
     // C1 watchdog: if this DSH process is a VS Code-managed child, keep an eye
     // on its owner window and self-terminate only when the dual condition is
     // met (heartbeat expired AND owner gone). Inert for standalone DSH (no
@@ -367,10 +464,28 @@ function apply(ctx) {
     });
     monitor.start();
     return () => {
-      host.openPath = original;
       monitor.stop();
     };
-  }, 'dsh-vscode-integration: host.openPath bridge + C1 watchdog');
+  }, 'dsh-vscode-integration: C1 watchdog');
+
+  // Cross-version openPath bridge: claimed dynamically per runtime line so
+  // no service name is ever statically awaited (see installOpenPathBridge).
+  ctx.effect(() => {
+    const stop = installOpenPathBridge(ctx);
+    return () => {
+      if (typeof stop === 'function') stop();
+    };
+  }, 'dsh-vscode-integration: cross-version openPath bridge');
+
+  // Cross-version session REST bridge: on runtimes that removed the
+  // apiproxy REST surface (0.1.2-rc.1+, sessionController service present)
+  // this mounts the frozen wire routes the extension speaks. Old runtimes
+  // keep their native routes — the inject never fires there.
+  ctx.inject(['sessionController', 'webServer'], (scope) => {
+    const routes = installCompatSessionRoutes(scope);
+    console.log('[dsh-vscode-integration] session REST compat routes mounted (/api/session.*, /api/events.mux)');
+    return () => routes.dispose();
+  });
 
   ctx.effect(() => {
     // Descriptors are built register()-shaped (JSON-Schema roots); the
@@ -431,8 +546,11 @@ function apply(ctx) {
 
 export {
   apply,
+  claimOpenPathSurface,
   inject,
+  installOpenPathBridge,
   name,
+  OPEN_PATH_SURFACES,
   observeToolsEnabled,
   openThroughBridge,
   parseHeartbeat,

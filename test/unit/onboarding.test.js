@@ -443,10 +443,10 @@ test('wizard profile step lists detected profiles and marks the current one', as
   const promise = runOnboardingWizard({ context, workspace });
 
   // Step 1 is now a pick of detected profiles (current first) + new-name entry.
-  const profileScreen = await acceptPick(host, 1); // 'dev'
+  const profileScreen = await acceptPick(host, 2); // 'dev'
   assert.deepStrictEqual(
     profileScreen.items.map((item) => item.id),
-    ['web', 'dev', 'staging', '__new__'],
+    ['vscode', 'web', 'dev', 'staging', '__new__'],
   );
   assert.strictEqual(profileScreen.items[0].description, 'current');
   await acceptPick(host, 0); // auto-start
@@ -470,7 +470,7 @@ test('profile QuickPick new-name entry falls through to the validated input', as
 
   const promise = runOnboardingWizard({ context, workspace });
 
-  await acceptPick(host, 2); // __new__ entry (last item)
+  await acceptPick(host, 3); // __new__ entry (last item; current 'vscode' + 'web' + 'dev')
   await acceptInput(host, 'fresh'); // the validated input box appears
   await acceptPick(host, 0);
   await acceptPick(host, 0);

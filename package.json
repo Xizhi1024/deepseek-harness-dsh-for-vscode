@@ -2,7 +2,7 @@
   "name": "dsh-vs-sidebar",
   "displayName": "%dsh.displayName%",
   "description": "%dsh.ext.description%",
-  "version": "1.1.2",
+  "version": "1.1.4",
   "publisher": "Xizhi1024",
   "license": "MIT",
   "pricing": "Free",
@@ -435,7 +435,7 @@
         },
         "dsh.profile": {
           "type": "string",
-          "default": "web",
+          "default": "vscode",
           "pattern": "^[A-Za-z0-9._-]{1,64}$",
           "scope": "window",
           "description": "%dsh.cfg.profile%"

@@ -1,5 +1,6 @@
 'use strict';
 
+const { MANAGED_PROFILE } = require('./managedRuntimeLaunch');
 const { DEFAULT_HOST, DEFAULT_PORT } = require('./types');
 const { normalizeClosePolicy, ServerManager } = require('./serverManager');
 
@@ -18,7 +19,7 @@ function createWorkspaceContext(vscode, extensionContext) {
         host: settings.get('host', DEFAULT_HOST),
         port: settings.get('port', DEFAULT_PORT),
         autoStart: settings.get('autoStart', true),
-        profile: String(settings.get('profile', 'web') || 'web'),
+        profile: String(settings.get('profile', MANAGED_PROFILE) || MANAGED_PROFILE),
         closePolicy: normalizeClosePolicy(settings.get('closePolicy')),
         runtimeManifestUrl: String(settings.get('runtime.manifestUrl', '') || ''),
         runtimeVersion: String(settings.get('runtime.version', '') || ''),

@@ -34,7 +34,7 @@ const { normalizeLaunchMethod, resolveCommandRuntime } = require("./launchMethod
 const { discoverDshWebPorts: defaultDiscoverDshWebPorts } = require("./processDiscovery");
 const { isRetryableStartupError, renderStartupError } = require("./startupErrors");
 const { deriveVscodeCapabilities } = require("./vscodeCapabilities");
-const { deriveFeatureFlags, deriveRuntimeIssues } = require("./dshCompat");
+const { deriveFeatureFlags, deriveRuntimeIssues, deriveRuntimeAdapter } = require("./dshCompat");
 const { framePage, statusPage, safeHttpUrl } = require("./webviewHtml");
 const {
   listSessions,
@@ -99,6 +99,7 @@ const {
   diagnosticSnapshot,
 } = require("./providerDetector");
 const { writeCleanOverlay, writeEmbedOverlay } = require("./embedOverlay");
+const { ensureProfileScaffold } = require("./profileScaffold");
 const {
   HOME_MODES,
   bindRuntimeHome,
@@ -406,6 +407,16 @@ function prepareDshHome(config, context) {
     // swept its foreign files; surface that for Diagnose because a mixed
     // byte set was the root cause of the 2026-09-04 tool-channel outage.
     appendDiagnostic(`[integration] package directory re-owned by this extension version; swept ${integration.foreignRemoved.length} foreign file(s)`);
+  }
+  try {
+    const scaffold = ensureProfileScaffold({ dshHome: activeDshHome, profileName: config.profile });
+    if (scaffold.created.length > 0) {
+      appendDiagnostic(`[profile] scaffolded "${config.profile}" (${scaffold.created.join(', ')})`);
+    }
+  } catch (scaffoldError) {
+    // Non-fatal: a missing profile surfaces at spawn with dsh's own
+    // "profile does not exist" error naming the profile.
+    console.error('dsh-vs-sidebar: profile scaffold failed:', scaffoldError && scaffoldError.message ? scaffoldError.message : scaffoldError);
   }
   const info = {
     ...resolved,
@@ -917,6 +928,11 @@ async function connectNow(context) {
       }
       if (server === null) {
         resolvedRuntime = bindRuntimeHome(resolvedRuntime, activeDshHome, cfg.profile);
+        const adapter = deriveRuntimeAdapter(resolvedRuntime.dshVersion);
+        appendDiagnostic(
+          `[runtime] DSH ${resolvedRuntime.dshVersion || 'unknown'}; adapter=${adapter.line}; `
+          + `openPath=${adapter.openPathService}; sessionRoutes=${adapter.sessionRoutes}; live service negotiation authoritative`
+        );
         manager.setResolvedRuntime(resolvedRuntime);
       }
     }
@@ -1003,7 +1019,7 @@ async function restartCleanNow(context) {
   const cfg = hostContext.config();
   let overlayPath;
   try {
-    overlayPath = writeCleanOverlay(activeDshHome, cfg.profile || "web");
+    overlayPath = writeCleanOverlay(activeDshHome, cfg.profile || "vscode");
   } catch (err) {
     vscode.window.showErrorMessage(loc("Clean restart failed: {message}", {
       message: err && err.message ? err.message : String(err),
