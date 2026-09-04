@@ -1,7 +1,7 @@
 # Known Issues / 问题记录
 
-> 更新日期：2026-08-28 · 对应版本：**1.0.1** · 当前**无未修复已知问题**
-> Updated 2026-08-28 · tracks release **1.0.1** · **no open known issues**
+> 更新日期：2026-09-04 · 对应版本：**1.1.2** · 当前**无未修复已知问题**
+> Updated 2026-09-04 · tracks release **1.1.2** · **no open known issues**
 
 历史问题与修复索引（复现细节见 [CHANGELOG.md](CHANGELOG.md) 与 [docs/dev/](docs/dev/)）：
 Past issues and their fixes (details in the changelog and dev notes):
@@ -14,6 +14,9 @@ Past issues and their fixes (details in the changelog and dev notes):
 | 4 | 颜色跟随操作系统而非 VS Code 主题（扩展端 dsh_theme/dshThemeChanged 链路早已就绪，DSH 端消费方缺失，主题服务仍按 prefers-color-scheme 解析 system）/ colors followed the OS instead of the VS Code theme — the DSH-side consumer was missing | 0.9.0 |
 | 5 | 默认配置下侧边栏报「没有可提供视图数据的已注册数据提供程序」：dsh.changes 视图无条件声明但提供程序仅在 changes-review 开启时挂载 / "no registered data provider" placeholder for dsh.changes under default settings | 0.9.4 |
 | 6 | 切换 VS Code 工作区后侧栏不跟随：扩展端经工作区注册表重绑并以 `?dsh_session=` 重载 iframe，但 DSH Web 端只恢复自己持久化的当前会话、无任何 dsh_session 消费方 / after a workspace switch the sidebar kept the old conversation: the DSH web app restores its own persisted current session and nothing consumed dsh_session | 0.9.3 |
+| 7 | @dsh 参与者每条消息新建会话且标题为裸 UUID（会话爆炸）/ the @dsh participant created a new session per message with bare-UUID titles | 1.1.2 |
+| 8 | 桥推送的编辑立即落盘、Accept 仅记账、Undo 反向区间被 applyEdit 拒绝 / bridge-pushed edits wrote to disk immediately, Accept only bookkept, and Undo reverse ranges were rejected | 1.1.2 |
+| 9 | 终端 `read` 始终为空：无 onDidWriteTerminalData 输出回读 / bridge `terminal/read` always returned empty — no terminal output read-back | 1.1.2 |
 
 ## 验收提示 / Verification notes（issue 3/4）
 

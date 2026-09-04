@@ -34,7 +34,7 @@ Embeds the full DSH web UI in the VS Code auxiliary sidebar: every window automa
 
 ![Add selected VS Code ranges to a DSH conversation as compact links](media/add-to-dsh-thread-example-en.png)
 
-Common commands (palette, `DSH:` prefix): New / Switch Session · Open Session History · Restart / Stop Server · Open in Browser · New DSH Instance · Diagnose · Restart Cleanly · Set DSH FIM API Key.
+Common commands (palette, `DSH:` prefix): New / Switch Session · Open Session History · Restart / Stop Server · Open in Browser · New DSH Instance (Ctrl+Alt+N) · Diagnose · Restart Cleanly · Set DSH FIM API Key.
 
 ## ⚙️ Configuration
 
@@ -47,13 +47,14 @@ Common commands (palette, `DSH:` prefix): New / Switch Session · Open Session H
 | `dsh.executablePath` | (empty) | Explicit DSH executable / package dir / shim; takes precedence over discovery |
 | `dsh.closePolicy` | onVscodeExit | When to stop the owned server |
 | `dsh.features.changes-review` | true | DSH changes review (approval-gated writes) |
+| `dsh.changes.observe-tools` | true | Attribute tool-made edits in the changes tree (tool group) |
 | `dsh.features.chat-participant` | true | @dsh chat participant |
 | `dsh.features.ctrl-k` / `ctrl-i` | false | Inline edit commands (Ctrl+K / Ctrl+I) |
 | `dsh.features.lm-route` | false | Expose DSH models in the VS Code LM picker |
 | `dsh.features.mcp-consume` | false | Let DSH consume VS Code-side MCP servers |
 | `dsh.features.tab-completion` | false | FIM tab completion — needs `dsh.fim.baseUrl` + **DSH: Set FIM API Key**, then restart the DSH server |
 | `dsh.fim.baseUrl` | (empty) | Upstream FIM endpoint (full URL of an OpenAI-compatible completions API) |
-| `dsh.keybindings.ctrlL` | false | Ctrl+L adds the selection to the thread |
+| `dsh.keybindings.ctrlL` | true | Ctrl+L adds the selection to the thread (never sends) |
 | `dsh.bridge.terminal` / `editorRead` / `ui` | false | Terminal / editor-read / UI surface bridges (consent switches) |
 
 Full key list in `package.json`; run **DSH: Diagnose** for a health summary.

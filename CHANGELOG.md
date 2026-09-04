@@ -3,6 +3,63 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed / 修复
+
+- **变更树不再抢走编辑器焦点（2026-09-04 用户报告）**：1.1.x 把每个新 journal 条目都 `reveal` 到 `dsh.changes` 视图并带 `select+focus` 与 `dsh.changes.focus`——watcher 兜底层把用户自己的每次保存都记为 external 条目，于是打字→保存→焦点被偷到树视图→无法继续输入，循环发生。现在：① `reveal` 默认 `focus:false`（选中行+滚动可见，绝不偷焦点），显式传 `focus:true` 才触发聚焦命令；② 只有等审批的 bridge 条目才 surface，工具归因与 external 条目仅静默刷新树；③ 待审批计数改由视图 badge 承担提醒（非侵入，VS Code Git 视图同款礼仪）。
+  The changes tree no longer steals editor focus: every new journal entry — including each external save the watcher records — was revealed with select+focus plus the focus command, making the editor untypeable mid-typing. reveal now defaults to focus:false (select + scroll only), only approval-pending bridge entries surface in place (attributed/external edits refresh silently), and the pending count rides the view badge instead.
+- **profileBundleGuard 保守分支**：dshPackageRoot 未解析时，官方 in-box 命名空间 `@deepseek-ai/*` 不再被误判为孤儿剥掉——运行时能从自身安装解析它们，剥掉会破坏可启动的 profile；仅第三方名字在无安装根时构成可证明孤儿。
+  profileBundleGuard conservative branch: without a resolved dsh package root, official in-box `@deepseek-ai/*` entries are no longer stripped as orphans (the runtime resolves them from its own install); only third-party names are provable orphans then.
+
+## [1.1.2] - 2026-09-04
+
+1.1.0 / 1.1.1 为 Marketplace 中间构建（无独立 git tag），本条目合并记录 1.0.2 以来的全部用户可见变更；源码以 v1.1.2 基线一次性同步入库（5c0bd3c）。
+1.1.0 / 1.1.1 were interim Marketplace builds without their own tags; this entry consolidates every user-visible change since 1.0.2 (source landed as the single v1.1.2 baseline sync).
+
+### Fixed / 修复
+
+- **变更评审语义重排（pending → Accept → Undo）**：此前桥推送的编辑立即 `applyEdit` 落盘、Accept 仅记账、Undo 的增量反向区间会被 applyEdit 拒绝（区间漂移）。现在 `vscode/changes/push` 只记 journal 并刷新树（**不写盘**）；Accept 才执行写盘（失败保持 pending 并弹可见错误）；Undo 对 pending 条目直接丢弃、对已接受条目用快照整文件替换式还原，规避区间漂移。
+  Changes-review semantics re-sequenced: bridge pushes land as pending journal entries (never written to disk); Accept performs the write (failures keep the entry pending with a visible error); Undo drops pending entries and restores accepted ones via whole-file snapshot replacement instead of drifting reverse ranges.
+- **@dsh 参与者三连修**：会话按工作区复用（不再每条消息新建，根治会话爆炸）；新会话经 sessionTitler 一次性重命名为可读标题（每会话至多一次 rename、失败静默不重试）；会话 id 双前缀派生去重。
+  @dsh participant fixes: per-workspace session reuse (no more session explosion), one-shot readable session titling, and double-prefix id de-duplication.
+- **终端回读（issue #7）**：`terminal/create` 订阅 `onDidWriteTerminalData`（terminalDataWriteEvent API proposal）写入环形缓冲，`terminal/read` 从此能读到终端输出。
+  Terminal read-back: terminal/create subscribes to onDidWriteTerminalData into a ring buffer so terminal/read returns actual output.
+- **dshVersion 探测补全（issue #5）**：localRuntimeResolver 的包 version 读取失败路径修复，Diagnose 不再误报 unknown，主题跟随 / toolsV3 门控随之恢复。
+  dshVersion probe: the package version read failure path is fixed, so Diagnose stops warning unknown and the theme/toolsV3 gates recover.
+- **回复路径 linkify**：DSH 侧 client 对消息容器内的 `file:///` 与工作区相对路径（含 `:line`）包可点元素，点击经 text-document 桥在本窗口打开。
+  Reply linkify: file:/// and workspace-relative paths (with :line) in message containers become clickable and open in this window through the bridge.
+
+### Added / 新增
+
+- **变更追踪三层（C1/C2/C2.5）**：① 桥内审批层（既有）；② 工具层归因——editEventProjector 骑乘 DSH 会话事件流（session.export 尾部有限回扫 + events.mux 长订阅）把每个 tool/call 归因为变更树条目；③ watcher 兜底——全工作区 FileSystemWatcher + 500ms 去抖 + (path, mtime±1s) 去重 + before-snapshot（≤1MiB），>20 事件/秒持续 5s 熔断降级为 60s 只读 git 轮询；尊重 `files.watcherExclude`。变更树按来源分组（桥内审批 / 工具 / 外部变更）+ `dsh.changes.toggleScope` 过滤；新设置 `dsh.changes.observe-tools`（默认 true）。
+  Three-layer change tracking: bridge-approval (existing), tool-call attribution riding the DSH session event stream, and a watcher fallback with debouncing, dedup, snapshots and a rate-limit circuit breaker; the tree groups entries by source with a scope toggle; new `dsh.changes.observe-tools` setting (default on).
+- **断点桥（issue #8）**：桥 v3 新增 `vscode/debug/listBreakpoints | addBreakpoints | removeBreakpoints`（官方 API 簿记、1-based 入参转换、单次调用上限防护），方法表 32→34。
+  Breakpoint bridge: vscode/debug/listBreakpoints, addBreakpoints and removeBreakpoints join bridge v3 (official-API bookkeeping, 1-based conversion, per-call caps); the method table grows 32 → 34.
+- **MCP env 密钥联动（零输入）**：env 展开缺键时先查 VS Code secretStorage 同名键，命中免问；键名含 KEY/TOKEN/SECRET 时以密码框询问；询问结果回存 secretStorage。
+  MCP env secret linkage: missing env keys consult secretStorage first, credential-looking names prompt with password masking, and answers are stored back.
+- **HMR 守卫**：对齐上游 0.1.2-alpha.1 的 shipped-profile 默认，在 profile patch 中显式禁用 server module HMR——老运行时上模块热重载会打断一切在途工具调用（2026-09-03/04 两次 live incident）；新运行时上冗余无害，守卫无条件应用。
+  HMR guard: the profile patch now disables server module HMR (matching the upstream 0.1.2-alpha.1 shipped default); module reloads on older runtimes broke every in-flight tool call. Redundant but harmless on newer runtimes.
+- **Diagnose 改版**：分区 QuickPick（服务 / 桥 / 兼容性 / 插件），错误码转为人话 + 建议动作，JSON 全文留 OutputChannel。
+  Diagnose rework: a sectioned QuickPick (service / bridge / compatibility / plugins) with human-readable errors and suggested actions; raw JSON stays in the output channel.
+- **Onboarding 改版 + FIM 零输入配置**：profile 步列出已有 profiles；feature 步补描述；新增可选「Tab 补全配置」步（端点 + key + 重启三并一）。
+  Onboarding rework: the profile step lists existing profiles, feature steps carry descriptions, and an optional tab-completion step bundles endpoint + key + restart.
+- **主视图三层入口（U12/U13）**：`Ctrl+Alt+N` 新实例、editor/title DSH 图标、`dsh.multiInstance.entry` 默认开；面板支持分栏停靠。
+  Three main-view entries: Ctrl+Alt+N for a new instance, an editor/title DSH icon, and multiInstance.entry defaulting on; panels dock side by side.
+- **快改批（M-A）**：状态栏可点击开关侧栏；`dsh.fim.*` / `features.*` / `bridge.*` 设置变更弹「立即重启?」；MCP forget 下拉化（列 consent 记录，全程无手输）；newSession / switchSession 成功后自动 reveal 侧栏；变更树空态引导文案（viewsWelcome）；实际端口 ≠ 3080 时状态栏 tooltip 标注。
+  Quick-fix batch: clickable status bar, restart-now prompts on relevant setting changes, dropdown MCP forget, sidebar reveal after session commands, an empty-state welcome in the changes tree, and the effective port surfaced in the tooltip.
+- **findFiles 防护**：桥 handler 加 5s 超时 + 默认 exclude（node_modules / .git / dist / out），超时返回带提示的空结果。
+  findFiles guard: a 5s timeout and default excludes keep runaway searches from hanging the bridge.
+
+### Changed / 变更
+
+- `dsh.keybindings.ctrlL` 默认 false → **true**（Ctrl+L 仅把选区加入草稿、绝不发送，低风险）；Ctrl+K 保持 opt-in，onboarding 提供「启用并绑定键位」一键项。
+  dsh.keybindings.ctrlL now defaults to true (Ctrl+L only appends the selection to the draft, never sends); Ctrl+K stays opt-in with a one-click enable-and-bind onboarding item.
+- `dsh.multiInstance.entry` 默认 false → **true**。
+  dsh.multiInstance.entry now defaults to true.
+- 变更树条目语义细化（pending / legacy / accepted），右键操作按状态门控显示。
+  Changes-tree entries carry refined states (pending / legacy / accepted) with state-gated context actions.
+
 ## [1.0.2] - 2026-08-28
 
 ### Fixed / 修复
