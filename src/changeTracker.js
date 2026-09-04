@@ -23,6 +23,13 @@ const EDIT_KINDS = Object.freeze(['insert', 'replace', 'delete', 'create']);
 // Journal v2: which pipeline recorded the entry. Bridge pushes were the only
 // source in 1.0.x, so legacy entries without `source` migrate to 'bridge'.
 const ENTRY_SOURCES = Object.freeze(['bridge', 'tool-intercept', 'external']);
+/**
+ * Storm guard: hard cap on journal entries. External file storms (installs,
+ * builds, codegen) can push tens of thousands of entries through the watcher
+ * in seconds; beyond this cap the oldest non-pending entries drop so journal
+ * reads/writes and the changes tree stay bounded (2026-09-05).
+ */
+const MAX_JOURNAL_ENTRIES = 2000;
 // C1 contract: duplicate dshEditObserved notifications for the same
 // (path, sessionId) pair within this window merge into one entry.
 const TOOL_EDIT_MERGE_WINDOW_MS = 2000;
@@ -353,42 +360,107 @@ function createChangeTracker({
   /** @type {Array<object>} */
   const memoryJournal = memoryOnly ? [] : null;
   let idCounter = 0;
+  /**
+   * 2026-09-05 storm hardening: write-through cache of the parsed journal.
+   * Every record used to re-read + re-parse the whole file (twice per entry:
+   * nextId + readJournal) and re-serialize it once more — a file-event storm
+   * made the journal O(n²) in disk I/O and CPU. This process is the single
+   * writer, so the cache fills lazily on the first read and is replaced only
+   * after a successful disk write; read paths then cost zero I/O.
+   * @type {Array<object>|null}
+   */
+  let cachedJournal = null;
+  /** True once idCounter has been reconciled with the persisted journal. */
+  let idWatermarkReady = false;
+  /** Warn about journal trimming at most once per tracker lifetime. */
+  let trimWarned = false;
 
   function readJournal() {
     if (memoryOnly) return memoryJournal.map(normalizeEntry);
-    try {
-      const parsed = JSON.parse(readFileSync(journalPath, 'utf8'));
-      return Array.isArray(parsed) ? parsed.map(normalizeEntry) : [];
-    } catch {
-      return [];
+    if (cachedJournal === null) {
+      try {
+        const parsed = JSON.parse(readFileSync(journalPath, 'utf8'));
+        cachedJournal = Array.isArray(parsed) ? parsed.map(normalizeEntry) : [];
+      } catch {
+        cachedJournal = [];
+      }
     }
+    return cachedJournal;
   }
 
+  /**
+   * Storm guard: cap the journal at MAX_JOURNAL_ENTRIES. The OLDEST
+   * non-pending entries drop first — an approval-pending bridge entry is the
+   * only thing the user can still act on, so pending entries always survive
+   * (even past the cap). Mutates the array in place so callers holding the
+   * reference observe the trim; returns the number of dropped entries.
+   *
+   * @param {Array<object>} entries - Journal entries (mutated in place).
+   * @returns {number} Trimmed entry count.
+   */
+  function trimJournal(entries) {
+    if (!Array.isArray(entries) || entries.length <= MAX_JOURNAL_ENTRIES) return 0;
+    let excess = entries.length - MAX_JOURNAL_ENTRIES;
+    const kept = [];
+    let trimmed = 0;
+    for (const entry of entries) {
+      if (excess > 0 && entry && entry.status !== 'pending') {
+        excess -= 1;
+        trimmed += 1;
+        continue;
+      }
+      kept.push(entry);
+    }
+    if (trimmed > 0) entries.splice(0, entries.length, ...kept);
+    return trimmed;
+  }
+
+  /**
+   * @param {Array<object>} entries - Full journal (mutated by trimming).
+   * @returns {number} Trimmed entry count (0 when nothing dropped).
+   */
   function writeJournal(entries) {
+    const trimmed = trimJournal(entries);
     if (memoryOnly) {
       memoryJournal.splice(0, memoryJournal.length, ...entries);
-      return;
+      return trimmed;
     }
     mkdirSync(path.dirname(journalPath), { recursive: true });
     const temporary = `${journalPath}.${process.pid}.tmp`;
     writeFileSync(temporary, JSON.stringify(entries, null, 2), { mode: 0o600 });
     renameSync(temporary, journalPath);
+    // Disk write succeeded — the cache becomes the written array.
+    cachedJournal = entries;
+    return trimmed;
+  }
+
+  function warnTrimmedOnce(trimmed) {
+    if (trimmed > 0 && !trimWarned) {
+      trimWarned = true;
+      console.warn(`dsh-vs-sidebar: change journal capped at ${MAX_JOURNAL_ENTRIES} entries (${trimmed} oldest non-pending entries dropped); older history lives in git`);
+    }
   }
 
   /**
-   * F-a: the id watermark is derived from the PERSISTED journal on every
-   * allocation. A bare in-memory counter restarts at chg-1 after every
-   * extension restart and collides with historical entries, which misroutes
-   * Accept/Undo/openDiff (they find() the first matching id). Scanning the
-   * journal keeps new ids unique across restarts and legacy data alike.
+   * F-a: the id watermark is derived from the PERSISTED journal. A bare
+   * in-memory counter restarts at chg-1 after every extension restart and
+   * collides with historical entries, which misroutes Accept/Undo/openDiff
+   * (they find() the first matching id). The reconciliation scan runs ONCE
+   * per tracker lifetime now (storm hardening: the old per-allocation scan
+   * re-read the whole journal for every record); this process is the single
+   * writer, so the watermark stays valid for the lifetime.
    */
   function nextId() {
-    let max = idCounter;
-    for (const entry of readJournal()) {
-      const match = /^chg-(\d+)$/.exec(typeof entry.id === 'string' ? entry.id : '');
-      if (match) max = Math.max(max, Number(match[1]));
+    if (!idWatermarkReady) {
+      let max = idCounter;
+      for (const entry of readJournal()) {
+        const match = /^chg-(\d+)$/.exec(typeof entry.id === 'string' ? entry.id : '');
+        if (match) max = Math.max(max, Number(match[1]));
+      }
+      idCounter = max;
+      idWatermarkReady = true;
     }
-    idCounter = max + 1;
+    idCounter += 1;
     return `chg-${idCounter}`;
   }
 
@@ -518,8 +590,81 @@ function createChangeTracker({
     if (typeof tool === 'string' && tool.length > 0) entry.tool = tool;
     const entries = readJournal();
     entries.push(entry);
-    writeJournal(entries);
+    warnTrimmedOnce(writeJournal(entries));
     return entry;
+  }
+
+  /**
+   * Storm path (2026-09-05): record N entries with ONE journal read and ONE
+   * disk write. The watcher flush feeds whole slices through here so a file
+   * storm costs one serialization per slice instead of one per file.
+   * Payload fields match record(); ids are allocated here.
+   *
+   * @param {Array<object>} payloads - Entry payloads (record() options).
+   * @returns {Promise<Array<object>>} The persisted entries (with ids).
+   */
+  async function recordBatch(payloads) {
+    if (!Array.isArray(payloads) || payloads.length === 0) return [];
+    const entries = readJournal();
+    const created = payloads.map((payload) => {
+      const source = payload && typeof payload.source === 'string' ? payload.source : 'bridge';
+      const entry = {
+        id: nextId(),
+        source,
+        sessionId: payload && typeof payload.sessionId === 'string' ? payload.sessionId : '',
+        label: payload && typeof payload.label === 'string' ? payload.label : '',
+        at: now(),
+        status: payload && typeof payload.status === 'string' ? payload.status : 'pending',
+        edits: payload && Array.isArray(payload.edits) ? payload.edits : [],
+        before: payload && Array.isArray(payload.before) ? payload.before : [],
+      };
+      if (payload && typeof payload.path === 'string' && payload.path.length > 0) entry.path = payload.path;
+      if (payload && typeof payload.tool === 'string' && payload.tool.length > 0) entry.tool = payload.tool;
+      return entry;
+    });
+    entries.push(...created);
+    warnTrimmedOnce(writeJournal(entries));
+    return created;
+  }
+
+  /**
+   * Storm path companion: apply several entry patches ({id, patch}) with a
+   * single journal write — the watcher's snapshot backfill uses this after
+   * recordBatch instead of one updateEntry (one full write) per file.
+   *
+   * @param {Array<{id: string, patch: object}>} patches - Patches to apply.
+   * @returns {number} Number of entries touched.
+   */
+  function applyEntryPatches(patches) {
+    if (!Array.isArray(patches) || patches.length === 0) return 0;
+    const byId = new Map();
+    for (const item of patches) {
+      if (item && typeof item.id === 'string') byId.set(item.id, item.patch && typeof item.patch === 'object' ? item.patch : {});
+    }
+    if (byId.size === 0) return 0;
+    const entries = readJournal();
+    let touched = 0;
+    for (const entry of entries) {
+      const patch = byId.get(entry.id);
+      if (patch === undefined) continue;
+      Object.assign(entry, patch);
+      touched += 1;
+      if (touched >= byId.size) break;
+    }
+    if (touched > 0) warnTrimmedOnce(writeJournal(entries));
+    return touched;
+  }
+
+  /**
+   * Read-only zero-copy view of the cached journal. Dedup scans and other
+   * bulk reads (watcher flush, git poll) must not pay the JSON deep-clone
+   * tax of list() per call. Callers MUST treat the returned entries as
+   * immutable — mutate only through the tracker APIs.
+   *
+   * @returns {Array<object>} Cached journal entries (do not mutate).
+   */
+  function peekEntries() {
+    return readJournal();
   }
 
   /**
@@ -572,7 +717,7 @@ function createChangeTracker({
       truncated,
     };
     entries.push(entry);
-    writeJournal(entries);
+    warnTrimmedOnce(writeJournal(entries));
     return entry;
   }
 
@@ -669,11 +814,14 @@ function createChangeTracker({
   return Object.freeze({
     accept,
     applyEdits,
+    applyEntryPatches,
     buildSnapshotRestoreEdit,
     buildWorkspaceEdit,
     get,
     list,
+    peekEntries,
     record,
+    recordBatch,
     recordToolEdit,
     snapshotBefore,
     updateEntry,
@@ -723,6 +871,7 @@ module.exports = {
   EDIT_KINDS,
   ENTRY_SOURCES,
   MAX_EDITS,
+  MAX_JOURNAL_ENTRIES,
   assertEditsWithinDocuments,
   entryAtMs,
   MAX_EDIT_TEXT_BYTES,

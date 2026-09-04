@@ -1686,6 +1686,19 @@ async function setupCoreSidebar({ context, services }) {
       }
       return entry;
     },
+    async recordBatch(payloads) {
+      // Storm path: one journal write for the whole slice; the tree refreshes
+      // once per batch instead of once per file (2026-09-05).
+      const created = await rawChangeTracker.recordBatch(payloads);
+      if (Array.isArray(created) && created.length > 0) {
+        try {
+          services.changesReview?.onEntryBatch?.(created);
+        } catch (_) {
+          // refresh is advisory; the journal write already succeeded
+        }
+      }
+      return created;
+    },
   };
   services.changeTracker = changeTracker;
   // C2.5 event-flow attribution: project edit/write tool calls from the DSH
@@ -2322,6 +2335,15 @@ async function setupChangesReview({ context, services }) {
         }
       } catch (_) {
         // reveal is advisory; the view still refreshes on next expansion
+      }
+    },
+    // Storm path: the watcher flush records whole slices in one journal
+    // write; one refresh per batch keeps the tree off the hot path.
+    onEntryBatch: (entries) => {
+      try {
+        void changeTree?.refresh?.();
+      } catch (_) {
+        // refresh is advisory
       }
     },
   };

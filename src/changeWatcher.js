@@ -28,6 +28,13 @@ const path = require('node:path');
 const DEFAULT_DEBOUNCE_MS = 500;
 const DEFAULT_RATE_LIMIT_PER_SECOND = 20;
 const DEFAULT_RATE_SUSTAIN_MS = 5000;
+/**
+ * Storm hardening (2026-09-05): one flush slice = one journal write. A burst
+ * that slips past the rate breaker before it trips (5s window) can queue
+ * tens of thousands of pending paths; slices keep each recordBatch bounded
+ * and yield between slices so the extension host stays responsive.
+ */
+const MAX_FLUSH_BATCH = 500;
 const DEFAULT_POLL_INTERVAL_MS = 60_000;
 const DEDUP_MTIME_TOLERANCE_MS = 1000;
 const MAX_SNAPSHOT_BYTES = 1024 * 1024;
@@ -196,7 +203,9 @@ function createChangeWatcher({
   let pending = new Map(); // uri.toString() -> { uri, fsPath }
   let pendingTimer = null;
   let pollTimer = null;
-  let eventTimes = [];
+  /** Breaker state machine (2026-09-05): whole-second buckets. */
+  let bucketSecond = null;
+  let bucketCount = 0;
   let overloadSince = null;
   let disposed = false;
 
@@ -231,21 +240,39 @@ function createChangeWatcher({
     return matchesWatcherExclude(relative, excludeMap);
   }
 
+  /**
+   * Rate accounting for the breaker, settled in WHOLE-SECOND BUCKETS: the
+   * first event of a new second settles the previous bucket's total, and
+   * only that settled total feeds the overload state machine. The previous
+   * per-event sliding-window check was structurally dead in two ways: the
+   * per-event count climbs 1,2,3…20 through the first twenty events of
+   * every second and each sub-threshold reading RESET overloadSince, and a
+   * window evaluated at a second boundary excludes the previous second's
+   * batch by exactly 1000ms — so no real-world storm (>20/s sustained for
+   * 5s) ever tripped the breaker (live CPU-storm incident 2026-09-05).
+   */
   function noteEvent() {
     const at = nowMs();
-    eventTimes.push(at);
-    eventTimes = eventTimes.filter((time) => at - time <= DEFAULT_RATE_SUSTAIN_MS);
-    const lastSecond = eventTimes.filter((time) => at - time < 1000).length;
-    if (lastSecond > DEFAULT_RATE_LIMIT_PER_SECOND) {
-      if (overloadSince === null) {
-        overloadSince = at;
-      } else if (at - overloadSince >= DEFAULT_RATE_SUSTAIN_MS) {
-        tripBreaker();
-        return;
+    const second = Math.floor(at / 1000);
+    if (second !== bucketSecond) {
+      if (bucketSecond !== null) {
+        if (bucketCount > DEFAULT_RATE_LIMIT_PER_SECOND) {
+          if (overloadSince === null) {
+            overloadSince = bucketSecond * 1000;
+          } else if (second * 1000 - overloadSince >= DEFAULT_RATE_SUSTAIN_MS) {
+            bucketSecond = second;
+            bucketCount = 1;
+            tripBreaker();
+            return;
+          }
+        } else {
+          overloadSince = null;
+        }
       }
-    } else {
-      overloadSince = null;
+      bucketSecond = second;
+      bucketCount = 0;
     }
+    bucketCount += 1;
   }
 
   function tripBreaker() {
@@ -290,9 +317,15 @@ function createChangeWatcher({
     }
   }
 
-  async function processChange({ uri, fsPath }) {
+  /**
+   * Pure-read half of the old processChange: ignore-filter, stat, dedup and
+   * snapshot read. Returns {snapshotText, payload} or null when the change
+   * must not be journaled; NO tracker writes happen here — slices are
+   * persisted once by processBatch (storm hardening, 2026-09-05).
+   */
+  async function collectChange({ uri, fsPath }) {
     const uriString = String(uri);
-    if (isIgnored(fsPath)) return;
+    if (isIgnored(fsPath)) return null;
     let mtimeMs = nowMs();
     let size = 0;
     try {
@@ -305,12 +338,18 @@ function createChangeWatcher({
     // (path, mtime ±1s) dedup against EVERY existing attributed entry: a
     // write already recorded by the bridge or tool interceptor must not be
     // duplicated as external.
-    const alreadyTracked = tracker.list().some((entry) => (
+    // (path, mtime ±1s) dedup against EVERY existing attributed entry: a
+    // write already recorded by the bridge or tool interceptor must not be
+    // duplicated as external. peekEntries is the zero-copy cache view — the
+    // old list() deep-cloned the whole journal for every file (storm
+    // amplifier, 2026-09-05).
+    const journalView = typeof tracker.peekEntries === 'function' ? tracker.peekEntries() : tracker.list();
+    const alreadyTracked = journalView.some((entry) => (
       (entryMatchesPath(entry, uriString, fsPath)
         || (typeof entry.path === 'string' && sameFsPath(entry.path, fsPath)))
       && Math.abs(entryAtMs(entry) - mtimeMs) <= DEDUP_MTIME_TOLERANCE_MS
     ));
-    if (alreadyTracked) return;
+    if (alreadyTracked) return null;
     let snapshotText = null;
     if (size > 0 && size <= MAX_SNAPSHOT_BYTES) {
       try {
@@ -319,38 +358,81 @@ function createChangeWatcher({
         snapshotText = null;
       }
     }
-    const entry = await tracker.record({
-      source: 'external',
-      label: path.basename(fsPath),
-      sessionId: '',
-      edits: [],
-      before: [],
-      status: 'accepted',
-      path: fsPath,
-      uri: uriString,
-    });
-    if (snapshotText !== null && storageRoot && typeof tracker.updateEntry === 'function') {
+    return {
+      snapshotText,
+      payload: {
+        source: 'external',
+        label: path.basename(fsPath),
+        sessionId: '',
+        edits: [],
+        before: [],
+        status: 'accepted',
+        path: fsPath,
+        uri: uriString,
+      },
+    };
+  }
+
+  /**
+   * Storm-hardened persistence for one slice: ONE journal write for the whole
+   * slice (recordBatch), snapshot files written independently (one per
+   * entry), then ONE patch write attaching every snapshot path
+   * (applyEntryPatches). Falls back to per-entry record/updateEntry for
+   * trackers without the batch APIs.
+   */
+  async function processBatch(slice) {
+    const collected = [];
+    for (const change of slice) {
+      if (disposed) return;
+      try {
+        const item = await collectChange(change);
+        if (item !== null) collected.push(item);
+      } catch (error) {
+        onDiagnostic(`change watcher: processing ${change.fsPath} failed: ${error && error.message ? error.message : error}`);
+      }
+    }
+    if (collected.length === 0) return;
+    let entries;
+    if (typeof tracker.recordBatch === 'function') {
+      entries = await tracker.recordBatch(collected.map((item) => item.payload));
+    } else {
+      entries = [];
+      for (const item of collected) entries.push(await tracker.record(item.payload));
+    }
+    const patches = [];
+    for (let i = 0; i < entries.length && i < collected.length; i += 1) {
+      const item = collected[i];
+      const entry = entries[i];
+      if (item.snapshotText === null || !storageRoot) continue;
+      if (typeof tracker.updateEntry !== 'function' && typeof tracker.applyEntryPatches !== 'function') continue;
       try {
         const directory = path.join(storageRoot, 'changes', 'snapshots');
         mkdirSync(directory, { recursive: true });
         const snapshotPath = path.join(directory, entry.id);
-        writeFileSync(snapshotPath, snapshotText, 'utf8');
-        tracker.updateEntry(entry.id, { beforeSnapshotPath: snapshotPath });
+        writeFileSync(snapshotPath, item.snapshotText, 'utf8');
+        patches.push({ id: entry.id, patch: { beforeSnapshotPath: snapshotPath } });
       } catch (error) {
-        onDiagnostic(`change watcher: snapshot for ${fsPath} failed: ${error && error.message ? error.message : error}`);
+        onDiagnostic(`change watcher: snapshot for ${item.payload.path} failed: ${error && error.message ? error.message : error}`);
       }
+    }
+    if (patches.length === 0) return;
+    if (typeof tracker.applyEntryPatches === 'function') {
+      tracker.applyEntryPatches(patches);
+    } else {
+      for (const { id, patch } of patches) await tracker.updateEntry(id, patch);
     }
   }
 
   async function flush() {
     const batch = [...pending.values()];
     pending = new Map();
-    for (const change of batch) {
+    for (let offset = 0; offset < batch.length; offset += MAX_FLUSH_BATCH) {
       if (disposed) return;
+      const slice = batch.slice(offset, offset + MAX_FLUSH_BATCH);
       try {
-        await processChange(change);
+        await processBatch(slice);
       } catch (error) {
-        onDiagnostic(`change watcher: processing ${change.fsPath} failed: ${error && error.message ? error.message : error}`);
+        onDiagnostic(`change watcher: flush slice failed: ${error && error.message ? error.message : error}`);
       }
     }
   }
@@ -378,13 +460,20 @@ function createChangeWatcher({
       const changes = repository && repository.state && Array.isArray(repository.state.workingTreeChanges)
         ? repository.state.workingTreeChanges
         : [];
+      // One batched persistence pass per repository (storm hardening:
+      // per-change record was one full journal write each).
+      const untracked = [];
+      const journalView = typeof tracker.peekEntries === 'function' ? tracker.peekEntries() : tracker.list();
       for (const change of changes) {
         if (!change || !change.uri) continue;
         const fsPath = typeof change.uri.fsPath === 'string' ? change.uri.fsPath : String(change.uri);
-        const alreadyTracked = tracker.list().some((entry) => entryMatchesPath(entry, String(change.uri), fsPath));
+        const alreadyTracked = journalView.some((entry) => entryMatchesPath(entry, String(change.uri), fsPath));
         if (alreadyTracked) continue;
-        await processChange({ uri: change.uri, fsPath });
-        recorded += 1;
+        untracked.push({ uri: change.uri, fsPath });
+      }
+      if (untracked.length > 0) {
+        await processBatch(untracked);
+        recorded += untracked.length;
       }
     }
     return recorded;

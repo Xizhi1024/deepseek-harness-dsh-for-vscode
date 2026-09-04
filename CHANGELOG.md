@@ -3,6 +3,17 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed / 修复
+
+- **变更事件风暴不再打满 CPU（2026-09-05 边界加固，四层放大器全治）**：
+  ① **速率熔断器从未生效**——原逐事件滑窗计数在一秒内前 20 个事件必然 ≤20、反复清零过载起点，任何真实风暴（>20/秒持续 5 秒）都触发不了降级；改为整秒桶结算，持续风暴 ~6 秒内熔断到 60 秒 git 轮询（熔断时积压 pending 直接丢弃，扩展恢复安静）。
+  ② **journal O(n²) 读写**——每条 external 记录原先 3 次全量读（nextId/record/updateEntry）+ 2 次全量美化写，且每次树刷新再全量读+深拷贝；引入写穿缓存（读零 I/O）、id 水位一次扫描（O(1) 分配）、零拷贝 `peekEntries` 供去重扫描。
+  ③ **批量单写**——watcher flush 改为 500 条/片：每片一次 `recordBatch` 落账 + 快照独立写 + 一次 `applyEntryPatches` 回填；每批只触发一次树刷新（`onEntryBatch`），树不再逐文件重算。
+  ④ **journal 无上界**——新增 `MAX_JOURNAL_ENTRIES=2000` 滚动裁剪，最旧非 pending 条目先丢，等审批的 bridge 条目永不裁掉。实测 5000 文件风暴：20 次 journal 写 + 1 次读（旧路径约 1.5 万次全量读 + 1 万次全量写），journal 稳定 2000 条。
+  Storm hardening: the rate breaker never tripped (per-event counting reset the overload start every second — now settled in whole-second buckets, sustained storms degrade to git polling within ~6s); the journal is a write-through cache with an O(1) id watermark; watcher flushes persist 500-file slices with one recordBatch + one patch write and a single tree refresh per batch; the journal is capped at 2000 entries (pending approvals always survive). A 5000-file storm now costs 20 journal writes + 1 read.
+
 ## [1.1.3] - 2026-09-04
 
 ### Fixed / 修复

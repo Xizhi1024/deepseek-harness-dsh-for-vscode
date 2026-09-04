@@ -10,6 +10,7 @@ const {
   ChangeTrackerError,
   MAX_EDITS,
   MAX_EDIT_TEXT_BYTES,
+  MAX_JOURNAL_ENTRIES,
   buildSnapshotRestoreEdit,
   buildWorkspaceEdit,
   createChangeTracker,
@@ -286,4 +287,107 @@ test('construction tolerates a facade without applyEdit; applyEdits/accept degra
     tracker.accept(second.id),
     (error) => error.bridgeCode === 'VSCODE_EDIT_UNAVAILABLE',
   );
+});
+
+test('storm guard: journal caps at MAX_JOURNAL_ENTRIES, pending entries survive the trim', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-changes-cap-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+
+  const pending = await tracker.record({ label: 'awaiting review', edits: [] });
+  const payloads = Array.from({ length: MAX_JOURNAL_ENTRIES + 300 }, (_, i) => ({
+    source: 'external',
+    label: `f${i}`,
+    status: 'accepted',
+    path: `/ws/f${i}.js`,
+  }));
+  const created = await tracker.recordBatch(payloads);
+  assert.strictEqual(created.length, MAX_JOURNAL_ENTRIES + 300);
+  const list = tracker.list();
+  assert.ok(list.length <= MAX_JOURNAL_ENTRIES, `journal capped: ${list.length}`);
+  assert.ok(list.some((entry) => entry.id === pending.id), 'pending entry survives the trim');
+  assert.ok(list.every((entry) => entry.id === pending.id || entry.status !== 'pending'), 'only non-pending dropped');
+  const ids = list.map((entry) => Number(entry.id.slice(4)));
+  assert.strictEqual(new Set(ids).size, ids.length, 'no id collisions after trim');
+});
+
+test('storm guard: recordBatch persists the whole slice with ONE journal write', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-changes-batch-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  let writeCount = 0;
+  const tracker = createChangeTracker({
+    storageUri: { fsPath: root },
+    vscode,
+    fsOps: {
+      readFileSync: (...args) => fs.readFileSync(...args),
+      writeFileSync: (...args) => { writeCount += 1; return fs.writeFileSync(...args); },
+      renameSync: (...args) => fs.renameSync(...args),
+      mkdirSync: (...args) => fs.mkdirSync(...args),
+    },
+  });
+  const created = await tracker.recordBatch(Array.from({ length: 50 }, (_, i) => ({
+    source: 'external', label: `x${i}`, status: 'accepted', path: `/ws/x${i}.js`,
+  })));
+  assert.strictEqual(created.length, 50);
+  assert.strictEqual(writeCount, 1, 'one journal write for the whole batch');
+  const reopened = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  assert.strictEqual(reopened.list().length, 50);
+});
+
+test('storm guard: readJournal caches — repeated list/peek calls do not re-read the disk', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-changes-cache-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  let readCount = 0;
+  const tracker = createChangeTracker({
+    storageUri: { fsPath: root },
+    vscode,
+    fsOps: {
+      readFileSync: (...args) => { readCount += 1; return fs.readFileSync(...args); },
+      writeFileSync: (...args) => fs.writeFileSync(...args),
+      renameSync: (...args) => fs.renameSync(...args),
+      mkdirSync: (...args) => fs.mkdirSync(...args),
+    },
+  });
+  await tracker.record({ label: 'a', edits: [] });
+  await tracker.record({ label: 'b', edits: [] });
+  const readsAfterRecords = readCount;
+  for (let i = 0; i < 10; i += 1) {
+    tracker.list();
+    tracker.peekEntries();
+    tracker.get('chg-1');
+  }
+  assert.strictEqual(readCount, readsAfterRecords, 'cached reads cost zero disk I/O');
+});
+
+test('storm guard: applyEntryPatches updates several entries in one write', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-changes-patch-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  let writeCount = 0;
+  const tracker = createChangeTracker({
+    storageUri: { fsPath: root },
+    vscode,
+    fsOps: {
+      readFileSync: (...args) => fs.readFileSync(...args),
+      writeFileSync: (...args) => { writeCount += 1; return fs.writeFileSync(...args); },
+      renameSync: (...args) => fs.renameSync(...args),
+      mkdirSync: (...args) => fs.mkdirSync(...args),
+    },
+  });
+  const created = await tracker.recordBatch([
+    { label: 'p1', status: 'accepted', source: 'external', path: '/ws/p1.js' },
+    { label: 'p2', status: 'accepted', source: 'external', path: '/ws/p2.js' },
+  ]);
+  const writesBefore = writeCount;
+  const touched = tracker.applyEntryPatches(created.map((entry) => ({
+    id: entry.id,
+    patch: { beforeSnapshotPath: `/snap/${entry.id}` },
+  })));
+  assert.strictEqual(touched, 2);
+  assert.strictEqual(writeCount - writesBefore, 1, 'one write for the whole patch set');
+  assert.strictEqual(tracker.get(created[0].id).beforeSnapshotPath, `/snap/${created[0].id}`);
+  assert.strictEqual(tracker.get(created[1].id).beforeSnapshotPath, `/snap/${created[1].id}`);
 });
