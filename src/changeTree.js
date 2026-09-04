@@ -131,6 +131,11 @@ function buildPendingPreview(entry) {
 }
 
 
+function entryAtMs(entry) {
+  const ms = Date.parse(entry && entry.at);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 /**
  * R14S1 change review TreeView (`dsh.changes`).
  *
@@ -181,6 +186,11 @@ function createTreeEvent() {
  *   'session' (default) follows the sidebar's active DSH session: only
  *   bridge/tool-intercept entries attributed to that session are listed, in a
  *   single flat group. 'all' keeps the global three-source grouped view.
+ * @param {Function} [options.additionalRoots] - () => string[] extra roots
+ *   (typically [boundCwd]) prepended to workspace folders when resolving
+ *   session-cwd-relative entry paths. Cross-window bug 2026-09-04: a relative
+ *   tool-intercept path recorded against the DSH instance cwd must resolve
+ *   even when the extension window's workspaceFolders do not contain it.
  * @returns {object} Change tree API.
  */
 function createChangeTree({
@@ -191,6 +201,7 @@ function createChangeTree({
   checkpointRollback = null,
   gitRestore = null,
   scope = 'session',
+  additionalRoots = null,
 } = {}) {
   if (!vscode || !vscode.window) throw new TypeError('createChangeTree requires a vscode facade');
   if (!tracker || typeof tracker.list !== 'function') throw new TypeError('createChangeTree requires a change tracker');
@@ -200,6 +211,7 @@ function createChangeTree({
   let activeScope = scope === 'all' ? 'all' : 'session';
   let activeSessionId = null;
   let activeSessionLabel = null;
+  let activeSessionSince = 0; // epoch-ms when the active session became active
 
   const onDidChangeTreeData = createTreeEvent();
 
@@ -231,14 +243,28 @@ function createChangeTree({
     bridge: 'DSH edits (via bridge)',
     'tool-intercept': 'DSH tool writes',
     external: 'External changes',
+    'external-session': 'During this session (unattributed)',
   };
 
-  // Session scope: only bridge/tool-intercept entries attributed to the
-  // active session. External (watcher) entries carry no session attribution
-  // and stay visible only in the 'all' scope.
+  // Session scope: bridge/tool-intercept entries attributed to the active
+  // session, PLUS external (watcher) entries recorded while that session was
+  // active. Hiding every external edit made during the session made the
+  // session view read as "changes missing" (live bug report 2026-09-04:
+  // manual/test edits never appeared until the user flipped to the all view).
   function sessionFilteredEntries() {
     return tracker.list().filter((entry) => (
       entry.source !== 'external' && entry.sessionId === activeSessionId
+    ));
+  }
+
+  function sessionExternalEntries() {
+    if (!activeSessionId || !activeSessionSince) return [];
+    return tracker.list().filter((entry) => (
+      // External entries plus UNATTRIBUTED tool writes (sessionId '') recorded
+      // during the session window — cross-window attribution drift must not
+      // hide an edit made while this session was on screen.
+      (entry.source === 'external' || (entry.source === 'tool-intercept' && !(entry.sessionId || '')))
+      && entryAtMs(entry) >= activeSessionSince
     ));
   }
 
@@ -250,8 +276,16 @@ function createChangeTree({
       return [{ type: 'info', id: 'dsh.changes.scope-hint' }];
     }
     const entries = sessionFilteredEntries();
-    if (entries.length === 0) return [];
-    return [{ type: 'group', source: 'session', entries }];
+    const externalEntries = sessionExternalEntries();
+    if (entries.length === 0 && externalEntries.length === 0) return [];
+    const roots = [];
+    if (entries.length > 0) {
+      roots.push({ type: 'group', source: 'session', entries });
+    }
+    if (externalEntries.length > 0) {
+      roots.push({ type: 'group', source: 'external-session', entries: externalEntries });
+    }
+    return roots;
   }
 
   function groupEntries(entries) {
@@ -386,7 +420,13 @@ function createChangeTree({
    * @returns {string|null} The stored session id.
    */
   function setActiveSession(sessionId, label) {
-    activeSessionId = typeof sessionId === 'string' && sessionId.length > 0 ? sessionId : null;
+    const next = typeof sessionId === 'string' && sessionId.length > 0 ? sessionId : null;
+    if (next !== activeSessionId) {
+      // Only a real session CHANGE resets the external-window boundary, so
+      // label refreshes never drop already-visible external entries.
+      activeSessionSince = next === null ? 0 : Date.now() + 1;
+    }
+    activeSessionId = next;
     activeSessionLabel = typeof label === 'string' && label.length > 0 ? label : null;
     refresh();
     return activeSessionId;
@@ -466,10 +506,74 @@ function createChangeTree({
         : (Array.isArray(entry.edits) && entry.edits[0] && typeof entry.edits[0].uri === 'string'
           ? entry.edits[0].uri
           : null);
-      const target = targetUriString
-        ? vscode.Uri.parse(targetUriString)
-        : (typeof entry.path === 'string' && entry.path.length > 0 ? vscode.Uri.file(entry.path) : null);
+      const resolvedFsPath = entryTargetFsPath(entry); // absolute when resolvable
+      const target = resolvedFsPath
+        ? vscode.Uri.file(resolvedFsPath)
+        : (targetUriString
+          ? vscode.Uri.parse(targetUriString)
+          : null);
       if (target) {
+        // A deleted (or moved) target must never reach vscode.open — VS Code
+        // answers with "cannot open the editor because the file was not found"
+        // (live bug report 2026-09-04). Prefer the recorded snapshot when one
+        // exists; otherwise state plainly that the file is gone.
+        let targetExists = false;
+        try {
+          targetExists = Boolean(resolvedFsPath) && fs.existsSync(resolvedFsPath);
+        } catch {
+          targetExists = false;
+        }
+        if (!targetExists) {
+          const snapshotPath = typeof entry.beforeSnapshotPath === 'string' ? entry.beforeSnapshotPath : null;
+          let snapshotExists = false;
+          try {
+            snapshotExists = Boolean(snapshotPath) && fs.existsSync(snapshotPath);
+          } catch {
+            snapshotExists = false;
+          }
+          if (snapshotExists) {
+            try {
+              await vscode.window.showInformationMessage(loc('This file no longer exists; showing the recorded snapshot'));
+            } catch {
+              // informational only
+            }
+            try {
+              await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(snapshotPath), { preview: false });
+            } catch {
+              // opening is best-effort
+            }
+            return { opened: true, noSnapshot: true, deleted: true };
+          }
+          try {
+            await vscode.window.showInformationMessage(loc('This file has been deleted; there is nothing to diff or open'));
+          } catch {
+            // informational only
+          }
+          return { opened: false, noSnapshot: true, deleted: true };
+        }
+        // True before snapshot (pre-execute observer text, 2026-09-04):
+        // real before/after diff instead of merely opening the current file.
+        const snapshotPath = typeof entry.beforeSnapshotPath === 'string' ? entry.beforeSnapshotPath : null;
+        let snapshotExists = false;
+        try {
+          snapshotExists = Boolean(snapshotPath) && fs.existsSync(snapshotPath);
+        } catch {
+          snapshotExists = false;
+        }
+        if (snapshotExists) {
+          try {
+            await vscode.commands.executeCommand(
+              'vscode.diff',
+              vscode.Uri.file(snapshotPath),
+              target,
+              entry.label || entry.id,
+              { preview: false, preserveFocus: false },
+            );
+            return { opened: true, diff: true };
+          } catch {
+            // diff is best-effort; fall through to opening the current file
+          }
+        }
         try {
           await vscode.window.showInformationMessage(loc('No before snapshot for this change; showing the current file'));
         } catch {
@@ -511,12 +615,65 @@ function createChangeTree({
     return result;
   }
 
-  function entryTargetFsPath(entry) {
-    if (typeof entry.path === 'string' && entry.path.length > 0) return entry.path;
-    if (typeof entry.uri === 'string' && entry.uri.startsWith('file://')) {
-      return decodeURIComponent(entry.uri.replace(/^file:\/\//, ''));
+  /**
+   * Roots for resolving session-cwd-relative tool paths: injected extra roots
+   * (the bound DSH instance cwd) first, then workspace folders. Cross-window
+   * bug 2026-09-04: an entry whose relative path was recorded against the
+   * instance cwd resolved against the extension window's folders only and was
+   * misreported as deleted — the bound cwd must win as a resolution base.
+   */
+  function workspaceRoots() {
+    const roots = [];
+    if (typeof additionalRoots === 'function') {
+      try {
+        for (const root of additionalRoots() || []) {
+          if (typeof root === 'string' && root.length > 0 && !roots.includes(root)) roots.push(root);
+        }
+      } catch {
+        // injected roots are best-effort
+      }
     }
-    return null;
+    try {
+      const folders = vscode.workspace && Array.isArray(vscode.workspace.workspaceFolders)
+        ? vscode.workspace.workspaceFolders
+        : [];
+      for (const folder of folders) {
+        const root = folder && folder.uri && typeof folder.uri.fsPath === 'string' ? folder.uri.fsPath : null;
+        if (root && !roots.includes(root)) roots.push(root);
+      }
+    } catch {
+      // workspace folders unavailable; injected roots still apply
+    }
+    return roots;
+  }
+
+  /**
+   * Absolute fsPath for an entry target. Tool-intercept entries recorded by
+   * older builds (or by the projector) may carry a session-cwd-RELATIVE path
+   * — fs.existsSync on such a string resolves against the extension-host cwd
+   * and always reads as missing, which misreported existing files as deleted
+   * (live bug 2026-09-04: hello.js existed but openDiff said "has been
+   * deleted"). Relative paths resolve against the workspace roots,
+   * preferring a root where the file exists.
+   */
+  function entryTargetFsPath(entry) {
+    let raw = null;
+    if (typeof entry.path === 'string' && entry.path.length > 0) raw = entry.path;
+    else if (typeof entry.uri === 'string' && entry.uri.startsWith('file://')) {
+      raw = decodeURIComponent(entry.uri.replace(/^file:\/\//, ''));
+    }
+    if (raw === null || path.isAbsolute(raw)) return raw;
+    const roots = workspaceRoots();
+    if (roots.length === 0) return raw;
+    for (const root of roots) {
+      const candidate = path.resolve(root, raw);
+      try {
+        if (fs.existsSync(candidate)) return candidate;
+      } catch {
+        // probe next root
+      }
+    }
+    return path.resolve(roots[0], raw);
   }
 
   /**
@@ -558,15 +715,36 @@ function createChangeTree({
    * `git checkout -- <file>` when git can restore it. Without either, undo is
    * reported unavailable instead of silently doing nothing.
    */
+  // Bug 2026-09-04 ("undo change has no response"): every terminal branch
+  // must tell the user what happened — silent {undone:false} returns read as
+  // a dead button even when they are correct bookkeeping answers.
+  async function announceUndoResult(result) {
+    if (!result || typeof result !== 'object') return result;
+    try {
+      if (result.undone === true) {
+        await vscode.window.showInformationMessage(loc('Change undone'));
+      } else if (result.reason === 'already-undone') {
+        await vscode.window.showInformationMessage(loc('This change was already undone'));
+      } else if (result.reason === 'no-target-path') {
+        await vscode.window.showInformationMessage(loc('Cannot undo this change: the target file path cannot be resolved'));
+      } else if (result.reason === 'cancelled') {
+        await vscode.window.showInformationMessage(loc('Undo cancelled'));
+      }
+    } catch {
+      // announcements are informational only
+    }
+    return result;
+  }
+
   async function undoAttributed(entry) {
     const changeId = entry.id;
     if (entry.status === 'undone' || entry.status === 'discarded') {
-      return { undone: false, reason: 'already-undone', changeId };
+      return announceUndoResult({ undone: false, reason: 'already-undone', changeId });
     }
     if (entry.status === 'pending') {
       tracker.updateStatus(changeId, 'discarded');
       refresh();
-      return { undone: true, method: 'discard', changeId };
+      return announceUndoResult({ undone: true, method: 'discard', changeId });
     }
     const targetPath = entryTargetFsPath(entry);
     if (entry.beforeSnapshotPath && targetPath) {
@@ -575,13 +753,13 @@ function createChangeTree({
         fs.writeFileSync(targetPath, text, 'utf8');
         tracker.updateStatus(changeId, 'undone');
         refresh();
-        return { undone: true, method: 'snapshot-restore', changeId };
+        return announceUndoResult({ undone: true, method: 'snapshot-restore', changeId });
       } catch {
         // fall through to the git path; the snapshot may have been cleaned
       }
     }
     if (!targetPath) {
-      return { undone: false, reason: 'no-target-path', changeId };
+      return announceUndoResult({ undone: false, reason: 'no-target-path', changeId });
     }
     const fileName = targetPath.split(/[\\/]/).pop() || targetPath;
     let choice = null;
@@ -594,7 +772,7 @@ function createChangeTree({
       choice = null;
     }
     if (choice !== loc('Undo')) {
-      return { undone: false, reason: 'cancelled', changeId };
+      return announceUndoResult({ undone: false, reason: 'cancelled', changeId });
     }
     const restored = typeof gitRestore === 'function' ? await gitRestore(targetPath) : await gitRestoreDefault(targetPath);
     if (!restored) {
@@ -607,7 +785,7 @@ function createChangeTree({
     }
     tracker.updateStatus(changeId, 'undone');
     refresh();
-    return { undone: true, method: 'git-checkout', changeId };
+    return announceUndoResult({ undone: true, method: 'git-checkout', changeId });
   }
 
   async function undo(entry) {
@@ -616,7 +794,7 @@ function createChangeTree({
     }
     const result = await tracker.undo(entry.id, { checkpointRollback });
     refresh();
-    return result;
+    return announceUndoResult(result);
   }
 
   async function reveal(entry) {

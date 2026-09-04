@@ -30,7 +30,10 @@ function tokenMatches(actual, expected) {
 
 // C2 contract for vscode/dshEditObserved params:
 // { tool: 'edit'|'write', path: string, sessionId: string, size: number,
-//   truncated: boolean } — metadata only, never file content.
+//   truncated: boolean, beforeText?: string } — beforeText (2026-09-04) is
+// the optional pre-execute file content (≤1 MiB) for true before diffs;
+// oversized or metadata-only notifications omit it.
+const EDIT_OBSERVED_MAX_BEFORE_TEXT_BYTES = 1024 * 1024;
 function isValidDshEditObservedParams(params) {
   if (!isRecord(params)) return false;
   if (params.tool !== 'edit' && params.tool !== 'write') return false;
@@ -38,6 +41,10 @@ function isValidDshEditObservedParams(params) {
   if (typeof params.sessionId !== 'string') return false;
   if (typeof params.size !== 'number' || !Number.isFinite(params.size) || params.size < 0) return false;
   if (typeof params.truncated !== 'boolean') return false;
+  if (params.beforeText !== undefined) {
+    if (typeof params.beforeText !== 'string') return false;
+    if (Buffer.byteLength(params.beforeText, 'utf8') > EDIT_OBSERVED_MAX_BEFORE_TEXT_BYTES) return false;
+  }
   return true;
 }
 

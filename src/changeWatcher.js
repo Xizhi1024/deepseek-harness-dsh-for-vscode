@@ -127,6 +127,27 @@ function entryMatchesPath(entry, uriString, fsPath) {
 }
 
 /**
+ * Path-equality for attribution dedup across producers: tool-intercept
+ * entries may carry a differently-cased drive letter or mixed separators
+ * than the watcher's fsPath (live incident 2026-09-04: 'D:\\x\\y' vs
+ * 'd:\\x\\y' and relative-vs-absolute shapes made the dedup miss, so one
+ * agent edit was journaled twice). Resolve both sides and compare
+ * case-insensitively on win32.
+ */
+function sameFsPath(left, right, platform = process.platform) {
+  if (typeof left !== 'string' || typeof right !== 'string' || left.length === 0 || right.length === 0) {
+    return false;
+  }
+  try {
+    const a = path.resolve(left);
+    const b = path.resolve(right);
+    return platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * @param {object} options
  * @param {object} options.vscode - VS Code facade (workspace.createFileSystemWatcher,
  *   workspace.getConfiguration, workspace.workspaceFolders, extensions).
@@ -285,7 +306,8 @@ function createChangeWatcher({
     // write already recorded by the bridge or tool interceptor must not be
     // duplicated as external.
     const alreadyTracked = tracker.list().some((entry) => (
-      entryMatchesPath(entry, uriString, fsPath)
+      (entryMatchesPath(entry, uriString, fsPath)
+        || (typeof entry.path === 'string' && sameFsPath(entry.path, fsPath)))
       && Math.abs(entryAtMs(entry) - mtimeMs) <= DEDUP_MTIME_TOLERANCE_MS
     ));
     if (alreadyTracked) return;
@@ -421,4 +443,5 @@ module.exports = {
   createChangeWatcher,
   globToRegExp,
   matchesWatcherExclude,
+  sameFsPath,
 };

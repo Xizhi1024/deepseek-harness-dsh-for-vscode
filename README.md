@@ -10,7 +10,7 @@ Embeds the full DSH web UI in the VS Code auxiliary sidebar: every window automa
 - **Context attachment**: right-click a file / selection / folder / Problems to append a compact link to the DSH draft — source text is never pasted, nothing is ever auto-sent
 - **DSH Changes review**: workspace edits pushed by DSH land in a dedicated tree with diff / accept / undo; every write needs explicit approval (on by default)
 - **@dsh chat participant**: type `@dsh` in the native VS Code chat to talk to your local DSH session with streaming replies — zero Copilot quota (on by default)
-- **Advanced, opt-in**: Ctrl+K / Ctrl+I inline edit, model routing into the VS Code LM picker, MCP consumption, terminal / UI bridges, FIM tab completion — every capability behind an explicit consent switch
+- **Advanced, opt-in**: Ctrl+K / Ctrl+I inline edit, model routing into the VS Code LM picker, MCP consumption, terminal / UI bridges, FIM tab completion — every capability behind an explicit consent switch (FIM tab completion is a POC and was **not end-to-end verified** in this release, see the table note)
 
 ## ⚠️ Compatibility
 
@@ -52,7 +52,7 @@ Common commands (palette, `DSH:` prefix): New / Switch Session · Open Session H
 | `dsh.features.ctrl-k` / `ctrl-i` | false | Inline edit commands (Ctrl+K / Ctrl+I) |
 | `dsh.features.lm-route` | false | Expose DSH models in the VS Code LM picker |
 | `dsh.features.mcp-consume` | false | Let DSH consume VS Code-side MCP servers |
-| `dsh.features.tab-completion` | false | FIM tab completion — needs `dsh.fim.baseUrl` + **DSH: Set FIM API Key**, then restart the DSH server |
+| `dsh.features.tab-completion` | false | FIM tab completion — needs `dsh.fim.baseUrl` + **DSH: Set FIM API Key**, then restart the DSH server. ⚠️ POC status: not end-to-end verified in this release (1.1.2) — the completion chain was never exercised against a real upstream; if it does not work once configured, please open an [issue](https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/issues) |
 | `dsh.fim.baseUrl` | (empty) | Upstream FIM endpoint (full URL of an OpenAI-compatible completions API) |
 | `dsh.keybindings.ctrlL` | false | Ctrl+L adds the selection to the thread |
 | `dsh.bridge.terminal` / `editorRead` / `ui` | false | Terminal / editor-read / UI surface bridges (consent switches) |

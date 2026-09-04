@@ -60,6 +60,7 @@ const {
   parseInteractionRequest,
 } = require('./interactionBridge');
 const { installDshIntegration } = require('./dshIntegration');
+const { ensureHmrDisabled } = require('./hmrGuard');
 const {
   ThreadAttachmentCoordinator,
   formatFileAttachment,
@@ -84,7 +85,7 @@ const { createWorkspaceContext } = require("./workspaceContext");
 const { createWorkspaceBinding, BINDING_STATES } = require("./context/workspaceBinding");
 const { createEditorContext } = require("./editorContext");
 const { createV3Handlers } = require("./bridge/v3");
-const { createChangeTracker } = require("./changeTracker");
+const { createChangeTracker, normalizeToolEditPath } = require("./changeTracker");
 const { createEditEventProjector } = require("./editEventProjector");
 const { createChangeWatcher } = require("./changeWatcher");
 const callExportJournal = require("./callExportJournal");
@@ -142,6 +143,22 @@ function followEditProjection(sessionId) {
     /* projection is advisory attribution, never load-bearing */
   }
 }
+/**
+ * In-iframe conversation switch (dshSessionChanged relay): the user clicked
+ * another session inside the DSH web UI. Follow it WITHOUT reloading the
+ * iframe — re-point the changes tree, the workspace binding and the edit
+ * projector at the now-current session (live bug 2026-09-04: "switching
+ * conversations did not switch the changes view").
+ */
+function handleSessionChangedFromWeb(sessionId) {
+  const next = sessionIdFromValue(sessionId);
+  if (!next || next === currentSessionId) return;
+  currentSessionId = next;
+  try { changeTree?.setActiveSession?.(currentSessionId); } catch { /* advisory */ }
+  try { workspaceBinding?.setActiveSession?.(next); } catch { /* advisory */ }
+  followEditProjection(next);
+}
+
 let textDocumentBridge = null; // per-window authenticated DSH -> vscode.window bridge
 let versionedBridge = null; // per-window versioned JSON-RPC bridge
 let notificationNotifier = null; // CH1 v2 metadata notification coalescer
@@ -269,6 +286,7 @@ async function openInstancePanel({
       handleWebviewInteraction(message, panel.webview);
     },
     threadResult: (message) => threadAttachmentCoordinator?.handleResult(message),
+    sessionChanged: (sessionId) => handleSessionChangedFromWeb(sessionId),
     handshakeError: (message) => {
       const detail = message && message.error ? message.error : loc("Webview 桥版本不匹配");
       setStatusBar("$(error) " + loc("Webview 桥版本不匹配"), detail);
@@ -382,6 +400,13 @@ function prepareDshHome(config, context) {
     context.extensionPath || path.resolve(__dirname, '..'),
     { profileName: config.profile }
   );
+  if (integration.versionChanged || (Array.isArray(integration.foreignRemoved) && integration.foreignRemoved.length > 0)) {
+    // Multi-version coexistence: another extension version (installed release
+    // or a different dev build) owned the shared package directory. The sync
+    // swept its foreign files; surface that for Diagnose because a mixed
+    // byte set was the root cause of the 2026-09-04 tool-channel outage.
+    appendDiagnostic(`[integration] package directory re-owned by this extension version; swept ${integration.foreignRemoved.length} foreign file(s)`);
+  }
   const info = {
     ...resolved,
     integrationNodeModulesPath: integration.nodeModulesPath,
@@ -1350,6 +1375,15 @@ async function setupCoreServer({ context, services }) {
   manager = createServerManager({
     spawnEnv: services.bridgeEnv, // live shared bag: L0 publishes it, L1/L2 bridge features merge into it
     embedPatchPath,
+    // 2026-09-04 incident follow-up: before every owned spawn, make sure the
+    // target profile disables server module HMR (older runtimes break every
+    // in-flight tool call during a module reload; upstream fixed the default
+    // in 0.1.2-alpha.1 — fd814589fb). Idempotent, best-effort in ServerManager.
+    runtimeProfileGuard: (runtime) => ensureHmrDisabled({
+      dshHome: runtime.dshHome,
+      profileName: runtime.profileName,
+      dshVersion: runtime.dshVersion,
+    }),
     onStatus: (s) => {
       if (s.state === "lost") {
         // Post-ready health watchdog detected the service stopped answering
@@ -1590,8 +1624,37 @@ async function setupCoreSidebar({ context, services }) {
       return entry;
     },
     async recordToolEdit(payload) {
-      const entry = await rawChangeTracker.recordToolEdit(payload);
+      // DSH tool arguments carry session-cwd-relative paths; the journal,
+      // watcher dedup, openDiff and undo key on absolute host paths. Resolve
+      // against the bound cwd plus every workspace-folder root (existence
+      // preferred) before the payload enters the journal.
+      let roots = [];
+      try {
+        const folders = vscode.workspace && Array.isArray(vscode.workspace.workspaceFolders)
+          ? vscode.workspace.workspaceFolders
+          : [];
+        roots = folders.map((folder) => (folder && folder.uri && typeof folder.uri.fsPath === 'string'
+          ? folder.uri.fsPath : null)).filter(Boolean);
+      } catch { roots = []; }
+      if (typeof boundCwd === 'string' && boundCwd.length > 0) roots.unshift(boundCwd);
+      const entry = await rawChangeTracker.recordToolEdit(normalizeToolEditPath(payload, roots));
       if (entry && entry.merged !== true) {
+        // True before snapshot (2026-09-04): the pre-execute observer now
+        // sends the before TEXT; persist it exactly like watcher snapshots so
+        // openDiff shows a real before/after diff and undo restores the true
+        // pre-change state.
+        if (typeof payload.beforeText === 'string'
+          && Buffer.byteLength(payload.beforeText, 'utf8') <= 1024 * 1024) {
+          try {
+            const snapshotDir = path.join(context.globalStorageUri.fsPath, 'changes', 'snapshots');
+            fs.mkdirSync(snapshotDir, { recursive: true });
+            const snapshotPath = path.join(snapshotDir, entry.id);
+            fs.writeFileSync(snapshotPath, payload.beforeText, 'utf8');
+            await rawChangeTracker.updateEntry(entry.id, { beforeSnapshotPath: snapshotPath });
+          } catch {
+            // snapshot persistence is best-effort; attribution stands alone
+          }
+        }
         try {
           services.changesReview?.onEntry?.(entry);
         } catch (_) {
@@ -1736,6 +1799,7 @@ async function setupCoreSidebar({ context, services }) {
             handleWebviewInteraction(message, view.webview);
           },
           threadResult: (message) => threadAttachmentCoordinator?.handleResult(message),
+          sessionChanged: (sessionId) => handleSessionChangedFromWeb(sessionId),
           handshakeError: (message) => {
             const detail = message && message.error ? message.error : loc("Webview 桥版本不匹配");
             setStatusBar("$(error) " + loc("Webview 桥版本不匹配"), detail);
@@ -2210,6 +2274,10 @@ async function setupChangesReview({ context, services }) {
     // Session-following default: the tree shows only the sidebar's active
     // session; dsh.changes.toggleScope flips to the global 'all' view.
     scope: "session",
+    // Cross-window resolution base for session-cwd-relative entry paths
+    // (bug 2026-09-04: openDiff misreported existing files as deleted when
+    // the workspace folders did not contain the DSH instance cwd).
+    additionalRoots: () => (typeof boundCwd === 'string' && boundCwd.length > 0 ? [boundCwd] : []),
   });
   changeTree.setActiveSession(currentSessionId);
   services.changesTree = changeTree;

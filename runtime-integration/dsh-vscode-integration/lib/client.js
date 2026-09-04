@@ -319,6 +319,49 @@ window.__ModuleLoader__.load({
     // switch. Wait for the target session to appear in the list mirror (the
     // session list loads asynchronously), then route it through
     // sessions.open() exactly like a user click on the session row.
+    // Session-current watcher: a conversation switch performed INSIDE the
+    // DSH web UI (session-row click) is invisible to the VS Code shell — the
+    // shell only re-renders on its own navigation commands, so the changes
+    // tree and the workspace binding kept pointing at the previous session
+    // (live bug 2026-09-04: "switching conversations did not switch the
+    // changes view"). Poll the session-list mirror's `current` pointer and
+    // announce every change to the shell; the shell relays the
+    // dshSessionChanged message to the extension host.
+    function startSessionCurrentWatcher(ctx) {
+      if (!ctx.sessions || !ctx.sessions.list || typeof ctx.sessions.list.getSnapshot !== 'function') {
+        return () => {};
+      }
+      let disposed = false;
+      let last = null;
+      let timer = null;
+      const poll = () => {
+        if (disposed) return;
+        try {
+          const snapshot = ctx.sessions.list.getSnapshot();
+          const current = snapshot && typeof snapshot.current === 'string' ? snapshot.current : null;
+          if (last === null) {
+            last = current; // baseline: never announce the boot-time session
+          } else if (current !== last) {
+            last = current;
+            if (current) {
+              window.parent.postMessage({ type: 'dshSessionChanged', sessionId: current }, '*');
+            }
+          }
+        } catch {
+          // a broken snapshot store must never break the page
+        }
+        timer = setTimeout(poll, 800);
+        // Node (tests): keep the poll off the event-loop keep-alive set so the
+        // host process can exit; browsers return a numeric handle (no-op).
+        if (timer && typeof timer.unref === 'function') timer.unref();
+      };
+      poll();
+      return () => {
+        disposed = true;
+        if (timer) clearTimeout(timer);
+      };
+    }
+
     function startEmbeddedSessionFollow(ctx) {
       const target = new URLSearchParams(window.location.search).get('dsh_session');
       if (!target) return () => {};
@@ -580,6 +623,7 @@ window.__ModuleLoader__.load({
       ctx.effect(() => {
         startHandshake();
         const stopSessionFollow = startEmbeddedSessionFollow(ctx);
+        const stopSessionCurrentWatch = startSessionCurrentWatcher(ctx);
         const listener = (event) => onMessage(ctx, event);
         window.addEventListener('message', listener);
         document.addEventListener('click', onClick, true);
@@ -593,6 +637,7 @@ window.__ModuleLoader__.load({
         return () => {
           if (handshakeTimer) clearTimeout(handshakeTimer);
           stopSessionFollow();
+          stopSessionCurrentWatch();
           restoreClipboard();
           restoreExecFallback();
           restoreMacShortcutBridge();

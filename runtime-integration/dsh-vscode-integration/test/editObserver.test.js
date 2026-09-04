@@ -60,6 +60,7 @@ test('editObserver: edit tool with exec.arguments.file_path notifies the contrac
     sessionId: 'sess-1',
     size: Buffer.byteLength('héllo wörld', 'utf8'),
     truncated: false,
+    beforeText: 'héllo wörld', // pre-execute content: the TRUE before state
   }]);
   // observe-only: the handler must DELEGATE through next() — returning any
   // value (even undefined) without delegating short-circuits the cordis
@@ -84,6 +85,7 @@ test('editObserver: write tool with exec.args.path and agent.id fallback session
     sessionId: 'agent-7',
     size: 3,
     truncated: false,
+    beforeText: 'abc',
   }]);
 });
 

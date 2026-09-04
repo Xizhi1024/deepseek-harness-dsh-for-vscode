@@ -299,8 +299,12 @@ function killProcessTree(pid, { platform = process.platform, spawnFn = spawn, ti
 }
 
 class ServerManager {
-  constructor({ onStatus, spawnEnv, resolvedRuntime, embedPatchPath = null, cleanPatchPath = null, spawnFn = spawn } = {}) {
+  constructor({ onStatus, spawnEnv, resolvedRuntime, embedPatchPath = null, cleanPatchPath = null, spawnFn = spawn, runtimeProfileGuard = null } = {}) {
     this.onStatus = typeof onStatus === 'function' ? onStatus : () => {};
+    // Optional pre-spawn profile guard (2026-09-04 incident follow-up): the
+    // extension injects ensureHmrDisabled so every owned spawn boots a
+    // profile whose server module HMR cannot break the tool layer.
+    this.runtimeProfileGuard = typeof runtimeProfileGuard === 'function' ? runtimeProfileGuard : null;
     this.spawnEnv = spawnEnv && typeof spawnEnv === 'object' ? { ...spawnEnv } : {};
     this.resolvedRuntime = resolvedRuntime === undefined
       ? null
@@ -887,6 +891,27 @@ class ServerManager {
   }
 
   /**
+   * Best-effort pre-spawn profile guard: ensures the target profile's
+   * cordis.patch.yml disables server module HMR (0.1.2-alpha.1 upstream
+   * default; older runtimes break every in-flight tool call during a module
+   * reload). Failures never block the spawn — the guard hardens boot, it is
+   * not a precondition.
+   */
+  _applyRuntimeProfileGuard() {
+    const guard = this.runtimeProfileGuard;
+    const runtime = this.resolvedRuntime;
+    if (!guard || !runtime) return;
+    try {
+      const result = guard(runtime);
+      if (result && result.applied) {
+        this._emit('selfheal', 'Disabled server module HMR in the DSH profile (tool-crash guard for runtimes below 0.1.2-alpha.1)');
+      }
+    } catch (error) {
+      console.error('dsh-vs-sidebar: runtime profile guard failed:', error && error.message ? error.message : error);
+    }
+  }
+
+  /**
    * Spawn the verified managed runtime and poll until the service is
    * ready, the process exits early, or the 30s deadline passes. The spawn cwd
    * follows the ensureServer contract: only an explicitly provided cwd is
@@ -894,6 +919,7 @@ class ServerManager {
    */
   async _spawnAndWait(host, port, cwd, registryFile, generation = this._cancelGeneration) {
     this._throwIfCancelled(generation);
+    this._applyRuntimeProfileGuard();
     try {
       return await this._spawnWithPatchSelfHeal(host, port, cwd, registryFile, generation, true);
     } catch (err) {

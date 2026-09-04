@@ -683,8 +683,43 @@ function createChangeTracker({
   });
 }
 
+/**
+ * DSH-side tool arguments carry session-cwd-RELATIVE paths (the agent passes
+ * whatever shape it likes), while the journal, the watcher dedup, openDiff
+ * and undo all key on ABSOLUTE host paths (live incident 2026-09-04: the
+ * same agent edit was journaled twice — tool-intercept with a relative path,
+ * then external with the absolute one — because the dedup compared shapes
+ * that could never match). Resolve a relative tool path against the given
+ * workspace roots, preferring a root where the file actually exists.
+ * Pure/injectable: no vscode, fs.existsSync seamable.
+ *
+ * @param {object} payload - dshEditObserved payload ({tool, path, sessionId,...}).
+ * @param {string[]} roots - Absolute workspace-root candidates (bound cwd first).
+ * @param {Function} [existsSyncFn] - fs.existsSync seam for tests.
+ * @returns {object} payload with an absolute path when resolvable, else unchanged.
+ */
+function normalizeToolEditPath(payload, roots, existsSyncFn = fs.existsSync) {
+  if (!payload || typeof payload.path !== 'string' || payload.path.length === 0) return payload;
+  if (path.isAbsolute(payload.path) || payload.path.startsWith('file:')) return payload;
+  const candidates = Array.isArray(roots) ? roots.filter((root) => (
+    typeof root === 'string' && root.length > 0 && path.isAbsolute(root)
+  )) : [];
+  if (candidates.length === 0) return payload;
+  for (const root of candidates) {
+    try {
+      if (existsSyncFn(path.resolve(root, payload.path))) {
+        return { ...payload, path: path.resolve(root, payload.path) };
+      }
+    } catch {
+      // existence probing is best-effort; try the next root
+    }
+  }
+  return { ...payload, path: path.resolve(candidates[0], payload.path) };
+}
+
 module.exports = {
   ChangeTrackerError,
+  normalizeToolEditPath,
   EDIT_KINDS,
   ENTRY_SOURCES,
   MAX_EDITS,

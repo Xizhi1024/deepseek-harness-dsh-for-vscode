@@ -27,6 +27,21 @@ test('Webview message routing rejects incomplete handler facades', () => {
   );
 });
 
+test('Webview messages route in-iframe session switches when configured', () => {
+  const seen = [];
+  const handle = createWebviewMessageHandler({
+    openBrowser: () => {},
+    retry: () => {},
+    sessionChanged: (sessionId) => seen.push(sessionId),
+  });
+
+  assert.strictEqual(handle({ type: 'dshSessionChanged', sessionId: 'session-abc' }), true);
+  assert.deepStrictEqual(seen, ['session-abc']);
+  // Without the optional handler the message is ignored (not routed).
+  const bare = createWebviewMessageHandler({ openBrowser: () => {}, retry: () => {} });
+  assert.strictEqual(bare({ type: 'dshSessionChanged', sessionId: 'x' }), false);
+});
+
 test('Webview messages route DSH interaction requests when configured', () => {
   const calls = [];
   const handle = createWebviewMessageHandler({

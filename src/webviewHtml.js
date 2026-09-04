@@ -390,6 +390,17 @@ ${WEBVIEW_CSP_META}
       if (
         event.source === frame.contentWindow
         && event.origin === DSH_ORIGIN
+        && message && message.type === "dshSessionChanged"
+        && typeof message.sessionId === "string"
+      ) {
+        // In-iframe conversation switch: relay to the host so the changes
+        // tree / workspace binding follow without reloading the iframe.
+        vscode.postMessage({ type: "dshSessionChanged", sessionId: message.sessionId });
+        return;
+      }
+      if (
+        event.source === frame.contentWindow
+        && event.origin === DSH_ORIGIN
         && message && message.type === "dshThreadReady"
         && message.channel === THREAD_CHANNEL
         && message.version === THREAD_VERSION

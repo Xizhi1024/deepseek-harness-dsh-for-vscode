@@ -14,8 +14,10 @@
 //  - every failure path is contained: observation can never break the tool
 //    execution it watches.
 //
-// The beforeText snapshot is read purely to size it; it is NOT persisted and
-// never leaves this process — the notification carries {size, truncated} only.
+// The before snapshot is read pre-execute: oversized (>1 MiB) reads stay
+// metadata-only ({size, truncated}); readable sizes also carry the before
+// TEXT so the extension-side changes tree can diff and undo against the true
+// pre-change state (loopback bridge, same trust as watcher snapshots).
 // ---------------------------------------------------------------------------
 
 import { readFileSync } from 'node:fs';
@@ -86,10 +88,15 @@ function readBeforeSnapshot(path, readFileSyncFn = readFileSync) {
   }
   const truncated = buffer.length > SNAPSHOT_MAX_BYTES;
   return {
-    // size = byte length of the (possibly truncated) beforeText; the content
-    // itself is discarded here and never enters the notification.
+    // size = byte length of the (possibly truncated) beforeText.
     size: truncated ? SNAPSHOT_MAX_BYTES : buffer.length,
     truncated,
+    // Pre-execute content = the TRUE before state (2026-09-04 follow-up:
+    // the changes tree needs it for real diffs and true snapshot undo; it
+    // travels the loopback bridge to the extension that already owns the
+    // workspace — same trust level as the watcher's whole-file snapshots).
+    // Oversized reads stay metadata-only.
+    text: truncated ? null : buffer.toString('utf8'),
   };
 }
 
@@ -124,6 +131,7 @@ function createEditObserver({ ctx, notify, log = () => {}, readFileSyncFn = read
               sessionId: extractSessionId(exec),
               size: snapshot.size,
               truncated: snapshot.truncated,
+              ...(snapshot.text === null ? {} : { beforeText: snapshot.text }),
             });
           }
         } else {

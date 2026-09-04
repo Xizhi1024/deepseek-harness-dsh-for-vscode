@@ -8,13 +8,28 @@
 
 | 项 / Item | 值 / Value |
 |---|---|
-| 扩展版本 / Extension | 1.1.1 |
+| 扩展版本 / Extension | 1.1.2 |
 | DSH runtime 下限 / floor | `0.1.0-rc.7`（--no-open 启动旗标要求；更早版本在健康探测前退出） |
 | 实测基线 / verified installs | `0.1.1-rc.2`（本地 npm 全局安装，2026-08-23） |
 | 上游核对基线 / verified upstream | master `49a606bc5b` = `0.1.2-alpha.5`（2026-09-02 fetch） |
 | 线协议兼容 / wire compat | `session.list` / `session.create` / `session.rename` / `session.prompt` / `GET /api/session.export` 信封、载荷、行键在 0.1.0-rc.7 .. 0.1.2-alpha.x 全程不变（2026-09-02 逐面核实） |
 
 ## 轮次记录 / Rounds
+
+### Round 2026-09-05 · 1.1.2（变更树移交收尾 + 发版）
+
+- 扩展 1.1.1 → 1.1.2。包含前轮 Unreleased 全部内容（事故根治轮 F1-F2、变更树 F3-F9）+ 本轮 HANDOFF-3 两个未解 bug 修复（跨窗口 additionalRoots 注入 / undo 终态反馈 announceUndoResult）。
+- **测试**：changeTree 22/22（+2 新例：跨窗口注入根解析、undo 静默分支反馈）；changeTracker 23、toolEditAttribution 4、extension 37、extension-features 6、extension-notifications 1、webviewMessages 6、editObserver 12 全绿。
+- **已知未检测项（发版声明）**：FIM Tab 补全（dsh.features.tab-completion，POC）未做端到端检测——本轮未连接真实上游验证补全链路；README 双语已标注。其余功能面以各轮测试坐标为准。
+- **运维待办（非代码，延续）**：卸载 0.9.3/1.0.0 旧版扩展；多版本开发期避免 shared home 并存。
+
+### Round 2026-09-04 · Unreleased（事故根治轮：多版本互写 + hmr 自动止血）
+
+- **事故**：session-984d0aad（D:\Coding\DSH 窗口实例）所有工具调用（含空 run_code）0ms 报 `Cannot read properties of undefined (reading 'kind')`，新开会话不愈。取证：会话 zstd 解码 6/6 调用全败、实例启动 38 秒即坏 → 排除 HMR 暂态窗口 → 本机共存 0.9.3/1.0.0 已安装版 + 1.1.1 dev 版共用 profile web，`INTEGRATION_FILES` 清单 5 vs 8 互写同一 `node_modules/dsh-vscode-integration/`（profile mtime 21:52/21:59 翻转实录）→ 新实例加载混合字节 → dsh-tools waterfall（lib/index.js:3105 `gate.kind`）崩。
+- **修复①**：dshIntegration 版本守卫（marker + 外来文件清扫 + versionChanged/foreignRemoved 诊断）。
+- **修复②**：hmrGuard.ensureHmrDisabled + ServerManager `runtimeProfileGuard` spawn 前注入（手动 hmr disable patch 自动化）。
+- **测试**：+13 例（syncGuard 6 + hmrGuard 7 全绿）；serverManager/cleanRestart/extension 旧套件回归全绿（13/6/37）。
+- **运维待办（非代码）**：卸载 0.9.3/1.0.0 旧版扩展；多版本开发期避免 shared home 并存。
 
 ### Round 2026-09-02 · 1.1.0（session-5f3403fe，HEAD 36a5991）
 

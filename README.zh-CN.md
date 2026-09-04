@@ -10,7 +10,7 @@
 - **上下文附加**：右键把文件 / 选区 / 文件夹 / Problems 以紧凑链接加入对话草稿，绝不粘贴源码、绝不自动发送
 - **DSH 变更评审**：DSH 推送的工作区编辑进入专门树视图，diff / 接受 / 撤销，写文件前必须审批（默认开启）
 - **@dsh 聊天参与者**：VS Code 原生聊天里输入 `@dsh` 直连本地 DSH 会话，流式回复，不占 Copilot 配额（默认开启）
-- **进阶可选**：Ctrl+K / Ctrl+I 内联编辑、模型路由进 VS Code 选择器、MCP 消费、终端 / UI 桥、FIM Tab 补全——全部挂在显式同意开关后
+- **进阶可选**：Ctrl+K / Ctrl+I 内联编辑、模型路由进 VS Code 选择器、MCP 消费、终端 / UI 桥、FIM Tab 补全——全部挂在显式同意开关后（FIM Tab 补全为 POC，本轮发版**未做端到端检测**，见下表注）
 
 ## ⚠️ 兼容性
 
@@ -52,7 +52,7 @@
 | `dsh.features.ctrl-k` / `ctrl-i` | false | 内联编辑命令（Ctrl+K / Ctrl+I） |
 | `dsh.features.lm-route` | false | DSH 模型进 VS Code 语言模型选择器 |
 | `dsh.features.mcp-consume` | false | DSH 消费 VS Code 侧 MCP 服务器 |
-| `dsh.features.tab-completion` | false | FIM Tab 补全——需设置 `dsh.fim.baseUrl` + **DSH: 设置 FIM API Key** 并重启 DSH 服务 |
+| `dsh.features.tab-completion` | false | FIM Tab 补全——需设置 `dsh.fim.baseUrl` + **DSH: 设置 FIM API Key** 并重启 DSH 服务。⚠️ POC 状态：本轮发版（1.1.2）未做端到端检测（未连接真实上游验证补全链路），配置后若不生效请提 [issue](https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/issues) |
 | `dsh.fim.baseUrl` | (空) | 上游 FIM 端点（OpenAI 兼容 completions API 完整 URL） |
 | `dsh.keybindings.ctrlL` | false | Ctrl+L 把选区加入对话 |
 | `dsh.bridge.terminal` / `editorRead` / `ui` | false | 终端 / 编辑器读取 / UI 表面桥（同意开关） |

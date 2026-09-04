@@ -3,6 +3,39 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.1.2] - 2026-09-05
+
+> 含前轮 [Unreleased] 累积：kind 事故双防线（F1-F2）、变更树五连修 + before 快照链（F3-F9）、本轮 HANDOFF-3 两 bug 收尾。**发版声明**：FIM Tab 补全（POC，默认关闭）未做端到端检测——README 双语已标注。
+
+### Fixed / 修复（移交档案 HANDOFF-3 两个未解 bug，2026-09-05）
+
+- **跨窗口相对路径误报已删除（HANDOFF-3 bug①）**：旧 journal 的 tool-intercept 条目路径相对 DSH 实例 cwd；当扩展窗口的工作区根不含该 cwd（F5 dev 窗口 vs D:\Coding\DSH 实例）时，resolve 恒失败 → "This file has been deleted"。createChangeTree 新增 additionalRoots 注入（extension 传 [boundCwd]，与 recordToolEdit 漏斗同序），workspaceRoots() 注入根优先、去重后并入工作区根——openDiff/undo 的 entryTargetFsPath 一并修好。
+- **撤销变更无反应（HANDOFF-3 bug②）**：undoAttributed / tracker.undo 的终态分支（already-undone、no-target-path、cancelled）与成功路径此前全部静默返回，用户读作"按钮死了"。新增 announceUndoResult：成功 → "Change undone"；各终态分支逐条提示（no-snapshot-no-git 原有报错保留）。跨窗口 no-target-path 场景由 bug① 修复连带消除。
+- 回归测试：changeTree 22/22（新增跨窗口注入根解析、undo 静默分支反馈 2 例；快照恢复成功断言更新为含公告）。
+
+### Fixed / 修复（变更树实测反馈 II，2026-09-04）
+
+- **iframe 内切换对话不跟随**：DSH 侧栏 UI 里点选另一会话对扩展不可见（setActiveSession 仅在扩展自身渲染 iframe 时触发）。新增反向通知链：client.js 轮询会话镜像 `snapshot.current`（800ms，基线不发、unref）→ 壳层转发 `dshSessionChanged`（origin+source 校验）→ webviewMessages 路由 `sessionChanged` → 扩展更新 currentSessionId 并同步变更树/工作区绑定/事件投影器（不重载 iframe）。
+- **存在文件被误报已删除**：旧 journal 的 tool-intercept 条目携带会话 cwd 相对路径，`fs.existsSync` 按 extension-host cwd 解析恒为不存在 → "This file has been deleted"。changeTree 目标解析现在按工作区根（存在性优先）绝对化，openDiff/undo 一并使用绝对路径。
+
+> 2026-09-04 工具通道事故根治轮：`Cannot read properties of undefined (reading 'kind')` 全工具 0ms 失败。根因：0.9.3/1.0.0 已安装版与 F5 dev 版共用同一 shared DSH home，各按自己的文件清单互写 `profiles/web/node_modules/dsh-vscode-integration/`，新实例加载混合字节即全灭；叠加 ≤0.1.1-rc.2 模块 HMR 重载脆弱性（上游问题③，VERSIONS.md）。
+
+### Added / 新增
+
+- **集成包同步版本守卫（`dshIntegration`）**：`.vscode-sync.json` marker 记录最近持有目录的扩展版本；其他版本（已安装旧版/另一 dev 构建）持有过 → 先清扫不属于本版清单的外来文件再同步（`versionChanged` 旗标 + `foreignRemoved` 清单，extension.js 落诊断日志）。混合字节集从此不可能存活到下一次 spawn。
+- **`hmrGuard.ensureHmrDisabled` + spawn 前自动止血**：ServerManager 新增可注入 `runtimeProfileGuard`，extension 注入后在每次 owned spawn 前确保 profile `cordis.patch.yml` 含 `id: hmr disabled`（对齐上游 fd814589fb / 0.1.2-alpha.1 默认；幂等、防重复条目——重复 loader id 会让 dsh 拒启、原子写 + 一次性备份、失败不阻塞 spawn）。此前该止血仅存在于 VERSIONS.md 的手动处置记录。
+- 回归测试：`test/unit/dshIntegrationSyncGuard.test.js`（6 例）、`test/unit/hmrGuard.test.js`（7 例）。
+
+### Fixed / 修复（变更树实测反馈，2026-09-04）
+
+- **当前会话视图不显示变更**：会话范围此前设计性排除全部 external（watcher）条目，用户手工/测试编辑只有切到全局才能看到。现在会话激活时刻之后记录的 external 条目以独立分组「External changes (this session)」进入会话视图（会话切换重置时间窗；归因分组行为不变）。
+- **删除文件的条目打开报「找不到该文件」**：openDiff 对 attribution-only 条目盲开当前文件；目标已被删除时 VS Code 直接报错。现在先探测目标存在性——已删除且留有快照 → 提示并只读打开快照；已删除且无快照 → 明确提示「文件已被删除」，不再把不存在的路径交给 vscode.open。
+- **工具写入路径形态断裂（归因双记账根因）**：DSH 工具参数携带会话 cwd 相对路径（journal 实证 chg-139 `deepseek-harness-dsh-for-vscode\.dsh-accept-test\hello.js`），扩展原样入账；watcher 以绝对路径再次入账（chg-138/140 同一写入双记账）——去重比较相对 vs 绝对永不相等，openDiff/Undo 目标也解析失败。修复：`changeTracker.normalizeToolEditPath` 纯函数（相对路径按 [绑定 cwd + 工作区根] 解析为绝对，存在性优先），在 extension 唯一漏斗 `recordToolEdit` 应用；`changeWatcher.sameFsPath`（resolve + win32 大小写不敏感）补强 (path,mtime) 去重。
+- **会话视图纳入未归因条目**：tool-intercept 条目 sessionId 为空（归因漂移）时，会话激活时间窗内记录的进入「During this session (unattributed)」分组，跨窗口漂移不再隐藏。
+- 回归测试：`test/unit/toolEditAttribution.test.js`（4 例：存在性优先解析/首根回退/绝对与 file:// 直通/大小写分隔符比较）；changeTree 18/18、changeTracker 23/23、extension 37/37 全绿。
+
 ## [1.1.1] - 2026-09-03
 
 > 兼容/适配轮：对照上游 dsh master `49a606bc5b`（0.1.2-alpha.5）逐面核实三个上游问题并落地运行时兼容层。每轮版本更变台账见 `VERSIONS.md`；核实详情见 `docs/dev/upstream-issues.md`。

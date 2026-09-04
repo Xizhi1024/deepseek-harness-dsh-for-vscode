@@ -461,8 +461,11 @@ test('external entry undo restores the before snapshot file and marks the entry 
   assert.deepStrictEqual(result, { undone: true, method: 'snapshot-restore', changeId: entry.id });
   assert.strictEqual(fs.readFileSync(target, 'utf8'), 'before-text');
   assert.strictEqual(tracker.get(entry.id).status, 'undone');
-  // No confirmation prompt is needed when a snapshot exists.
-  assert.strictEqual(vscode.window.messages.length, 0);
+  // No confirmation prompt is needed when a snapshot exists, but the undo
+  // outcome is announced (bug 2026-09-04: silent undo read as "no response").
+  assert.deepStrictEqual(vscode.window.messages, [
+    { level: 'info', message: 'Change undone' },
+  ]);
   tree.dispose();
 });
 
@@ -544,9 +547,12 @@ test('tool-intercept entry openDiff annotates the missing snapshot and opens the
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const vscode = fakeVscode();
   const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const targetPath = path.join(root, 'src', 'a.js');
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, 'current content\n', 'utf8');
   const entry = await tracker.recordToolEdit({
     tool: 'edit',
-    path: '/ws/src/a.js',
+    path: targetPath,
     sessionId: 'sess-9',
     size: 42,
     truncated: false,
@@ -559,6 +565,135 @@ test('tool-intercept entry openDiff annotates the missing snapshot and opens the
     && message.message.includes('No before snapshot')));
   const openCall = vscode.executedCommands.find((args) => args[0] === 'vscode.open');
   assert.ok(openCall, 'vscode.open must be invoked for the current file');
+  tree.dispose();
+});
+
+test('session scope lists external entries recorded while the session was active', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tree-sess-ext-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  await tracker.record({ sessionId: 's-1', label: 'bridge-edit', edits: [] });
+  await tracker.record({ source: 'external', label: 'before-session.js', edits: [], status: 'accepted' });
+  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root }, scope: 'session' });
+  const provider = vscode.registeredProviders[0].provider;
+
+  tree.setActiveSession('s-1');
+  let roots = provider.getChildren(null);
+  // Pre-session external entries stay hidden; only the attributed group shows.
+  assert.strictEqual(roots.length, 1);
+  assert.strictEqual(roots[0].source, 'session');
+
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await tracker.record({ source: 'external', label: 'during-session.js', edits: [], status: 'accepted' });
+  roots = provider.getChildren(null);
+  assert.strictEqual(roots.length, 2);
+  assert.strictEqual(roots[0].source, 'session');
+  assert.strictEqual(roots[1].source, 'external-session');
+  assert.deepStrictEqual(roots[1].entries.map((entry) => entry.label), ['during-session.js']);
+  const groupItem = provider.getTreeItem(roots[1]);
+  assert.strictEqual(groupItem.label, 'During this session (unattributed)');
+  assert.strictEqual(provider.getParent(roots[1].entries[0]).source, 'external-session');
+
+  // Switching the session resets the external window: the earlier external
+  // entry is no longer during-session, and s-2 has no attributed entries.
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  tree.setActiveSession('s-2');
+  assert.deepStrictEqual(provider.getChildren(null), []);
+  tree.dispose();
+});
+
+test('tool-intercept entry with a before snapshot opens a real before/after diff', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tree-truediff-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const targetPath = path.join(root, 'src', 'hello.js');
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, 'after content\n', 'utf8');
+  const snapshotPath = path.join(root, 'snap.js');
+  fs.writeFileSync(snapshotPath, 'before content\n', 'utf8');
+  const entry = await tracker.recordToolEdit({
+    tool: 'edit', path: targetPath, sessionId: 'sess-diff', size: 14, truncated: false,
+  });
+  await tracker.updateEntry(entry.id, { beforeSnapshotPath: snapshotPath });
+  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root } });
+
+  const result = await tree.openDiff(tracker.get(entry.id));
+  assert.deepStrictEqual(result, { opened: true, diff: true });
+  assert.ok(!vscode.window.messages.some((message) => message.message.includes('No before snapshot')));
+  const diffCalls = vscode.executedCommands.filter((args) => args[0] === 'vscode.diff');
+  assert.strictEqual(diffCalls.length, 1);
+  assert.strictEqual(diffCalls[0][1].fsPath, snapshotPath); // left = before
+  assert.strictEqual(diffCalls[0][2].fsPath, targetPath); // right = current
+  tree.dispose();
+});
+
+test('openDiff resolves a relative tool-intercept path against the workspace root', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tree-relpath-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const targetPath = path.join(root, 'src', 'hello.js');
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, 'present\n', 'utf8');
+  // Old-build journal shape: session-cwd-RELATIVE path, file exists on disk.
+  const entry = await tracker.recordToolEdit({
+    tool: 'edit',
+    path: 'src/hello.js',
+    sessionId: 'sess-rel',
+    size: 8,
+    truncated: false,
+  });
+  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root } });
+
+  const result = await tree.openDiff(tracker.get(entry.id));
+  assert.deepStrictEqual(result, { opened: true, noSnapshot: true });
+  assert.ok(!vscode.window.messages.some((message) => message.message.includes('deleted')),
+    'an existing file must never be reported as deleted');
+  const openCalls = vscode.executedCommands.filter((args) => args[0] === 'vscode.open');
+  assert.strictEqual(openCalls.length, 1);
+  assert.strictEqual(openCalls[0][1].fsPath, targetPath); // absolute, openable
+  tree.dispose();
+});
+
+test('openDiff on a deleted external entry shows the snapshot instead of erroring', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tree-deleted-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const deletedPath = path.join(root, 'gone.js');
+  fs.writeFileSync(deletedPath, 'last content\n', 'utf8');
+  const snapshotPath = path.join(root, 'snap-gone.js');
+  fs.writeFileSync(snapshotPath, 'snapshot content\n', 'utf8');
+
+  const withSnapshot = await tracker.record({
+    source: 'external', label: 'gone.js', edits: [], status: 'accepted',
+    path: deletedPath, uri: 'file:///' + deletedPath.replace(/\\/g, '/'),
+  });
+  await tracker.updateEntry(withSnapshot.id, { beforeSnapshotPath: snapshotPath });
+  const withoutSnapshot = await tracker.record({
+    source: 'external', label: 'gone-too.js', edits: [], status: 'accepted',
+    path: path.join(root, 'gone-too.js'),
+  });
+  fs.rmSync(deletedPath);
+  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root } });
+
+  const snapResult = await tree.openDiff(tracker.get(withSnapshot.id));
+  assert.deepStrictEqual(snapResult, { opened: true, noSnapshot: true, deleted: true });
+  assert.ok(vscode.window.messages.some((message) => message.level === 'info'
+    && message.message.includes('no longer exists')));
+  const openCalls = vscode.executedCommands.filter((args) => args[0] === 'vscode.open');
+  assert.strictEqual(openCalls.length, 1);
+  assert.strictEqual(openCalls[0][1].fsPath, snapshotPath);
+
+  vscode.executedCommands.length = 0;
+  const goneResult = await tree.openDiff(tracker.get(withoutSnapshot.id));
+  assert.deepStrictEqual(goneResult, { opened: false, noSnapshot: true, deleted: true });
+  assert.ok(vscode.window.messages.some((message) => message.level === 'info'
+    && message.message.includes('has been deleted')));
+  assert.strictEqual(vscode.executedCommands.length, 0);
   tree.dispose();
 });
 
@@ -584,6 +719,84 @@ test('tool-intercept entry undo follows the external semantics (snapshot first)'
   const result = await tree.undo(tracker.get(entry.id));
   assert.deepStrictEqual(result, { undone: true, method: 'snapshot-restore', changeId: entry.id });
   assert.strictEqual(fs.readFileSync(target, 'utf8'), 'before-tool');
+  tree.dispose();
+});
+
+test('relative tool-intercept entry resolves against injected bound-cwd roots (cross-window)', async (t) => {
+  const instanceCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-instance-cwd-'));
+  const windowRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-window-root-'));
+  t.after(() => {
+    fs.rmSync(instanceCwd, { recursive: true, force: true });
+    fs.rmSync(windowRoot, { recursive: true, force: true });
+  });
+  // The tool wrote relative to the DSH instance cwd; the extension window's
+  // workspace root is a DIFFERENT directory (the F5 cross-window scenario).
+  const targetPath = path.join(instanceCwd, 'sub', 'hello.js');
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, 'after edit\n', 'utf8');
+  const vscode = fakeVscode();
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: windowRoot } }];
+  const tracker = createChangeTracker({ storageUri: { fsPath: windowRoot }, vscode });
+  const entry = await tracker.recordToolEdit({
+    tool: 'edit',
+    path: path.join('sub', 'hello.js'), // session-cwd-relative, no window root holds it
+    sessionId: 'sess-xwin',
+    size: 12,
+    truncated: false,
+  });
+  const tree = createChangeTree({
+    vscode,
+    tracker,
+    storageUri: { fsPath: windowRoot },
+    additionalRoots: () => [instanceCwd],
+  });
+
+  const result = await tree.openDiff(tracker.get(entry.id));
+  // Resolved through the injected bound-cwd root: the file EXISTS, so no
+  // "has been deleted" misreport and the current file opens.
+  assert.deepStrictEqual(result, { opened: true, noSnapshot: true });
+  assert.ok(!vscode.window.messages.some((message) => message.message.includes('has been deleted')));
+  const openCall = vscode.executedCommands.find((args) => args[0] === 'vscode.open');
+  assert.ok(openCall, 'vscode.open must be invoked for the resolved file');
+  assert.strictEqual(openCall[1].fsPath, targetPath);
+  tree.dispose();
+});
+
+test('undo announces terminal bookkeeping outcomes instead of staying silent', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tree-undo-silent-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+
+  // already-undone external entry: bookkeeping answer, but must be VISIBLE.
+  const undoneEntry = await tracker.record({
+    source: 'external',
+    label: 'already.js',
+    edits: [],
+    before: [],
+    status: 'undone',
+    path: path.join(root, 'already.js'),
+  });
+  // no-path entry: cannot resolve a target, must say so.
+  const noPathEntry = await tracker.record({
+    source: 'external',
+    label: 'no-path.js',
+    edits: [],
+    before: [],
+    status: 'accepted',
+  });
+  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root } });
+
+  const already = await tree.undo(tracker.get(undoneEntry.id));
+  assert.deepStrictEqual(already, { undone: false, reason: 'already-undone', changeId: undoneEntry.id });
+  assert.ok(vscode.window.messages.some((message) => message.level === 'info'
+    && message.message.includes('already undone')));
+
+  vscode.window.messages.length = 0;
+  const noPath = await tree.undo(tracker.get(noPathEntry.id));
+  assert.deepStrictEqual(noPath, { undone: false, reason: 'no-target-path', changeId: noPathEntry.id });
+  assert.ok(vscode.window.messages.some((message) => message.level === 'info'
+    && message.message.includes('cannot be resolved')));
   tree.dispose();
 });
 
