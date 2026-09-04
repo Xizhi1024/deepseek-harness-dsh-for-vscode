@@ -14,6 +14,8 @@
  * never the vscode.lm provider.
  */
 
+const { deriveSessionTitle } = require("./sessionTitler");
+
 /**
  * Maximum segment length passed to a single `response.markdown` call. The SSE
  * frame cap (1 MiB) lets the DSH stream produce very long text deltas, so a
@@ -74,6 +76,11 @@ function isRootSessionItem(item) {
  * @param {Function} deps.listSessionsFn - Session list function accepting
  *   `{ signal }`; result sorted by `updatedAt` descending (asm:
  *   sessionNavigation.listSessions).
+ * @param {Function} [deps.titleSession] - Optional one-shot rename hook
+ *   (asm: the shared sessionTitler bound to sessionNavigation.renameSession)
+ *   called once per session id with a title derived from the first prompt
+ *   (B2 bare-UUID-title guard). Failures are swallowed and never affect
+ *   the chat response.
  * @param {Function} [deps.loc] - Localization helper.
  * @returns {{handleRequest: Function, provideFollowups: Function}} Frozen
  *   participant module.
@@ -83,6 +90,7 @@ function createChatParticipantModule({
   resolveSessionId,
   isEnabled,
   listSessionsFn,
+  titleSession,
   loc = defaultLoc,
 }) {
   if (!chatClient || typeof chatClient.prompt !== 'function' || typeof chatClient.streamSession !== 'function') {
@@ -97,6 +105,12 @@ function createChatParticipantModule({
   if (typeof listSessionsFn !== 'function') {
     throw new TypeError('listSessionsFn must be a function');
   }
+  if (typeof titleSession !== 'undefined' && typeof titleSession !== 'function') {
+    throw new TypeError('titleSession must be a function when provided');
+  }
+
+  /** Session ids already handed to titleSession (one attempt each). */
+  const titledSessions = new Set();
   if (typeof loc !== 'function') {
     throw new TypeError('loc must be a function');
   }
@@ -120,9 +134,12 @@ function createChatParticipantModule({
    * `@dsh` chat participant handler.
    *
    * Flow: feature gate → cancellation gate → resolve current DSH session →
-   * queue the prompt → stream text deltas back through `response.markdown`.
-   * Errors are shown in the chat response (error-direct principle), never
-   * thrown to VS Code.
+   * connect the live SSE stream FIRST (the DSH event bus has no replay: any
+   * `session/event` emitted before the mux connection subscribes is lost
+   * forever, so the prompt must not be queued before the stream is ready) →
+   * await stream readiness → queue the prompt → forward text deltas to
+   * `response.markdown` as they arrive. Errors are shown in the chat response
+   * (error-direct principle), never thrown to VS Code.
    *
    * @param {object} request - VS Code ChatRequest-like request.
    * @param {object} context - VS Code ChatContext-like context (not consumed).
@@ -170,23 +187,19 @@ function createChatParticipantModule({
       return;
     }
 
-    try {
-      await chatClient.prompt({
-        sessionId,
-        content: request.prompt,
-        mode: 'queue',
-        signal: controller.signal,
-      });
-    } catch (err) {
-      response.markdown(loc('DSH unavailable: {message}', { message: errorMessage(err) }));
-      cleanup();
-      return;
-    }
-
     let streamBroken = false;
+    let sawText = false;
+    let streamTerminalReason = null;
+    let streamError = null;
+    let settleReady = null;
+    const ready = new Promise((resolve) => {
+      settleReady = resolve;
+    });
+
     const onText = (text) => {
       if (streamBroken) return;
       try {
+        if (typeof text === 'string' && text.length > 0) sawText = true;
         markdownChunks(response, text);
       } catch (_) {
         streamBroken = true;
@@ -197,15 +210,67 @@ function createChatParticipantModule({
         }
       }
     };
-    const onDone = () => {
+    const onReady = () => {
+      settleReady();
+    };
+    const onDone = (result) => {
+      streamTerminalReason = result && typeof result.reason === 'string'
+        ? result.reason
+        : 'stream-end';
+      settleReady();
       cleanup();
     };
 
+    // Connect the live stream first. The promise never rejects here (the
+    // wrapper catches and records the error) so the readiness gate below is
+    // the single ordering point.
+    const streamPromise = (async () => {
+      try {
+        return await chatClient.streamSession({
+          sessionId,
+          onText,
+          onDone,
+          onReady,
+          signal: controller.signal,
+        });
+      } catch (err) {
+        streamError = err;
+        settleReady();
+        return null;
+      }
+    })();
+
+    await ready;
+
+    if (streamError) {
+      try {
+        response.markdown(loc('DSH unavailable: {message}', { message: errorMessage(streamError) }));
+      } catch (_) {
+        /* response stream itself failed */
+      }
+      cleanup();
+      return;
+    }
+    if (streamTerminalReason !== null && !sawText) {
+      // The stream ended before the prompt was queued and nothing was
+      // delivered: user abort ends silently, anything else means no delta
+      // could ever be delivered.
+      if (streamTerminalReason !== 'aborted') {
+        try {
+          response.markdown(loc('DSH unavailable: live stream ended before the prompt was sent ({reason})', { reason: streamTerminalReason }));
+        } catch (_) {
+          /* response stream itself failed */
+        }
+      }
+      cleanup();
+      return;
+    }
+
     try {
-      await chatClient.streamSession({
+      await chatClient.prompt({
         sessionId,
-        onText,
-        onDone,
+        content: request.prompt,
+        mode: 'queue',
         signal: controller.signal,
       });
     } catch (err) {
@@ -214,9 +279,49 @@ function createChatParticipantModule({
       } catch (_) {
         /* response stream itself failed */
       }
-    } finally {
+      try {
+        controller.abort();
+      } catch (_) {
+        /* ignore double-abort */
+      }
+      await streamPromise;
       cleanup();
+      return;
     }
+
+    // B2: sessions reached through the API keep bare-UUID titles; give the
+    // session a readable title derived from this first prompt. One attempt
+    // per session per module lifetime; failures never affect the response.
+    let titlePromise = null;
+    if (typeof titleSession === 'function' && !titledSessions.has(sessionId)) {
+      const title = deriveSessionTitle(request.prompt);
+      if (title.length > 0) {
+        titledSessions.add(sessionId);
+        titlePromise = Promise.resolve()
+          .then(() => titleSession(sessionId, title))
+          .catch(() => {});
+      }
+    }
+
+    const streamResult = await streamPromise;
+    if (
+      !streamBroken
+      && !sawText
+      && streamResult !== null
+      && streamTerminalReason !== null
+      && streamTerminalReason !== 'stream-end'
+      && streamTerminalReason !== 'aborted'
+    ) {
+      // The stream failed without delivering any visible delta: surface the
+      // reason instead of leaving a silent, empty chat response.
+      try {
+        response.markdown(loc('DSH unavailable: {message}', { message: streamTerminalReason }));
+      } catch (_) {
+        /* response stream itself failed */
+      }
+    }
+    if (titlePromise) await titlePromise;
+    cleanup();
   }
 
   /**

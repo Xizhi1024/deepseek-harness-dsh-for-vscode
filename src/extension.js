@@ -32,13 +32,14 @@ const { ensureManagedRuntime } = require("./runtimeProvisioner");
 const { resolveLocalDshRuntime } = require("./localRuntimeResolver");
 const { normalizeLaunchMethod, resolveCommandRuntime } = require("./launchMethodResolver");
 const { discoverDshWebPorts: defaultDiscoverDshWebPorts } = require("./processDiscovery");
-const { STARTUP_ERRORS, isRetryableStartupError, renderStartupError } = require("./startupErrors");
+const { isRetryableStartupError, renderStartupError } = require("./startupErrors");
 const { deriveVscodeCapabilities } = require("./vscodeCapabilities");
-const { deriveFeatureFlags } = require("./dshCompat");
+const { deriveFeatureFlags, deriveRuntimeIssues } = require("./dshCompat");
 const { framePage, statusPage, safeHttpUrl } = require("./webviewHtml");
 const {
   listSessions,
   createSession,
+  renameSession,
   ensureWorkspaceSession,
   rootSessionItems,
   reuseBlankSession,
@@ -59,6 +60,7 @@ const {
   parseInteractionRequest,
 } = require('./interactionBridge');
 const { installDshIntegration } = require('./dshIntegration');
+const { ensureHmrDisabled } = require('./hmrGuard');
 const {
   ThreadAttachmentCoordinator,
   formatFileAttachment,
@@ -75,13 +77,17 @@ const { createCtrlIEditCommand } = require('./commands/ctrlIEdit');
 const { createCtrlKEditCommand } = require('./commands/ctrlKEdit');
 const { createDshChatClient } = require('./dshChatClient');
 const { createChatParticipantModule } = require('./chatParticipant');
+const { createSessionTitler } = require('./sessionTitler');
+const { buildDiagnoseReport, showDiagnoseQuickPick } = require('./diagnose/report');
 const { createInlineCompletionProvider } = require('./inlineCompletion');
 const { createExportsFace } = require('./exportsFace');
 const { createWorkspaceContext } = require("./workspaceContext");
 const { createWorkspaceBinding, BINDING_STATES } = require("./context/workspaceBinding");
 const { createEditorContext } = require("./editorContext");
 const { createV3Handlers } = require("./bridge/v3");
-const { createChangeTracker } = require("./changeTracker");
+const { createChangeTracker, normalizeToolEditPath } = require("./changeTracker");
+const { createEditEventProjector } = require("./editEventProjector");
+const { createChangeWatcher } = require("./changeWatcher");
 const callExportJournal = require("./callExportJournal");
 const { createChangeTree } = require("./changeTree");
 const { createLmRoute } = require("./lmRoute");
@@ -117,14 +123,50 @@ let currentView = null; // vscode.WebviewView | null
 let statusBar = null; // vscode.StatusBarItem | null
 let boundCwd = null; // workspace root the current server is bound to (null = none)
 let lastConfig = null; // last config snapshot used for change detection (reconciler)
+let restartPromptTimer = null; // A2/U2: debounced "Restart now?" prompt for injection-class settings
 let lifecycle = null; // the one queue for every lifecycle transition
 let viewGeneration = 0; // invalidates delayed connects for disposed/replaced views
+
+/**
+ * C2.5 anchor: every currentSessionId transition re-points the edit-event
+ * projector at the now-current session (or stops following on null).
+ * Best-effort only — a projector failure must never disturb session flow.
+ */
+function followEditProjection(sessionId) {
+  try {
+    if (sessionId) {
+      editEventProjector?.followSession(sessionId);
+    } else {
+      editEventProjector?.unfollow();
+    }
+  } catch (_) {
+    /* projection is advisory attribution, never load-bearing */
+  }
+}
+/**
+ * In-iframe conversation switch (dshSessionChanged relay): the user clicked
+ * another session inside the DSH web UI. Follow it WITHOUT reloading the
+ * iframe — re-point the changes tree, the workspace binding and the edit
+ * projector at the now-current session (live bug 2026-09-04: "switching
+ * conversations did not switch the changes view").
+ */
+function handleSessionChangedFromWeb(sessionId) {
+  const next = sessionIdFromValue(sessionId);
+  if (!next || next === currentSessionId) return;
+  currentSessionId = next;
+  try { changeTree?.setActiveSession?.(currentSessionId); } catch { /* advisory */ }
+  try { workspaceBinding?.setActiveSession?.(next); } catch { /* advisory */ }
+  followEditProjection(next);
+}
+
 let textDocumentBridge = null; // per-window authenticated DSH -> vscode.window bridge
 let versionedBridge = null; // per-window versioned JSON-RPC bridge
 let notificationNotifier = null; // CH1 v2 metadata notification coalescer
 let notificationSubscriptions = []; // selection/diagnostics event disposables
 let editorContext = null; // per-window approved editor attachments backing vscode/editor methods
 let changeTracker = null; // R14S1 journal for applied changes (created in L0, no UI)
+let changeWatcher = null; // C1 L3 FileSystemWatcher fallback for source:'external' changes
+let editEventProjector = null; // C2.5 projects edit/write tool calls from the session event stream into the journal
 let changeTree = null; // R14S1 TreeView/command surface (created in L2 changes-review)
 let lmRoute = null; // R23 model-route provider (created in L2 lm-route)
 let mcpManager = null; // S2b MCP consume aggregator (created in L0, no side effects)
@@ -138,6 +180,7 @@ let ensureRuntime = null; // resolves/verifies (and optionally provisions) the m
 let discoverRunningDshWebPorts = null; // process-scan fallback for silent ports (injectable)
 let ensureWorkspaceSessionFn = null; // retained injection seam; defaults to workspaceBinding.resolve
 let workspaceBinding = null; // SM-2 workspace registry binding (created in activate)
+let sessionTitleFn = null; // B2 shared one-shot session titler (chat participant + exports face)
 let runtimeAbort = new AbortController(); // cancels in-flight runtime provisioning on deactivate
 let threadAttachmentCoordinator = null; // owning-window request/ack bridge into the DSH composer
 let injectedDependencies = {}; // activation seams shared with the feature setups (deps stays { context, services })
@@ -243,6 +286,7 @@ async function openInstancePanel({
       handleWebviewInteraction(message, panel.webview);
     },
     threadResult: (message) => threadAttachmentCoordinator?.handleResult(message),
+    sessionChanged: (sessionId) => handleSessionChangedFromWeb(sessionId),
     handshakeError: (message) => {
       const detail = message && message.error ? message.error : loc("Webview 桥版本不匹配");
       setStatusBar("$(error) " + loc("Webview 桥版本不匹配"), detail);
@@ -356,6 +400,13 @@ function prepareDshHome(config, context) {
     context.extensionPath || path.resolve(__dirname, '..'),
     { profileName: config.profile }
   );
+  if (integration.versionChanged || (Array.isArray(integration.foreignRemoved) && integration.foreignRemoved.length > 0)) {
+    // Multi-version coexistence: another extension version (installed release
+    // or a different dev build) owned the shared package directory. The sync
+    // swept its foreign files; surface that for Diagnose because a mixed
+    // byte set was the root cause of the 2026-09-04 tool-channel outage.
+    appendDiagnostic(`[integration] package directory re-owned by this extension version; swept ${integration.foreignRemoved.length} foreign file(s)`);
+  }
   const info = {
     ...resolved,
     integrationNodeModulesPath: integration.nodeModulesPath,
@@ -396,25 +447,26 @@ function isCleanRestartEligible(err) {
   return code === "HEALTH_TIMEOUT" || code === "SPAWN_EXITED_EARLY";
 }
 
-/**
- * Localized dsh.diagnose startup-error table. Every row flows through the
- * startupErrors taxonomy and is rendered via the bilingual l10n template keys
- * (the localized hints live in l10n/bundle.l10n.*.json).
- * @returns {string}
- */
-function localizedStartupErrorTable() {
-  return Object.keys(STARTUP_ERRORS)
-    .sort()
-    .map((code) => {
-      const def = STARTUP_ERRORS[code];
-      return `${code}: ${def.retryable ? loc("retryable") : loc("non-retryable")} — ${loc(def.diagnoseHint)}`;
-    })
-    .join('\n');
-}
-
 // ---------------------------------------------------------------------------
 // C1 watchdog + OutputChannel「DSH」(contract §3/§6 + D6 quad).
 // ---------------------------------------------------------------------------
+
+/**
+ * D2: read the platform-default integrated terminal profile name for the
+ * WSL detector (README compatibility promise: Diagnose warns when the
+ * default terminal is a WSL shell). Null-safe on hosts without the
+ * terminal configuration surface.
+ * @returns {string|null} Default profile name, or null.
+ */
+function readDefaultTerminalProfile() {
+  try {
+    const platformKey = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'osx' : 'linux';
+    const value = vscode.workspace.getConfiguration('terminal.integrated.defaultProfile').get(platformKey);
+    return typeof value === 'string' && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Stable identity for this VS Code window used by the C1 watchdog protocol.
@@ -530,11 +582,23 @@ function startHeartbeat() {
  * Last link of the §3 degradation chain: append one diagnostic line to the
  * `DSH` OutputChannel. Null-safe — the channel may be absent in tests or on a
  * host without the API, and diagnostics must never throw.
- * @param {string} line
+ *
+ * F-h: variadic with real serialization. A bare (line) signature silently
+ * dropped every extra argument — status codes, Error objects, response
+ * payloads — which repeatedly slowed down live debugging (gate-session F-h).
+ * Errors render their stack; objects render as JSON; strings join with a
+ * single space.
+ * @param {...unknown} parts
  */
-function appendDiagnostic(line) {
+function appendDiagnostic(...parts) {
   try {
     if (outputChannel && typeof outputChannel.appendLine === 'function') {
+      const line = parts.map((part) => {
+        if (typeof part === 'string') return part;
+        if (part instanceof Error) return part.stack || `${part.name}: ${part.message}`;
+        if (part === undefined) return 'undefined';
+        try { return JSON.stringify(part); } catch { return String(part); }
+      }).join(' ');
       outputChannel.appendLine(line);
     }
   } catch {
@@ -615,8 +679,13 @@ function setStatusBar(text, tooltip) {
     // through a fallback item so the $(error) lifeline always has a seat.
     statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   }
+  // A1/U1: the indicator is a button, not a label — clicking toggles the
+  // DSH sidebar; the tooltip lists the other lifeline commands.
+  statusBar.command = 'dsh.focusSidebar';
   statusBar.text = text;
-  statusBar.tooltip = tooltip || text;
+  statusBar.tooltip = (tooltip || text)
+    + "\n\n" + loc("Click to open the DSH sidebar")
+    + "\n" + loc("More: Restart / Stop / Diagnose DSH Server, New DSH Instance (Ctrl+Alt+N)");
   statusBar.show();
 }
 
@@ -634,6 +703,10 @@ function render(page) {
  */
 function renderFrame(context) {
   if (!currentExternalUrl) return;
+  // Session-following change tree: every frame render follows a session
+  // change (bind / new / switch), so this is the single setActiveSession
+  // anchor; the tree tolerates being absent (L0) via optional chaining.
+  try { changeTree?.setActiveSession?.(currentSessionId); } catch (_) { /* advisory */ }
   render(framePage({
     url: currentExternalUrl,
     lang: vscode.env.language,
@@ -684,9 +757,20 @@ async function bindServer(context, server, cwd) {
   const url = await externalize(server.url);
   currentExternalUrl = url;
   const mode = loc(server.owned ? "managed" : "reused");
+  // A6/U9: when the port-conflict fallback moved the server off the
+  // configured port, the tooltip says which port is actually in use.
+  const configuredPort = hostContext.config().port;
+  let bindTooltip = loc("DSH server: {url}", { url: server.url })
+    + (cwd ? " | " + loc("workspace: {cwd}", { cwd }) : "");
+  if (Number.isInteger(configuredPort) && server.port !== configuredPort) {
+    bindTooltip += " | " + loc("actual port {actual} (configured {configured})", {
+      actual: String(server.port),
+      configured: String(configuredPort),
+    });
+  }
   setStatusBar(
       "$(radio-tower) " + loc("DSH: {port} ({mode})", { port: String(server.port), mode }),
-      loc("DSH server: {url}", { url: server.url }) + (cwd ? " | " + loc("workspace: {cwd}", { cwd }) : "")
+      bindTooltip
   );
 
   let sessionId = null;
@@ -697,6 +781,7 @@ async function bindServer(context, server, cwd) {
     // instances.
     sessionId = await workspaceBinding.resolve(server, cwd);
     currentSessionId = sessionId ? sessionIdFromValue(sessionId) : null;
+    followEditProjection(currentSessionId);
     const bindingState = workspaceBinding.state();
     if (bindingState.state === BINDING_STATES.ERROR) {
       render(statusPage({
@@ -710,6 +795,7 @@ async function bindServer(context, server, cwd) {
     }
   } else {
     currentSessionId = null;
+    followEditProjection(null);
   }
   renderFrame(context);
 }
@@ -903,6 +989,7 @@ async function reconnectNow(context) {
   currentServer = null;
   currentExternalUrl = null;
   currentSessionId = null;
+  followEditProjection(null);
   await connectNow(context);
 }
 
@@ -984,6 +1071,7 @@ async function rebindToWorkspace(context) {
     currentServer = null;
     currentExternalUrl = null;
     currentSessionId = null;
+    followEditProjection(null);
     await connectNow(context);
     return;
   }
@@ -992,6 +1080,7 @@ async function rebindToWorkspace(context) {
   // to the new workspace through the workspace registry.
   const sessionId = await workspaceBinding.resolve(currentServer, cwd);
   currentSessionId = sessionId ? sessionIdFromValue(sessionId) : null;
+  followEditProjection(currentSessionId);
   const bindingState = workspaceBinding.state();
   if (bindingState.state === BINDING_STATES.ERROR) {
     render(statusPage({
@@ -1123,7 +1212,7 @@ const ONBOARDING_FEATURE_SWITCHES = FEATURE_CATALOG
  * seams, and the implemented feature switch list so src/onboarding.js stays a
  * pure module (no top-level require('vscode')).
  */
-function createOnboardingWorkspace(vscode, loc) {
+function createOnboardingWorkspace(vscode, loc, context) {
   return {
     vscode,
     loc,
@@ -1134,6 +1223,25 @@ function createOnboardingWorkspace(vscode, loc) {
     async updateSetting(key, value) {
       // Global target: the wizard's choices apply to the user, not one folder.
       return vscode.workspace.getConfiguration('dsh').update(key, value, true);
+    },
+    // D3: existing-profile detection (zero typing) + the FIM secret seam.
+    // Both degrade silently when the DSH home or secretStorage is absent.
+    listProfiles() {
+      try {
+        const homePath = activeDshHomeInfo && typeof activeDshHomeInfo.path === 'string' ? activeDshHomeInfo.path : '';
+        if (!homePath) return [];
+        const profilesRoot = path.join(homePath, 'profiles');
+        return fs.readdirSync(profilesRoot, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => entry.name)
+          .filter((name) => fs.existsSync(path.join(profilesRoot, name, 'package.json')));
+      } catch {
+        return [];
+      }
+    },
+    async storeFimKey(key) {
+      if (!context || !context.secrets || typeof context.secrets.store !== 'function') return;
+      await context.secrets.store('dsh.fim.apiKey', key);
     },
   };
 }
@@ -1246,6 +1354,15 @@ async function setupCoreServer({ context, services }) {
     const server = currentServer || { url: baseUrl, owned: true };
     return workspaceBinding.resolve(server, cwd);
   });
+  // B2: shared one-shot session titler. Both the @dsh participant and the
+  // exports face derive a readable session title from the first prompt
+  // (sessions created through the API otherwise keep bare-UUID titles);
+  // createSessionTitler memoizes per session id so at most one
+  // session.rename is issued per session per extension lifetime.
+  sessionTitleFn = (injectedDependencies.createSessionTitler || createSessionTitler)((sessionId, title) => renameSession(
+    currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
+    { sessionId, title }
+  ));
   try {
     prepareDshHome(hostContext.config(), context);
   } catch (err) {
@@ -1258,6 +1375,15 @@ async function setupCoreServer({ context, services }) {
   manager = createServerManager({
     spawnEnv: services.bridgeEnv, // live shared bag: L0 publishes it, L1/L2 bridge features merge into it
     embedPatchPath,
+    // 2026-09-04 incident follow-up: before every owned spawn, make sure the
+    // target profile disables server module HMR (older runtimes break every
+    // in-flight tool call during a module reload; upstream fixed the default
+    // in 0.1.2-alpha.1 — fd814589fb). Idempotent, best-effort in ServerManager.
+    runtimeProfileGuard: (runtime) => ensureHmrDisabled({
+      dshHome: runtime.dshHome,
+      profileName: runtime.profileName,
+      dshVersion: runtime.dshVersion,
+    }),
     onStatus: (s) => {
       if (s.state === "lost") {
         // Post-ready health watchdog detected the service stopped answering
@@ -1301,6 +1427,7 @@ async function setupCoreServer({ context, services }) {
         currentServer = null;
         currentExternalUrl = null;
         currentSessionId = null;
+        followEditProjection(null);
         boundCwd = null;
         pendingCleanRestart = false;
         appendDiagnostic(`[server] ${s.message ? loc(s.message, s.params) : loc("DSH: unavailable")}`);
@@ -1327,7 +1454,15 @@ async function setupCoreServer({ context, services }) {
         }));
       } else if (s.state === "ready") {
         const mode = loc(s.server && s.server.owned ? "managed" : "reused");
-        setStatusBar("$(radio-tower) " + loc("DSH: {port} ({mode})", { port: String(s.server ? s.server.port : "?"), mode }));
+        const readyPort = s.server ? s.server.port : null;
+        const cfgPort = hostContext.config().port;
+        const readyTooltip = Number.isInteger(cfgPort) && Number.isInteger(readyPort) && readyPort !== cfgPort
+          ? loc("DSH server ready") + " | " + loc("actual port {actual} (configured {configured})", {
+            actual: String(readyPort),
+            configured: String(cfgPort),
+          })
+          : loc("DSH server ready");
+        setStatusBar("$(radio-tower) " + loc("DSH: {port} ({mode})", { port: String(readyPort === null ? "?" : readyPort), mode }), readyTooltip);
       }
     },
   });
@@ -1361,6 +1496,13 @@ async function setupCoreServer({ context, services }) {
       scheduleRebind(context);
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
+      // A2/U2: injection-class settings only take effect after the DSH
+      // service restarts — surface that with an explicit Restart prompt
+      // instead of silently keeping the old behavior.
+      if (RESTART_PROMPT_SETTINGS.some((key) => e.affectsConfiguration(key))) {
+        scheduleRestartPrompt(context);
+        return;
+      }
       if (
         e.affectsConfiguration("dsh.host") ||
         e.affectsConfiguration("dsh.port") ||
@@ -1387,6 +1529,44 @@ async function setupCoreServer({ context, services }) {
     workspaceBinding?.dispose?.();
     workspaceBinding = null;
   };
+}
+
+/**
+ * A2/U2: settings that only apply to a freshly started DSH service (the
+ * server-side FIM plugin config and the bridge consent gates negotiated at
+ * bridge initialization). Changing any of them triggers a debounced
+ * "Restart now?" prompt; confirming runs dsh.restartServer.
+ */
+const RESTART_PROMPT_SETTINGS = Object.freeze([
+  'dsh.fim.baseUrl',
+  'dsh.fim.model',
+  'dsh.features.tab-completion',
+  'dsh.bridge.terminal',
+  'dsh.bridge.editorRead',
+  'dsh.bridge.ui',
+]);
+
+/**
+ * Debounced prompt so a settings-editor burst (toggling several keys at
+ * once) coalesces into one question. Confirming restarts the DSH service
+ * through the normal command (which politely declines for reused external
+ * instances).
+ */
+function scheduleRestartPrompt(context) {
+  if (restartPromptTimer) return;
+  restartPromptTimer = setTimeout(() => {
+    restartPromptTimer = null;
+    const restartLabel = loc("Restart now");
+    vscode.window.showInformationMessage(
+      loc("The changed DSH settings take effect after the DSH service restarts. Restart now?"),
+      restartLabel
+    ).then((choice) => {
+      if (choice === restartLabel) {
+        vscode.commands.executeCommand("dsh.restartServer").catch(() => {});
+      }
+    });
+  }, 300);
+  if (restartPromptTimer && typeof restartPromptTimer.unref === 'function') restartPromptTimer.unref();
 }
 
 /**
@@ -1443,8 +1623,63 @@ async function setupCoreSidebar({ context, services }) {
       }
       return entry;
     },
+    async recordToolEdit(payload) {
+      // DSH tool arguments carry session-cwd-relative paths; the journal,
+      // watcher dedup, openDiff and undo key on absolute host paths. Resolve
+      // against the bound cwd plus every workspace-folder root (existence
+      // preferred) before the payload enters the journal.
+      let roots = [];
+      try {
+        const folders = vscode.workspace && Array.isArray(vscode.workspace.workspaceFolders)
+          ? vscode.workspace.workspaceFolders
+          : [];
+        roots = folders.map((folder) => (folder && folder.uri && typeof folder.uri.fsPath === 'string'
+          ? folder.uri.fsPath : null)).filter(Boolean);
+      } catch { roots = []; }
+      if (typeof boundCwd === 'string' && boundCwd.length > 0) roots.unshift(boundCwd);
+      const entry = await rawChangeTracker.recordToolEdit(normalizeToolEditPath(payload, roots));
+      if (entry && entry.merged !== true) {
+        // True before snapshot (2026-09-04): the pre-execute observer now
+        // sends the before TEXT; persist it exactly like watcher snapshots so
+        // openDiff shows a real before/after diff and undo restores the true
+        // pre-change state.
+        if (typeof payload.beforeText === 'string'
+          && Buffer.byteLength(payload.beforeText, 'utf8') <= 1024 * 1024) {
+          try {
+            const snapshotDir = path.join(context.globalStorageUri.fsPath, 'changes', 'snapshots');
+            fs.mkdirSync(snapshotDir, { recursive: true });
+            const snapshotPath = path.join(snapshotDir, entry.id);
+            fs.writeFileSync(snapshotPath, payload.beforeText, 'utf8');
+            await rawChangeTracker.updateEntry(entry.id, { beforeSnapshotPath: snapshotPath });
+          } catch {
+            // snapshot persistence is best-effort; attribution stands alone
+          }
+        }
+        try {
+          services.changesReview?.onEntry?.(entry);
+        } catch (_) {
+          // reveal is best-effort; the journal record already succeeded
+        }
+      }
+      return entry;
+    },
   };
   services.changeTracker = changeTracker;
+  // C2.5 event-flow attribution: project edit/write tool calls from the DSH
+  // session event stream (bounded export back-scan + live events.mux
+  // subscription) into the change journal. Zero interception: the journal's
+  // (path, sessionId, ±2s) idempotent merge folds duplicates with C2 bridge
+  // notifications. Every projector failure only logs via appendDiagnostic.
+  try {
+    editEventProjector = createEditEventProjector({
+      recordToolEdit: (payload) => changeTracker?.recordToolEdit?.(payload),
+      log: (line) => appendDiagnostic(line),
+      baseUrl: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
+    });
+    services.editEventProjector = editEventProjector;
+  } catch (err) {
+    appendDiagnostic('edit-event projector degraded: ' + (err && err.message ? err.message : String(err)));
+  }
   mcpConsentGate = createConsentGate({
     globalState: context.globalState || { get: () => [], update: () => {} },
     vscode,
@@ -1466,6 +1701,9 @@ async function setupCoreSidebar({ context, services }) {
         consentGate: mcpConsentGate,
         spawn,
         logger: (line) => appendDiagnostic(line),
+        // C3 zero-typing: same-name env keys resolve from the extension host
+        // secret storage before any prompt (facade-less tests pass undefined).
+        secretStorage: (context && context.secrets) || null,
       });
     } catch (error) {
       appendDiagnostic(`mcp-consume support degraded: ${error && error.message ? error.message : String(error)}`);
@@ -1494,6 +1732,8 @@ async function setupCoreSidebar({ context, services }) {
     })
     : injectedDependencies.v3Handlers;
   versionedBridge = await versionedBridgeStarter({
+    // C1/C2 contract: route vscode/dshEditObserved notifications into the journal.
+    onDshEditObserved: (payload) => changeTracker?.recordToolEdit?.(payload),
     handlers: injectedDependencies.vscodeBridgeHandlers === undefined
       ? { ...editorContext.handlers, ...extensionBridgeHandlers, ...v3Handlers }
       : injectedDependencies.vscodeBridgeHandlers,
@@ -1559,6 +1799,7 @@ async function setupCoreSidebar({ context, services }) {
             handleWebviewInteraction(message, view.webview);
           },
           threadResult: (message) => threadAttachmentCoordinator?.handleResult(message),
+          sessionChanged: (sessionId) => handleSessionChangedFromWeb(sessionId),
           handshakeError: (message) => {
             const detail = message && message.error ? message.error : loc("Webview 桥版本不匹配");
             setStatusBar("$(error) " + loc("Webview 桥版本不匹配"), detail);
@@ -1781,6 +2022,7 @@ function buildExportsFace(context) {
   };
   return createExportsFace({
     isEnabled: () => vscode.workspace.getConfiguration('dsh').get('features.exports', false),
+    titleSession: sessionTitleFn || undefined,
     chatClient: createDshChatClient({
       baseUrlProvider: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
       ensureConnected,
@@ -1837,6 +2079,7 @@ async function setupChatParticipant({ context, services }) {
   });
   const participantModule = createChatParticipantModule({
     chatClient,
+    titleSession: sessionTitleFn || undefined,
     resolveSessionId: async () => {
       if (typeof ensureWorkspaceSessionFn !== 'function') {
         throw new Error('DSH workspace session seam is unavailable');
@@ -1874,25 +2117,61 @@ async function setupChatParticipant({ context, services }) {
  */
 async function setupTabCompletion({ context, services }) {
   const token = crypto.randomBytes(32).toString('hex');
-  const spawnEnv = { DSH_FIM_BRIDGE_TOKEN: token };
   // Upstream FIM endpoint + key: baseUrl from settings (machine scope), key
   // from VS Code secretStorage. The DSH-side /api/fim route needs both;
   // missing values simply leave the route unconfigured (503 with guidance).
-  try {
-    const baseUrl = vscode.workspace.getConfiguration('dsh').get('fim.baseUrl', '');
-    if (typeof baseUrl === 'string' && baseUrl.length > 0) spawnEnv.DSH_FIM_BASE_URL = baseUrl;
-    const apiKey = await context.secrets.get('dsh.fim.apiKey');
-    if (typeof apiKey === 'string' && apiKey.length > 0) spawnEnv.DSH_FIM_API_KEY = apiKey;
-  } catch {
-    // secrets unavailable in stripped hosts: the route reports its own 503
+  // F-i: the values are RE-READ and re-injected on every fim config/secret
+  // change, because ServerManager snapshots spawnEnv at setSpawnEnv time — a
+  // one-shot activation read meant "dsh.restartServer" kept spawning with
+  // stale values until a full window reload. Writing each key on every
+  // refresh (empty string when unset) also overwrites stale merges.
+  async function readFimSpawnEnv() {
+    // Both keys are always written (empty string = unconfigured on the DSH
+    // side) so a refresh overwrites stale merged values after a change or
+    // deletion instead of leaving the previous value in place.
+    const env = { DSH_FIM_BRIDGE_TOKEN: token, DSH_FIM_BASE_URL: '', DSH_FIM_API_KEY: '' };
+    try {
+      const baseUrl = vscode.workspace.getConfiguration('dsh').get('fim.baseUrl', '');
+      if (typeof baseUrl === 'string') env.DSH_FIM_BASE_URL = baseUrl;
+      const apiKey = await context.secrets.get('dsh.fim.apiKey');
+      if (typeof apiKey === 'string') env.DSH_FIM_API_KEY = apiKey;
+    } catch {
+      // secrets unavailable in stripped hosts: the route reports its own 503
+    }
+    return env;
   }
-  services.manager?.setSpawnEnv?.(spawnEnv);
+  const refreshFimSpawnEnv = async () => {
+    services.manager?.setSpawnEnv?.(await readFimSpawnEnv());
+  };
+  await refreshFimSpawnEnv();
+  if (typeof vscode.workspace.onDidChangeConfiguration === 'function') {
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
+      if (typeof event?.affectsConfiguration !== 'function') return;
+      if (event.affectsConfiguration('dsh.fim.baseUrl')) void refreshFimSpawnEnv();
+    }));
+  }
+  if (context.secrets && typeof context.secrets.onDidChangeSecrets === 'function') {
+    context.subscriptions.push(context.secrets.onDidChangeSecrets((event) => {
+      if (!event || event.key !== 'dsh.fim.apiKey') return;
+      void refreshFimSpawnEnv();
+    }));
+  }
   const provider = createInlineCompletionProvider({
     getServerUrl: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
     tokenProvider: () => token,
     getModel: () => vscode.workspace.getConfiguration('dsh').get('fim.model', ''),
     fetchImpl: globalThis.fetch,
     log: (line) => appendDiagnostic(line),
+    // F-e: inlineCompletion dedupes to once per session; surface the 503
+    // guidance as a visible warning plus a full diagnostic entry.
+    onFimUnavailable: (guidance) => {
+      appendDiagnostic(`[inlineCompletion] FIM service unavailable: ${guidance}`);
+      try {
+        vscode.window.showWarningMessage(loc('DSH tab completion is unavailable: {guidance}', { guidance }));
+      } catch {
+        // stripped hosts without window.showWarningMessage: diagnostic only
+      }
+    },
   });
   const registration = vscode.languages.registerInlineCompletionItemProvider({ scheme: 'file' }, provider.provider);
   context.subscriptions.push(registration);
@@ -1968,6 +2247,7 @@ async function setupLmRoute({ context, services }) {
 async function setupStatusbarBasic() {
   if (typeof vscode.window.createStatusBarItem === 'function') {
     statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+    statusBar.command = 'dsh.focusSidebar'; // A1/U1: clickable from the first paint on
   }
   return () => {
     try {
@@ -1991,7 +2271,15 @@ async function setupChangesReview({ context, services }) {
     tracker: changeTracker,
     storageUri: context.globalStorageUri,
     loc,
+    // Session-following default: the tree shows only the sidebar's active
+    // session; dsh.changes.toggleScope flips to the global 'all' view.
+    scope: "session",
+    // Cross-window resolution base for session-cwd-relative entry paths
+    // (bug 2026-09-04: openDiff misreported existing files as deleted when
+    // the workspace folders did not contain the DSH instance cwd).
+    additionalRoots: () => (typeof boundCwd === 'string' && boundCwd.length > 0 ? [boundCwd] : []),
   });
+  changeTree.setActiveSession(currentSessionId);
   services.changesTree = changeTree;
   // Wire the L0 tracker wrapper to the L2 tree so every newly recorded
   // change reveals itself in the view.
@@ -2005,12 +2293,44 @@ async function setupChangesReview({ context, services }) {
     },
   };
   context.subscriptions.push({ dispose() { changeTree?.dispose(); } });
+  // C1 L3: the FileSystemWatcher fallback rides the changes-review feature —
+  // same tracker, same storage, disposed together (startWatcher/stopWatcher).
+  startChangeWatcher(context);
   return () => {
     services.changesReview = undefined;
     services.changesTree = undefined;
+    stopChangeWatcher();
     changeTree?.dispose();
     changeTree = null;
   };
+}
+
+/** C1 L3: start the changes watcher fallback (idempotent, best-effort). */
+function startChangeWatcher(context) {
+  if (changeWatcher) return;
+  try {
+    changeWatcher = createChangeWatcher({
+      vscode,
+      tracker: changeTracker,
+      storageUri: context.globalStorageUri,
+      loc,
+      onDiagnostic: (line) => appendDiagnostic(line),
+    });
+    context.subscriptions.push({ dispose() { stopChangeWatcher(); } });
+  } catch (error) {
+    changeWatcher = null;
+    appendDiagnostic(`changes watcher unavailable: ${error && error.message ? error.message : error}`);
+  }
+}
+
+/** C1 L3: stop the changes watcher fallback (idempotent). */
+function stopChangeWatcher() {
+  try {
+    changeWatcher?.dispose?.();
+  } catch {
+    // best-effort
+  }
+  changeWatcher = null;
 }
 
 /**
@@ -2113,6 +2433,7 @@ function registerFeatureCommands(context, featureOk) {
         currentServer = null;
         currentExternalUrl = null;
         currentSessionId = null;
+        followEditProjection(null);
         boundCwd = null;
         vscode.window.showInformationMessage(loc("DSH server stopped"));
       })),
@@ -2218,7 +2539,14 @@ function registerFeatureCommands(context, featureOk) {
           signal: controller.signal,
         });
         currentSessionId = sessionIdFromValue(sessionId);
+        // B2: an explicit New Session must move the cached binding too,
+        // otherwise @dsh prompts keep targeting the previous session.
+        workspaceBinding?.setActiveSession?.(sessionId);
+        followEditProjection(currentSessionId);
         renderFrame(context);
+        // A4/U5: a successful session switch must also reveal the sidebar —
+        // it may still be collapsed, and the toast alone hides the result.
+        vscode.commands.executeCommand("dsh.focusSidebar").catch(() => {});
         vscode.window.showInformationMessage(loc("Session created: {sessionId}", { sessionId }));
       } catch (err) {
         vscode.window.showErrorMessage(loc("Session command failed: {message}", {
@@ -2256,7 +2584,12 @@ function registerFeatureCommands(context, featureOk) {
         });
         if (selected && selected.sessionId) {
           currentSessionId = sessionIdFromValue(selected.sessionId);
+          // B2: the sidebar switch must move the cached binding so @dsh
+          // prompts follow the session the user is looking at.
+          workspaceBinding?.setActiveSession?.(selected.sessionId);
+          followEditProjection(currentSessionId);
           renderFrame(context);
+          vscode.commands.executeCommand("dsh.focusSidebar").catch(() => {});
           vscode.window.showInformationMessage(loc("Session switched: {sessionId}", {
             sessionId: selected.sessionId,
           }));
@@ -2328,45 +2661,45 @@ function registerFeatureCommands(context, featureOk) {
           home: activeDshHomeInfo,
           binding: workspaceBinding && workspaceBinding.state() || null,
         });
-        const installed = snapshot.providers.filter((provider) => provider.installed).length;
         snapshot.featureFailures = featureFailures.slice();
-        const failuresSuffix = featureFailures.length === 0
-          ? ""
-          : " — " + loc("Degraded features: {items}", {
-            items: featureFailures.map((f) => f.id + ": " + f.error).join(" | "),
-          });
-        const resolvedRuntime = currentServer && typeof currentServer.resolvedRuntime === 'object' ? currentServer.resolvedRuntime : null;
-        const compatFlags = deriveFeatureFlags(resolvedRuntime ? resolvedRuntime.dshVersion : null);
-        const compatText = (compatFlags.known && resolvedRuntime && resolvedRuntime.dshVersion ? resolvedRuntime.dshVersion : 'unknown')
-          + " (patch=" + (compatFlags.patchOverlay ? "yes" : "no")
-          + ", theme=" + (compatFlags.themeParam ? "yes" : "no")
-          + ", toolsV3=" + (compatFlags.toolsV3 ? "yes" : "no") + ")";
-        const compatSuffix = " — " + loc("DSH compat: {compat}", { compat: compatText });
-        const startupTableSuffix = "\n\n" + localizedStartupErrorTable();
-        const selfHealSuffix = selfHealEvents.length === 0
-          ? ""
-          : " — " + loc("Self-healed without --patch: {count} time(s)", { count: String(selfHealEvents.length) });
         const hostCapabilities = deriveVscodeCapabilities(vscode.version);
         const hostVersion = typeof vscode.version === 'string' && vscode.version.length > 0
           ? vscode.version
           : 'unknown';
-        const capabilityText = "chat=" + (hostCapabilities.chatParticipant ? "yes" : "no")
-          + ", lm=" + (hostCapabilities.lmProvider ? "yes" : "no")
-          + ", mcp=" + (hostCapabilities.mcpServerDefinitions ? "yes" : "no");
-        vscode.window.showInformationMessage(loc(
-          "DSH diagnose: host {hostVersion} ({capabilities}), home {homeMode} ({homePath}), server {server}, bridge {bridge}, catalog {catalog}, providers {installed}/{total} installed",
-          {
-            hostVersion,
-            capabilities: capabilityText,
-            homeMode: snapshot.home.mode,
-            homePath: snapshot.home.path,
-            server: snapshot.server.available ? loc("running") : loc("stopped"),
-            bridge: snapshot.bridge.listening ? loc("listening") : loc("closed"),
-            catalog: String(snapshot.catalogRevision).slice(0, 8),
-            installed: String(installed),
-            total: String(snapshot.providers.length),
-          }
-        ) + failuresSuffix + compatSuffix + startupTableSuffix + selfHealSuffix);
+        const resolvedRuntime = currentServer && typeof currentServer.resolvedRuntime === 'object' ? currentServer.resolvedRuntime : null;
+        const compatFlags = deriveFeatureFlags(resolvedRuntime ? resolvedRuntime.dshVersion : null);
+        const runtimeIssues = deriveRuntimeIssues(resolvedRuntime ? resolvedRuntime.dshVersion : null);
+        // D2: sectioned report (service/bridge/compat/plugins/alerts) with
+        // humanized startup-error text + suggested actions and a WSL
+        // default-terminal detector. The toast keeps only the one-line
+        // summary; the full JSON stays in the DSH OutputChannel.
+        const report = buildDiagnoseReport({
+          snapshot,
+          hostVersion,
+          hostCapabilities,
+          compat: {
+            dshVersion: compatFlags.known && resolvedRuntime && resolvedRuntime.dshVersion ? resolvedRuntime.dshVersion : 'unknown',
+            patchOverlay: compatFlags.patchOverlay,
+            themeParam: compatFlags.themeParam,
+            toolsV3: compatFlags.toolsV3,
+          },
+          runtimeIssues,
+          featureFailures: featureFailures.slice(),
+          selfHealCount: selfHealEvents.length,
+          defaultTerminalProfile: readDefaultTerminalProfile(),
+          platform: process.platform,
+          loc,
+        });
+        appendDiagnostic('[diagnose] ' + JSON.stringify(report.json, null, 2));
+        vscode.window.showInformationMessage(loc('DSH diagnose: {summary}', { summary: report.summary }));
+        // Fire-and-forget picker: hosts (and test fakes) without picker
+        // events must never hang the command.
+        void showDiagnoseQuickPick(vscode, report, { loc }).then((picked) => {
+          const action = picked && picked.action;
+          if (!action || typeof action.command !== 'string') return;
+          const args = Array.isArray(action.args) ? action.args : [];
+          vscode.commands.executeCommand(action.command, ...args).catch(() => {});
+        }).catch(() => {});
       } catch (err) {
         vscode.window.showErrorMessage(loc("DSH diagnose failed: {message}", {
           message: err && err.message ? err.message : String(err),
@@ -2409,9 +2742,29 @@ function registerFeatureCommands(context, featureOk) {
           }));
         }
       }),
-      vscode.commands.registerCommand("dsh.changes.accept", (entry) => changeTree.accept(entry || {})),
-      vscode.commands.registerCommand("dsh.changes.undo", (entry) => changeTree.undo(entry || {})),
-      vscode.commands.registerCommand("dsh.changes.refresh", () => changeTree.refresh())
+      // B1: Accept applies the edits (only disk-writing path); Undo discards
+      // pending entries or snapshot-restores accepted ones. Both surface
+      // applyEdit failures instead of failing silently.
+      vscode.commands.registerCommand("dsh.changes.accept", async (entry) => {
+        try {
+          return await changeTree.accept(entry || {});
+        } catch (error) {
+          vscode.window.showErrorMessage(loc("Change accept failed: {message}", {
+            message: error && error.message ? error.message : String(error),
+          }));
+        }
+      }),
+      vscode.commands.registerCommand("dsh.changes.undo", async (entry) => {
+        try {
+          return await changeTree.undo(entry || {});
+        } catch (error) {
+          vscode.window.showErrorMessage(loc("Change undo failed: {message}", {
+            message: error && error.message ? error.message : String(error),
+          }));
+        }
+      }),
+      vscode.commands.registerCommand("dsh.changes.refresh", () => changeTree.refresh()),
+      vscode.commands.registerCommand("dsh.changes.toggleScope", () => changeTree.toggleScope())
     );
   }
 
@@ -2463,10 +2816,23 @@ function registerFeatureCommands(context, featureOk) {
     }
     registered.push(
       vscode.commands.registerCommand("dsh.mcp.forgetConsent", async () => {
-        const name = await vscode.window.showInputBox({ prompt: loc("MCP server name to forget") });
-        if (typeof name === 'string' && name.length > 0) {
-          mcpConsentGate?.forget(name);
+        // A3/U4: pick from the remembered consents instead of hand-typing
+        // the server name — a typed name that did not match a stored one
+        // made forget() a silent no-op, so re-invoking the tool never
+        // re-asked for consent (the acceptance-found bug).
+        const consented = mcpConsentGate ? mcpConsentGate.list() : [];
+        if (consented.length === 0) {
+          vscode.window.showInformationMessage(loc("No remembered MCP server consent"));
+          return;
+        }
+        const picked = await vscode.window.showQuickPick(
+          consented.map((name) => ({ label: name, name })),
+          { placeHolder: loc("MCP server name to forget") }
+        );
+        if (picked && picked.name) {
+          mcpConsentGate?.forget(picked.name);
           mcpManager.refresh();
+          vscode.window.showInformationMessage(loc("MCP server consent forgotten: {name}", { name: picked.name }));
         }
       })
     );
@@ -2598,7 +2964,7 @@ async function activateWithDependencies(context, dependencies = {}) {
   // failed, and the QuickPick/InputBox wizard self-manages (contract: no new
   // context.subscriptions entry).
   vscode.commands.registerCommand("dsh.onboarding", () =>
-    runOnboardingWizard({ context, workspace: createOnboardingWorkspace(vscode, loc) })
+    runOnboardingWizard({ context, workspace: createOnboardingWorkspace(vscode, loc, context) })
   );
 
   // R16 multi-instance: demand-driven editor-area panels, each with its own
@@ -2619,7 +2985,7 @@ async function activateWithDependencies(context, dependencies = {}) {
     vscode,
     context,
     loc,
-    workspace: createOnboardingWorkspace(vscode, loc),
+    workspace: createOnboardingWorkspace(vscode, loc, context),
   }).catch((error) => {
     console.error("dsh-vs-sidebar: onboarding prompt failed:", error);
   });
@@ -2676,6 +3042,13 @@ async function deactivate() {
     currentServer = null;
     currentExternalUrl = null;
     currentSessionId = null;
+    // C2.5: stop the edit-event projection subscription (if any).
+    try {
+      editEventProjector?.dispose?.();
+    } catch (_) {
+      /* projection teardown is best-effort */
+    }
+    editEventProjector = null;
     currentDshTheme = null;
     boundCwd = null;
     exportsFaceInstance = null;

@@ -1,612 +1,657 @@
 {
-  "name": "dsh-vs-sidebar",
-  "displayName": "%dsh.displayName%",
-  "description": "%dsh.ext.description%",
-  "version": "1.0.2",
-  "publisher": "Xizhi1024",
-  "license": "MIT",
-  "pricing": "Free",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode.git"
-  },
-  "homepage": "https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode#readme",
-  "bugs": {
-    "url": "https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/issues"
-  },
-  "keywords": [
-    "deepseek",
-    "deepseek harness",
-    "dsh",
-    "ai agent",
-    "coding agent",
-    "sidebar",
-    "webview"
-  ],
-  "categories": [
-    "Other"
-  ],
-  "galleryBanner": {
-    "color": "#0e639c",
-    "theme": "dark"
-  },
-  "icon": "media/deepseek.png",
-  "engines": {
-    "vscode": "^1.106.0"
-  },
-  "main": "src/extension.js",
-  "scripts": {
-    "lint": "node scripts/lint.js",
-    "test": "node --test \"test/*.test.js\" \"test/unit/*.test.js\"",
-    "test:unit": "node --test \"test/*.test.js\" \"test/unit/*.test.js\"",
-    "test:package": "node scripts/check-package-contents.js",
-    "test:secrets": "node scripts/check-secrets.js",
-    "test:extension-host": "node test/extension-host/run.js",
-    "check:w0": "npm run lint && npm run test:unit && npm run test:package && npm run test:secrets"
-  },
-  "l10n": "./l10n",
-  "activationEvents": [
-    "onStartupFinished",
-    "onView:dsh.webview",
-    "onCommand:dsh.openInBrowser",
-    "onCommand:dsh.restartServer",
-    "onCommand:dsh.stopServer",
-    "onCommand:dsh.focusSidebar",
-    "onCommand:dsh.addActiveFile",
-    "onCommand:dsh.addActiveSelection",
-    "onCommand:dsh.addSelectionToThread",
-    "onCommand:dsh.addFileToThread",
-    "onCommand:dsh.addFolderToThread",
-    "onCommand:dsh.addProblems",
-    "onCommand:dsh.newSession",
-    "onCommand:dsh.switchSession",
-    "onCommand:dsh.capabilities",
-    "onCommand:dsh.diagnose",
-    "onCommand:dsh.cleanupOrphans",
-    "onCommand:dsh.restartClean",
-    "onCommand:dsh.onboarding",
-    "onCommand:dsh.newInstance",
-    "onView:dsh.changes",
-    "onCommand:dsh.changes.openDiff",
-    "onCommand:dsh.changes.accept",
-    "onCommand:dsh.changes.undo",
-    "onCommand:dsh.changes.refresh",
-    "onCommand:dsh.changes.focus",
-    "onCommand:dsh.ctrlIEdit",
-    "onCommand:dsh.ctrlKEdit",
-    "onLanguageModelChatProvider:dsh",
-    "onCommand:dsh.mcp.refresh",
-    "onCommand:dsh.mcp.forgetConsent",
-    "onChatParticipant:dsh",
-    "onCommand:dsh.openSessionHistory",
-    "onCommand:dsh.fim.setApiKey"
-  ],
-  "extensionKind": [
-    "workspace"
-  ],
-  "capabilities": {
-    "untrustedWorkspaces": {
-      "supported": false,
-      "description": "%dsh.cap.untrusted%"
-    },
-    "virtualWorkspaces": {
-      "supported": false,
-      "description": "%dsh.cap.virtual%"
-    }
-  },
-  "devDependencies": {
-    "@types/vscode": "^1.106.0",
-    "@vscode/test-electron": "3.1.0",
-    "@vscode/vsce": "3.9.2"
-  },
-  "contributes": {
-    "languageModelChatProviders": [
-      {
-        "vendor": "dsh",
-        "displayName": "%dsh.lm.vendor%"
-      }
-    ],
-    "chatParticipants": [
-      {
-        "id": "dsh",
-        "name": "%dsh.participant.name%",
-        "description": "%dsh.participant.description%"
-      }
-    ],
-    "viewsContainers": {
-      "secondarySidebar": [
-        {
-          "id": "dsh-sidebar",
-          "title": "%dsh.view.title%",
-          "icon": "media/deepseek.svg"
-        }
-      ]
-    },
-    "views": {
-      "dsh-sidebar": [
-        {
-          "type": "webview",
-          "id": "dsh.webview",
-          "name": "%dsh.view.name%"
-        },
-        {
-          "type": "tree",
-          "id": "dsh.changes",
-          "name": "%dsh.view.changes%",
-          "when": "config.dsh.features.changes-review"
-        }
-      ]
-    },
-    "commands": [
-      {
-        "command": "dsh.openInBrowser",
-        "title": "%dsh.cmd.openInBrowser%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.restartServer",
-        "title": "%dsh.cmd.restartServer%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.stopServer",
-        "title": "%dsh.cmd.stopServer%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.focusSidebar",
-        "title": "%dsh.cmd.focusSidebar%",
-        "category": "%dsh.cmd.category%",
-        "icon": {
-          "light": "media/deepseek-light.svg",
-          "dark": "media/deepseek-dark.svg"
-        }
-      },
-      {
-        "command": "dsh.addActiveFile",
-        "title": "%dsh.cmd.addActiveFile%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.addActiveSelection",
-        "title": "%dsh.cmd.addActiveSelection%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.addSelectionToThread",
-        "title": "%dsh.cmd.addSelectionToThread%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.addFileToThread",
-        "title": "%dsh.cmd.addFileToThread%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.addFolderToThread",
-        "title": "%dsh.cmd.addFolderToThread%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.addProblems",
-        "title": "%dsh.cmd.addProblems%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.newSession",
-        "title": "%dsh.cmd.newSession%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.switchSession",
-        "title": "%dsh.cmd.switchSession%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.openSessionHistory",
-        "title": "%dsh.cmd.openSessionHistory%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.capabilities",
-        "title": "%dsh.cmd.capabilities%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.diagnose",
-        "title": "%dsh.cmd.diagnose%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.cleanupOrphans",
-        "title": "%dsh.cmd.cleanupOrphans%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.restartClean",
-        "title": "%dsh.cmd.restartClean%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.onboarding",
-        "title": "%dsh.cmd.onboarding%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.newInstance",
-        "title": "%dsh.cmd.newInstance%",
-        "category": "%dsh.cmd.category%",
-        "icon": {
-          "light": "media/deepseek-light.svg",
-          "dark": "media/deepseek-dark.svg"
-        }
-      },
-      {
-        "command": "dsh.changes.openDiff",
-        "title": "%dsh.cmd.changes.openDiff%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.changes.accept",
-        "title": "%dsh.cmd.changes.accept%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.changes.undo",
-        "title": "%dsh.cmd.changes.undo%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.changes.refresh",
-        "title": "%dsh.cmd.changes.refresh%",
-        "category": "%dsh.cmd.category%",
-        "icon": {
-          "light": "media/deepseek-light.svg",
-          "dark": "media/deepseek-dark.svg"
-        }
-      },
-      {
-        "command": "dsh.changes.focus",
-        "title": "%dsh.cmd.changes.focus%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.ctrlIEdit",
-        "title": "%dsh.cmd.ctrlIEdit%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.ctrlKEdit",
-        "title": "%dsh.cmd.ctrlKEdit%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.mcp.refresh",
-        "title": "%dsh.cmd.mcp.refresh%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.fim.setApiKey",
-        "title": "%dsh.cmd.fim.setApiKey%",
-        "category": "%dsh.cmd.category%"
-      },
-      {
-        "command": "dsh.mcp.forgetConsent",
-        "title": "%dsh.cmd.mcp.forgetConsent%",
-        "category": "%dsh.cmd.category%"
-      }
-    ],
-    "keybindings": [
-      {
-        "command": "dsh.focusSidebar",
-        "key": "ctrl+alt+b",
-        "when": "!terminalFocus"
-      },
-      {
-        "command": "dsh.addSelectionToThread",
-        "key": "ctrl+l",
-        "mac": "cmd+l",
-        "when": "config.dsh.keybindings.ctrlL && editorTextFocus"
-      }
-    ],
-    "menus": {
-      "view/title": [
-        {
-          "command": "dsh.newInstance",
-          "when": "config.dsh.multiInstance.entry && view == dsh.webview",
-          "group": "navigation@10"
-        },
-        {
-          "command": "dsh.changes.refresh",
-          "when": "view == dsh.changes",
-          "group": "navigation@1"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "dsh.changes.openDiff",
-          "when": "view == dsh.changes && viewItem == dsh.changes.entry",
-          "group": "inline@1"
-        },
-        {
-          "command": "dsh.changes.accept",
-          "when": "view == dsh.changes && viewItem == dsh.changes.entry",
-          "group": "inline@2"
-        },
-        {
-          "command": "dsh.changes.undo",
-          "when": "view == dsh.changes && viewItem == dsh.changes.entry",
-          "group": "inline@3"
-        }
-      ],
-      "editor/title": [
-        {
-          "command": "dsh.focusSidebar",
-          "group": "navigation@40"
-        }
-      ],
-      "editor/context": [
-        {
-          "command": "dsh.addFileToThread",
-          "when": "resourceScheme == file",
-          "group": "dsh@1"
-        },
-        {
-          "command": "dsh.addSelectionToThread",
-          "when": "editorHasSelection && resourceScheme == file",
-          "group": "dsh@10"
-        }
-      ],
-      "editor/title/context": [
-        {
-          "command": "dsh.addFileToThread",
-          "group": "dsh@1",
-          "when": "resourceScheme == file"
-        }
-      ],
-      "explorer/context": [
-        {
-          "command": "dsh.addFileToThread",
-          "group": "dsh@1",
-          "when": "!explorerResourceIsFolder && resourceScheme == file"
-        },
-        {
-          "command": "dsh.addFolderToThread",
-          "group": "dsh@2",
-          "when": "explorerResourceIsFolder && resourceScheme == file"
-        }
-      ]
-    },
-    "configuration": {
-      "title": "%dsh.cfg.title%",
-      "properties": {
-        "dsh.port": {
-          "type": "number",
-          "minimum": 1,
-          "maximum": 65535,
-          "default": 3080,
-          "description": "%dsh.cfg.port%"
-        },
-        "dsh.host": {
-          "type": "string",
-          "enum": [
-            "127.0.0.1"
-          ],
-          "default": "127.0.0.1",
-          "description": "%dsh.cfg.host%"
-        },
-        "dsh.autoStart": {
-          "type": "boolean",
-          "default": true,
-          "description": "%dsh.cfg.autoStart%"
-        },
-        "dsh.profile": {
-          "type": "string",
-          "default": "web",
-          "pattern": "^[A-Za-z0-9._-]{1,64}$",
-          "scope": "window",
-          "description": "%dsh.cfg.profile%"
-        },
-        "dsh.home.mode": {
-          "type": "string",
-          "enum": [
-            "shared",
-            "isolated"
-          ],
-          "default": "shared",
-          "scope": "machine",
-          "description": "%dsh.cfg.home.mode%"
-        },
-        "dsh.home.path": {
-          "type": "string",
-          "default": "",
-          "scope": "machine",
-          "description": "%dsh.cfg.home.path%"
-        },
-        "dsh.closePolicy": {
-          "type": "string",
-          "enum": [
-            "onVscodeExit",
-            "onViewClose",
-            "never"
-          ],
-          "default": "onVscodeExit",
-          "description": "%dsh.cfg.closePolicy%"
-        },
-        "dsh.local.packageRoot": {
-          "type": "string",
-          "default": "",
-          "scope": "machine",
-          "description": "%dsh.cfg.local.packageRoot%"
-        },
-        "dsh.local.nodePath": {
-          "type": "string",
-          "default": "",
-          "scope": "machine",
-          "description": "%dsh.cfg.local.nodePath%"
-        },
-        "dsh.executablePath": {
-          "type": "string",
-          "default": "",
-          "scope": "machine",
-          "description": "%dsh.cfg.executablePath%"
-        },
-        "dsh.launch.method": {
-          "type": "string",
-          "enum": [
-            "auto",
-            "managed",
-            "command"
-          ],
-          "default": "auto",
-          "scope": "machine",
-          "description": "%dsh.cfg.launch.method%"
-        },
-        "dsh.launch.command": {
-          "type": "string",
-          "default": "dsh",
-          "scope": "machine",
-          "description": "%dsh.cfg.launch.command%"
-        },
-        "dsh.extraArgs": {
-          "type": "array",
-          "items": { "type": "string" },
-          "default": [],
-          "scope": "machine",
-          "description": "%dsh.cfg.extraArgs%"
-        },
-        "dsh.runtime.manifestUrl": {
-          "type": "string",
-          "default": "",
-          "scope": "machine",
-          "description": "%dsh.cfg.runtime.manifestUrl%"
-        },
-        "dsh.runtime.version": {
-          "type": "string",
-          "default": "",
-          "description": "%dsh.cfg.runtime.version%"
-        },
-        "dsh.features.clipboard-bridge": {
-          "type": "boolean",
-          "default": true,
-          "description": "%dsh.cfg.features.clipboard-bridge%"
-        },
-        "dsh.features.thread-attachment": {
-          "type": "boolean",
-          "default": true,
-          "description": "%dsh.cfg.features.thread-attachment%"
-        },
-        "dsh.features.editor-links": {
-          "type": "boolean",
-          "default": true,
-          "description": "%dsh.cfg.features.editor-links%"
-        },
-        "dsh.features.statusbar-basic": {
-          "type": "boolean",
-          "default": true,
-          "description": "%dsh.cfg.features.statusbar-basic%"
-        },
-        "dsh.features.theme-follow": {
-          "type": "boolean",
-          "default": true,
-          "description": "%dsh.cfg.features.theme-follow%"
-        },
-        "dsh.features.changes-review": {
-          "type": "boolean",
-          "default": true,
-          "description": "%dsh.cfg.features.changes-review%"
-        },
-        "dsh.features.ctrl-k": {
-          "type": "boolean",
-          "default": false,
-          "description": "%dsh.cfg.features.ctrl-k%"
-        },
-        "dsh.features.ctrl-i": {
-          "type": "boolean",
-          "default": false,
-          "scope": "machine",
-          "description": "%dsh.cfg.features.ctrl-i%"
-        },
-        "dsh.features.lm-route": {
-          "type": "boolean",
-          "default": false,
-          "description": "%dsh.cfg.features.lm-route%"
-        },
-        "dsh.lm.route": {
-          "type": "string",
-          "enum": [
-            "off",
-            "fixed",
-            "dynamic"
-          ],
-          "default": "off",
-          "description": "%dsh.cfg.lm.route%"
-        },
-        "dsh.features.mcp-consume": {
-          "type": "boolean",
-          "default": false,
-          "description": "%dsh.cfg.features.mcp-consume%"
-        },
-        "dsh.features.call-export": {
-          "type": "boolean",
-          "default": false,
-          "scope": "machine",
-          "description": "%dsh.cfg.features.call-export%"
-        },
-        "dsh.features.exports": {
-          "type": "boolean",
-          "default": false,
-          "scope": "machine",
-          "description": "%dsh.cfg.features.exports%"
-        },
-        "dsh.features.chat-participant": {
-          "type": "boolean",
-          "default": true,
-          "description": "%dsh.cfg.features.chat-participant%"
-        },
-        "dsh.features.tab-completion": {
-          "type": "boolean",
-          "default": false,
-          "description": "%dsh.cfg.features.tab-completion%"
-        },
-        "dsh.fim.model": {
-          "type": "string",
-          "default": "",
-          "scope": "machine",
-          "description": "%dsh.cfg.fim.model%"
-        },
-        "dsh.fim.baseUrl": {
-          "type": "string",
-          "default": "",
-          "scope": "machine",
-          "description": "%dsh.cfg.fim.baseUrl%"
-        },
-        "dsh.keybindings.ctrlL": {
-          "type": "boolean",
-          "default": false,
-          "description": "%dsh.cfg.keybindings.ctrlL%"
-        },
-        "dsh.multiInstance.entry": {
-          "type": "boolean",
-          "default": false,
-          "description": "%dsh.cfg.multiInstance.entry%"
-        },
-        "dsh.bridge.terminal": {
-          "type": "boolean",
-          "default": false,
-          "description": "%dsh.cfg.bridge.terminal%"
-        },
-        "dsh.bridge.editorRead": {
-          "type": "boolean",
-          "default": false,
-          "description": "%dsh.cfg.bridge.editorRead%"
-        },
-        "dsh.bridge.ui": {
-          "type": "boolean",
-          "default": false,
-          "description": "%dsh.cfg.bridge.ui%"
-        }
-      }
-    }
-  }
+	"name": "dsh-vs-sidebar",
+	"displayName": "%dsh.displayName%",
+	"description": "%dsh.ext.description%",
+	"version": "1.1.2",
+	"publisher": "Xizhi1024",
+	"license": "MIT",
+	"pricing": "Free",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode.git"
+	},
+	"homepage": "https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode#readme",
+	"bugs": {
+		"url": "https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/issues"
+	},
+	"keywords": [
+		"deepseek",
+		"deepseek harness",
+		"dsh",
+		"ai agent",
+		"coding agent",
+		"sidebar",
+		"webview"
+	],
+	"categories": [
+		"Other"
+	],
+	"galleryBanner": {
+		"color": "#0e639c",
+		"theme": "dark"
+	},
+	"icon": "media/deepseek.png",
+	"engines": {
+		"vscode": "^1.106.0"
+	},
+	"main": "src/extension.js",
+	"enabledApiProposals": [
+		"terminalDataWriteEvent"
+	],
+	"scripts": {
+		"lint": "node scripts/lint.js",
+		"test": "node --test \"test/*.test.js\" \"test/unit/*.test.js\"",
+		"test:unit": "node --test \"test/*.test.js\" \"test/unit/*.test.js\"",
+		"test:package": "node scripts/check-package-contents.js",
+		"test:secrets": "node scripts/check-secrets.js",
+		"test:extension-host": "node test/extension-host/run.js",
+		"check:w0": "npm run lint && npm run test:unit && npm run test:package && npm run test:secrets"
+	},
+	"l10n": "./l10n",
+	"activationEvents": [
+		"onStartupFinished",
+		"onView:dsh.webview",
+		"onCommand:dsh.openInBrowser",
+		"onCommand:dsh.restartServer",
+		"onCommand:dsh.stopServer",
+		"onCommand:dsh.focusSidebar",
+		"onCommand:dsh.addActiveFile",
+		"onCommand:dsh.addActiveSelection",
+		"onCommand:dsh.addSelectionToThread",
+		"onCommand:dsh.addFileToThread",
+		"onCommand:dsh.addFolderToThread",
+		"onCommand:dsh.addProblems",
+		"onCommand:dsh.newSession",
+		"onCommand:dsh.switchSession",
+		"onCommand:dsh.capabilities",
+		"onCommand:dsh.diagnose",
+		"onCommand:dsh.cleanupOrphans",
+		"onCommand:dsh.restartClean",
+		"onCommand:dsh.onboarding",
+		"onCommand:dsh.newInstance",
+		"onView:dsh.changes",
+		"onCommand:dsh.changes.openDiff",
+		"onCommand:dsh.changes.accept",
+		"onCommand:dsh.changes.undo",
+		"onCommand:dsh.changes.refresh",
+		"onCommand:dsh.changes.focus",
+		"onCommand:dsh.changes.toggleScope",
+		"onCommand:dsh.ctrlIEdit",
+		"onCommand:dsh.ctrlKEdit",
+		"onLanguageModelChatProvider:dsh",
+		"onCommand:dsh.mcp.refresh",
+		"onCommand:dsh.mcp.forgetConsent",
+		"onChatParticipant:dsh",
+		"onCommand:dsh.openSessionHistory",
+		"onCommand:dsh.fim.setApiKey"
+	],
+	"extensionKind": [
+		"workspace"
+	],
+	"capabilities": {
+		"untrustedWorkspaces": {
+			"supported": false,
+			"description": "%dsh.cap.untrusted%"
+		},
+		"virtualWorkspaces": {
+			"supported": false,
+			"description": "%dsh.cap.virtual%"
+		}
+	},
+	"devDependencies": {
+		"@types/vscode": "^1.106.0",
+		"@vscode/test-electron": "3.1.0",
+		"@vscode/vsce": "3.9.2"
+	},
+	"contributes": {
+		"languageModelChatProviders": [
+			{
+				"vendor": "dsh",
+				"displayName": "%dsh.lm.vendor%"
+			}
+		],
+		"chatParticipants": [
+			{
+				"id": "dsh",
+				"name": "%dsh.participant.name%",
+				"description": "%dsh.participant.description%"
+			}
+		],
+		"viewsContainers": {
+			"secondarySidebar": [
+				{
+					"id": "dsh-sidebar",
+					"title": "%dsh.view.title%",
+					"icon": "media/deepseek.svg"
+				}
+			]
+		},
+		"views": {
+			"dsh-sidebar": [
+				{
+					"type": "webview",
+					"id": "dsh.webview",
+					"name": "%dsh.view.name%"
+				},
+				{
+					"type": "tree",
+					"id": "dsh.changes",
+					"name": "%dsh.view.changes%",
+					"when": "config.dsh.features.changes-review"
+				}
+			]
+		},
+		"viewsWelcome": [
+			{
+				"view": "dsh.changes",
+				"contents": "%dsh.view.welcome.changes%"
+			}
+		],
+		"commands": [
+			{
+				"command": "dsh.openInBrowser",
+				"title": "%dsh.cmd.openInBrowser%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.restartServer",
+				"title": "%dsh.cmd.restartServer%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.stopServer",
+				"title": "%dsh.cmd.stopServer%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.focusSidebar",
+				"title": "%dsh.cmd.focusSidebar%",
+				"category": "%dsh.cmd.category%",
+				"icon": {
+					"light": "media/deepseek-light.svg",
+					"dark": "media/deepseek-dark.svg"
+				}
+			},
+			{
+				"command": "dsh.addActiveFile",
+				"title": "%dsh.cmd.addActiveFile%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.addActiveSelection",
+				"title": "%dsh.cmd.addActiveSelection%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.addSelectionToThread",
+				"title": "%dsh.cmd.addSelectionToThread%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.addFileToThread",
+				"title": "%dsh.cmd.addFileToThread%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.addFolderToThread",
+				"title": "%dsh.cmd.addFolderToThread%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.addProblems",
+				"title": "%dsh.cmd.addProblems%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.newSession",
+				"title": "%dsh.cmd.newSession%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.switchSession",
+				"title": "%dsh.cmd.switchSession%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.openSessionHistory",
+				"title": "%dsh.cmd.openSessionHistory%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.capabilities",
+				"title": "%dsh.cmd.capabilities%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.diagnose",
+				"title": "%dsh.cmd.diagnose%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.cleanupOrphans",
+				"title": "%dsh.cmd.cleanupOrphans%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.restartClean",
+				"title": "%dsh.cmd.restartClean%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.onboarding",
+				"title": "%dsh.cmd.onboarding%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.newInstance",
+				"title": "%dsh.cmd.newInstance%",
+				"category": "%dsh.cmd.category%",
+				"icon": {
+					"light": "media/deepseek-light.svg",
+					"dark": "media/deepseek-dark.svg"
+				}
+			},
+			{
+				"command": "dsh.changes.openDiff",
+				"title": "%dsh.cmd.changes.openDiff%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.changes.accept",
+				"title": "%dsh.cmd.changes.accept%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.changes.undo",
+				"title": "%dsh.cmd.changes.undo%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.changes.refresh",
+				"title": "%dsh.cmd.changes.refresh%",
+				"category": "%dsh.cmd.category%",
+				"icon": {
+					"light": "media/deepseek-light.svg",
+					"dark": "media/deepseek-dark.svg"
+				}
+			},
+			{
+				"command": "dsh.changes.focus",
+				"title": "%dsh.cmd.changes.focus%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.changes.toggleScope",
+				"title": "%dsh.cmd.changes.toggleScope%",
+				"category": "%dsh.cmd.category%",
+				"icon": "$(filter)"
+			},
+			{
+				"command": "dsh.ctrlIEdit",
+				"title": "%dsh.cmd.ctrlIEdit%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.ctrlKEdit",
+				"title": "%dsh.cmd.ctrlKEdit%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.mcp.refresh",
+				"title": "%dsh.cmd.mcp.refresh%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.fim.setApiKey",
+				"title": "%dsh.cmd.fim.setApiKey%",
+				"category": "%dsh.cmd.category%"
+			},
+			{
+				"command": "dsh.mcp.forgetConsent",
+				"title": "%dsh.cmd.mcp.forgetConsent%",
+				"category": "%dsh.cmd.category%"
+			}
+		],
+		"keybindings": [
+			{
+				"command": "dsh.focusSidebar",
+				"key": "ctrl+alt+b",
+				"when": "!terminalFocus"
+			},
+			{
+				"command": "dsh.newInstance",
+				"key": "ctrl+alt+n",
+				"mac": "cmd+alt+n",
+				"when": "!terminalFocus"
+			},
+			{
+				"command": "dsh.addSelectionToThread",
+				"key": "ctrl+l",
+				"mac": "cmd+l",
+				"when": "config.dsh.keybindings.ctrlL && editorTextFocus"
+			},
+			{
+				"command": "dsh.ctrlKEdit",
+				"key": "ctrl+k",
+				"mac": "cmd+k",
+				"when": "config.dsh.features.ctrl-k && editorTextFocus"
+			}
+		],
+		"menus": {
+			"view/title": [
+				{
+					"command": "dsh.newInstance",
+					"when": "config.dsh.multiInstance.entry && view == dsh.webview",
+					"group": "navigation@10"
+				},
+				{
+					"command": "dsh.changes.refresh",
+					"when": "view == dsh.changes",
+					"group": "navigation@1"
+				},
+				{
+					"command": "dsh.changes.toggleScope",
+					"when": "view == dsh.changes",
+					"group": "navigation@2"
+				}
+			],
+			"view/item/context": [
+				{
+					"command": "dsh.changes.openDiff",
+					"when": "view == dsh.changes && viewItem =~ /^dsh\\.changes\\.entry/",
+					"group": "inline@1"
+				},
+				{
+					"command": "dsh.changes.accept",
+					"when": "view == dsh.changes && viewItem =~ /^dsh\\.changes\\.entry\\.(pending|legacy)$/",
+					"group": "inline@2"
+				},
+				{
+					"command": "dsh.changes.undo",
+					"when": "view == dsh.changes && viewItem =~ /^dsh\\.changes\\.entry\\.(pending|accepted)$/",
+					"group": "inline@3"
+				}
+			],
+			"editor/title": [
+				{
+					"command": "dsh.focusSidebar",
+					"group": "navigation@40"
+				}
+			],
+			"editor/context": [
+				{
+					"command": "dsh.addFileToThread",
+					"when": "resourceScheme == file",
+					"group": "dsh@1"
+				},
+				{
+					"command": "dsh.addSelectionToThread",
+					"when": "editorHasSelection && resourceScheme == file",
+					"group": "dsh@10"
+				}
+			],
+			"editor/title/context": [
+				{
+					"command": "dsh.addFileToThread",
+					"group": "dsh@1",
+					"when": "resourceScheme == file"
+				}
+			],
+			"explorer/context": [
+				{
+					"command": "dsh.addFileToThread",
+					"group": "dsh@1",
+					"when": "!explorerResourceIsFolder && resourceScheme == file"
+				},
+				{
+					"command": "dsh.addFolderToThread",
+					"group": "dsh@2",
+					"when": "explorerResourceIsFolder && resourceScheme == file"
+				}
+			]
+		},
+		"configuration": {
+			"title": "%dsh.cfg.title%",
+			"properties": {
+				"dsh.port": {
+					"type": "number",
+					"minimum": 1,
+					"maximum": 65535,
+					"default": 3080,
+					"description": "%dsh.cfg.port%"
+				},
+				"dsh.host": {
+					"type": "string",
+					"enum": [
+						"127.0.0.1"
+					],
+					"default": "127.0.0.1",
+					"description": "%dsh.cfg.host%"
+				},
+				"dsh.autoStart": {
+					"type": "boolean",
+					"default": true,
+					"description": "%dsh.cfg.autoStart%"
+				},
+				"dsh.profile": {
+					"type": "string",
+					"default": "web",
+					"pattern": "^[A-Za-z0-9._-]{1,64}$",
+					"scope": "window",
+					"description": "%dsh.cfg.profile%"
+				},
+				"dsh.home.mode": {
+					"type": "string",
+					"enum": [
+						"shared",
+						"isolated"
+					],
+					"default": "shared",
+					"scope": "machine",
+					"description": "%dsh.cfg.home.mode%"
+				},
+				"dsh.home.path": {
+					"type": "string",
+					"default": "",
+					"scope": "machine",
+					"description": "%dsh.cfg.home.path%"
+				},
+				"dsh.closePolicy": {
+					"type": "string",
+					"enum": [
+						"onVscodeExit",
+						"onViewClose",
+						"never"
+					],
+					"default": "onVscodeExit",
+					"description": "%dsh.cfg.closePolicy%"
+				},
+				"dsh.local.packageRoot": {
+					"type": "string",
+					"default": "",
+					"scope": "machine",
+					"description": "%dsh.cfg.local.packageRoot%"
+				},
+				"dsh.local.nodePath": {
+					"type": "string",
+					"default": "",
+					"scope": "machine",
+					"description": "%dsh.cfg.local.nodePath%"
+				},
+				"dsh.executablePath": {
+					"type": "string",
+					"default": "",
+					"scope": "machine",
+					"description": "%dsh.cfg.executablePath%"
+				},
+				"dsh.launch.method": {
+					"type": "string",
+					"enum": [
+						"auto",
+						"managed",
+						"command"
+					],
+					"default": "auto",
+					"scope": "machine",
+					"description": "%dsh.cfg.launch.method%"
+				},
+				"dsh.launch.command": {
+					"type": "string",
+					"default": "dsh",
+					"scope": "machine",
+					"description": "%dsh.cfg.launch.command%"
+				},
+				"dsh.extraArgs": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"default": [],
+					"scope": "machine",
+					"description": "%dsh.cfg.extraArgs%"
+				},
+				"dsh.runtime.manifestUrl": {
+					"type": "string",
+					"default": "",
+					"scope": "machine",
+					"description": "%dsh.cfg.runtime.manifestUrl%"
+				},
+				"dsh.runtime.version": {
+					"type": "string",
+					"default": "",
+					"description": "%dsh.cfg.runtime.version%"
+				},
+				"dsh.features.clipboard-bridge": {
+					"type": "boolean",
+					"default": true,
+					"description": "%dsh.cfg.features.clipboard-bridge%"
+				},
+				"dsh.features.thread-attachment": {
+					"type": "boolean",
+					"default": true,
+					"description": "%dsh.cfg.features.thread-attachment%"
+				},
+				"dsh.features.editor-links": {
+					"type": "boolean",
+					"default": true,
+					"description": "%dsh.cfg.features.editor-links%"
+				},
+				"dsh.features.statusbar-basic": {
+					"type": "boolean",
+					"default": true,
+					"description": "%dsh.cfg.features.statusbar-basic%"
+				},
+				"dsh.features.theme-follow": {
+					"type": "boolean",
+					"default": true,
+					"description": "%dsh.cfg.features.theme-follow%"
+				},
+				"dsh.features.changes-review": {
+					"type": "boolean",
+					"default": true,
+					"description": "%dsh.cfg.features.changes-review%"
+				},
+				"dsh.changes.observe-tools": {
+					"type": "boolean",
+					"default": true,
+					"description": "%dsh.cfg.changes.observe-tools%"
+				},
+				"dsh.features.ctrl-k": {
+					"type": "boolean",
+					"default": false,
+					"description": "%dsh.cfg.features.ctrl-k%"
+				},
+				"dsh.features.ctrl-i": {
+					"type": "boolean",
+					"default": false,
+					"scope": "machine",
+					"description": "%dsh.cfg.features.ctrl-i%"
+				},
+				"dsh.features.lm-route": {
+					"type": "boolean",
+					"default": false,
+					"description": "%dsh.cfg.features.lm-route%"
+				},
+				"dsh.lm.route": {
+					"type": "string",
+					"enum": [
+						"off",
+						"fixed",
+						"dynamic"
+					],
+					"default": "off",
+					"description": "%dsh.cfg.lm.route%"
+				},
+				"dsh.features.mcp-consume": {
+					"type": "boolean",
+					"default": false,
+					"description": "%dsh.cfg.features.mcp-consume%"
+				},
+				"dsh.features.call-export": {
+					"type": "boolean",
+					"default": false,
+					"scope": "machine",
+					"description": "%dsh.cfg.features.call-export%"
+				},
+				"dsh.features.exports": {
+					"type": "boolean",
+					"default": false,
+					"scope": "machine",
+					"description": "%dsh.cfg.features.exports%"
+				},
+				"dsh.features.chat-participant": {
+					"type": "boolean",
+					"default": true,
+					"description": "%dsh.cfg.features.chat-participant%"
+				},
+				"dsh.features.tab-completion": {
+					"type": "boolean",
+					"default": false,
+					"description": "%dsh.cfg.features.tab-completion%"
+				},
+				"dsh.fim.model": {
+					"type": "string",
+					"default": "",
+					"scope": "machine",
+					"description": "%dsh.cfg.fim.model%"
+				},
+				"dsh.fim.baseUrl": {
+					"type": "string",
+					"default": "",
+					"scope": "machine",
+					"description": "%dsh.cfg.fim.baseUrl%"
+				},
+				"dsh.keybindings.ctrlL": {
+					"type": "boolean",
+					"default": true,
+					"description": "%dsh.cfg.keybindings.ctrlL%"
+				},
+				"dsh.multiInstance.entry": {
+					"type": "boolean",
+					"default": true,
+					"description": "%dsh.cfg.multiInstance.entry%"
+				},
+				"dsh.bridge.terminal": {
+					"type": "boolean",
+					"default": false,
+					"description": "%dsh.cfg.bridge.terminal%"
+				},
+				"dsh.bridge.editorRead": {
+					"type": "boolean",
+					"default": false,
+					"description": "%dsh.cfg.bridge.editorRead%"
+				},
+				"dsh.bridge.ui": {
+					"type": "boolean",
+					"default": false,
+					"description": "%dsh.cfg.bridge.ui%"
+				}
+			}
+		}
+	},
+	"__metadata": {
+		"installedTimestamp": 1788498853457,
+		"targetPlatform": "undefined",
+		"size": 2666174
+	}
 }

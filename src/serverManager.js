@@ -47,6 +47,8 @@ const HEALTH_POLL_MS = 700;      // interval between health checks after spawn
 const HEALTH_TIMEOUT_MS = 30000; // overall wait for the spawned service to become ready
 const MAX_BODY_BYTES = 5 * 1024 * 1024; // bound on the probe response body we buffer
 const TASKKILL_TIMEOUT_MS = 5000; // max wait for taskkill /T /F before stop() proceeds
+const PORT_RELEASE_WAIT_MS = 3000; // F-f: max stop() wait for a killed child's port to refuse
+const PORT_RELEASE_POLL_MS = 100; // F-f: poll cadence for the port-release wait
 
 /**
  * Substitute {name} placeholders in a template with the given params.
@@ -297,8 +299,12 @@ function killProcessTree(pid, { platform = process.platform, spawnFn = spawn, ti
 }
 
 class ServerManager {
-  constructor({ onStatus, spawnEnv, resolvedRuntime, embedPatchPath = null, cleanPatchPath = null, spawnFn = spawn } = {}) {
+  constructor({ onStatus, spawnEnv, resolvedRuntime, embedPatchPath = null, cleanPatchPath = null, spawnFn = spawn, runtimeProfileGuard = null } = {}) {
     this.onStatus = typeof onStatus === 'function' ? onStatus : () => {};
+    // Optional pre-spawn profile guard (2026-09-04 incident follow-up): the
+    // extension injects ensureHmrDisabled so every owned spawn boots a
+    // profile whose server module HMR cannot break the tool layer.
+    this.runtimeProfileGuard = typeof runtimeProfileGuard === 'function' ? runtimeProfileGuard : null;
     this.spawnEnv = spawnEnv && typeof spawnEnv === 'object' ? { ...spawnEnv } : {};
     this.resolvedRuntime = resolvedRuntime === undefined
       ? null
@@ -714,6 +720,38 @@ class ServerManager {
   }
 
   /**
+   * Bounded wait until a port explicitly refuses connections (F-f,
+   * sporadic restart port race). A killed child's listener can keep
+   * answering — or silently hold — the port for a moment after the process
+   * exits; without this wait the next ensureServer() probe marks the
+   * configured port occupied (drift to port+1) or the replacement child
+   * races the lingering socket. Polls every PORT_RELEASE_POLL_MS and
+   * resolves as soon as the probe reports 'refused'; after `timeoutMs` it
+   * gives up quietly (the conservative port scan still applies). Never
+   * throws.
+   *
+   * @param {string} host - Loopback host.
+   * @param {number} port - Port the killed child was serving on.
+   * @param {number} timeoutMs - Bounded wait.
+   * @returns {Promise<boolean>} True when the port refused in time.
+   */
+  async _waitForPortRefused(host, port, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      let refused = false;
+      try {
+        const result = await this.probe(host, port);
+        refused = !result.reachable && result.reason === 'refused';
+      } catch {
+        return false;
+      }
+      if (refused) return true;
+      if (Date.now() >= deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, PORT_RELEASE_POLL_MS));
+    }
+  }
+
+  /**
    * Resolve the spawn working directory from the caller-provided cwd.
    * null / undefined / empty string mean "not specified" → undefined, so the
    * spawned child inherits the parent process's cwd; any other value passes
@@ -853,6 +891,27 @@ class ServerManager {
   }
 
   /**
+   * Best-effort pre-spawn profile guard: ensures the target profile's
+   * cordis.patch.yml disables server module HMR (0.1.2-alpha.1 upstream
+   * default; older runtimes break every in-flight tool call during a module
+   * reload). Failures never block the spawn — the guard hardens boot, it is
+   * not a precondition.
+   */
+  _applyRuntimeProfileGuard() {
+    const guard = this.runtimeProfileGuard;
+    const runtime = this.resolvedRuntime;
+    if (!guard || !runtime) return;
+    try {
+      const result = guard(runtime);
+      if (result && result.applied) {
+        this._emit('selfheal', 'Disabled server module HMR in the DSH profile (tool-crash guard for runtimes below 0.1.2-alpha.1)');
+      }
+    } catch (error) {
+      console.error('dsh-vs-sidebar: runtime profile guard failed:', error && error.message ? error.message : error);
+    }
+  }
+
+  /**
    * Spawn the verified managed runtime and poll until the service is
    * ready, the process exits early, or the 30s deadline passes. The spawn cwd
    * follows the ensureServer contract: only an explicitly provided cwd is
@@ -860,6 +919,7 @@ class ServerManager {
    */
   async _spawnAndWait(host, port, cwd, registryFile, generation = this._cancelGeneration) {
     this._throwIfCancelled(generation);
+    this._applyRuntimeProfileGuard();
     try {
       return await this._spawnWithPatchSelfHeal(host, port, cwd, registryFile, generation, true);
     } catch (err) {
@@ -1159,6 +1219,10 @@ class ServerManager {
     this._stopping = true;
 
     const child = this._child;
+    // F-f: capture the owned endpoint before the state is cleared — after
+    // the kill we wait (bounded) for the port to explicitly refuse.
+    const releaseHost = this._ownedServer ? this._ownedServer.host : null;
+    const releasePort = this._ownedServer ? this._ownedServer.port : null;
     if (child) {
       await this._killChild(child);
       // Fallback: if the child has not exited yet (e.g. taskkill failed),
@@ -1172,6 +1236,13 @@ class ServerManager {
     // other VS Code windows must survive.
     if (this._registryFile && child) {
       ServerManager._removeRegistryEntry(this._registryFile, child.pid);
+    }
+
+    // F-f (sporadic restart port race): see _waitForPortRefused. Only a
+    // real owned endpoint is waited for; the wait never throws and a
+    // timeout simply hands over to the conservative port scan.
+    if (Number.isInteger(releasePort)) {
+      await this._waitForPortRefused(releaseHost || DEFAULT_HOST, releasePort, PORT_RELEASE_WAIT_MS);
     }
 
     this._child = null;

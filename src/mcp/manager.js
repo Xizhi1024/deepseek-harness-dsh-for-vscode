@@ -31,6 +31,14 @@ function withTimeout(promise, ms) {
  * @param {Function} [options.fetchImpl] - fetch seam.
  * @param {Function} [options.logger]
  */
+/**
+ * C3: key names that look like credentials are prompted with password
+ * masking. Checked case-insensitively against the usual substrings.
+ */
+function isSecretKeyName(key) {
+  return typeof key === 'string' && /KEY|TOKEN|SECRET|PASSWORD/i.test(key);
+}
+
 function createMcpManager({
   vscode,
   env = process.env,
@@ -39,6 +47,7 @@ function createMcpManager({
   spawn,
   fetchImpl = null,
   logger = () => {},
+  secretStorage = null,
 } = {}) {
   if (!vscode || !vscode.window || typeof vscode.window.showInputBox !== 'function') {
     throw new TypeError('createMcpManager requires vscode.window.showInputBox');
@@ -60,12 +69,37 @@ function createMcpManager({
     return inputCaches.get(serverName);
   }
 
+  // C3 zero-typing: env keys are looked up in the VS Code secretStorage first
+  // (same-name key, e.g. OPENAI_API_KEY) so a value entered once — here or by
+  // another extension — never has to be retyped. Secret-looking key names are
+  // prompted with password masking; every successful prompt is stored back.
   async function askInput(serverName, key) {
+    if (secretStorage && typeof secretStorage.get === 'function') {
+      try {
+        const stored = await secretStorage.get(key);
+        if (typeof stored === 'string' && stored.length > 0) return stored;
+      } catch {
+        // best-effort: a broken secret store degrades to the normal prompt
+      }
+    }
     const value = await withTimeout(
-      vscode.window.showInputBox({ prompt: `MCP server ${serverName} needs ${key}` }),
+      vscode.window.showInputBox({
+        prompt: `MCP server ${serverName} needs ${key}`,
+        password: isSecretKeyName(key),
+      }),
       INPUT_TIMEOUT_MS,
     );
-    return typeof value === 'string' && value.length > 0 ? value : undefined;
+    if (typeof value === 'string' && value.length > 0) {
+      if (secretStorage && typeof secretStorage.set === 'function') {
+        try {
+          await secretStorage.set(key, value);
+        } catch {
+          // best-effort persistence only
+        }
+      }
+      return value;
+    }
+    return undefined;
   }
 
   async function loadServers() {
@@ -220,4 +254,5 @@ function createMcpManager({
 module.exports = {
   MAX_RESULT_BYTES,
   createMcpManager,
+  isSecretKeyName,
 };

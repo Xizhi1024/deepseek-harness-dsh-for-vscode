@@ -8,6 +8,14 @@
  * keep a second session tree: the DSH server stays the single source of truth
  * and the sidebar only remembers the one session id that should be passed to
  * the iframe as the `dsh_session` query parameter.
+ *
+ * Wire compatibility (verified 2026-09-02 against upstream master 49a606bc5b
+ * / 0.1.2-alpha.5): session.list / create / rename keep their envelopes,
+ * payloads, and row keys across runtimes 0.1.0-rc.7 .. 0.1.2-alpha.x. The
+ * upstream source anchors below cite `dsh-host-apiproxy` (runtimes <=
+ * 0.1.1-rc.2); 0.1.2-alpha moved them to `@deepseek-ai/dsh-api-session-
+ * controller` with the same shapes. The projections column stays optional on
+ * every version - rows without it fall back to bare session ids.
  */
 
 const path = require("node:path");
@@ -17,6 +25,8 @@ const crypto = require("node:crypto");
 const SESSION_LIST_PATH = "/api/session.list";
 /** API path for the JSON-RPC session methods. @type {string} */
 const SESSION_CREATE_PATH = "/api/session.create";
+/** API path for the session.rename method. @type {string} */
+const SESSION_RENAME_PATH = "/api/session.rename";
 
 /** Valid base URL hostnames for the loopback DSH Web API. */
 const ALLOWED_HOSTNAMES = new Set(["127.0.0.1", "localhost"]);
@@ -343,6 +353,63 @@ async function createSession(baseUrl, options = {}) {
 }
 
 /**
+ * Rename a DSH session through POST <baseUrl>/api/session.rename (B2:
+ * sessions created through the API otherwise keep bare-UUID titles).
+ *
+ * Wire schema pinned from real source:
+ *   dsh-host-apiproxy/lib/types/api/sessions.schema.js L79-88 -
+ *   sessionRenameRequestSchema { sessionId, title } (raw title) and
+ *   sessionRenameValueSchema { title, seq }. The host normalizes the raw
+ *   title (control characters stripped, whitespace collapsed, UTF-8 byte
+ *   budget enforced); a title that normalizes to empty rejects with the
+ *   "title-invalid" business error.
+ *
+ * @param {string} baseUrl - Loopback base URL (http://127.0.0.1:<port> or
+ *   http://localhost:<port>).
+ * @param {object} [options]
+ * @param {string} options.sessionId - Non-empty session id.
+ * @param {string} options.title - Non-empty raw title.
+ * @param {Function} [options.fetchImpl] - Fetch-compatible function;
+ *   defaults to globalThis.fetch.
+ * @param {AbortSignal} [options.signal] - Optional abort signal.
+ * @returns {Promise<{title: string, seq: number}>} The accepted normalized
+ *   title and its event seq.
+ * @throws {TypeError} When sessionId/title is missing or empty.
+ * @throws {DshSessionError} With the DSH_SESSION_API_* error codes.
+ */
+async function renameSession(baseUrl, options = {}) {
+  if (typeof options.sessionId !== "string" || options.sessionId.length === 0) {
+    throw new TypeError("sessionId must be a non-empty string");
+  }
+  if (typeof options.title !== "string" || options.title.length === 0) {
+    throw new TypeError("title must be a non-empty string");
+  }
+  const fetchImpl = resolveFetchImpl(options);
+  const parsed = assertLoopbackBaseUrl(baseUrl);
+  const response = await postJson(
+    parsed,
+    SESSION_RENAME_PATH,
+    clientRequest("session.rename", { sessionId: options.sessionId, title: options.title }),
+    fetchImpl,
+    options.signal
+  );
+  const body = await readJsonBody(response);
+  const result = assertServerResponse(body);
+  const value = result.value;
+  if (
+    !value || typeof value !== "object" || Array.isArray(value)
+    || typeof value.title !== "string" || value.title.length === 0
+    || typeof value.seq !== "number" || !Number.isInteger(value.seq) || value.seq < 0
+  ) {
+    throw new DshSessionError(
+      "DSH_SESSION_API_INVALID_RESPONSE",
+      "DSH session API invalid response: result.value must be { title: string, seq: number }"
+    );
+  }
+  return { title: value.title, seq: value.seq };
+}
+
+/**
  * Ensure a DSH root session exists for the given workspace root.
  *
  * This is the automatic workspace-binding entry point used by owned (managed)
@@ -372,6 +439,34 @@ async function ensureWorkspaceSession(baseUrl, cwd, options = {}) {
 }
 
 /**
+ * Read a human-readable title from a session.list row's projection column.
+ *
+ * Two wire shapes exist across DSH runtime versions: the current rc emits
+ * the plain string `projections.values.title`, while older builds wrapped
+ * it as `projections.values.sessionTitle.title`. Accept both (current
+ * first). A row whose projection column failed to serve (runtime fail-soft
+ * - it logs "projection column ... failed (serving the row without it)") or
+ * a session that never got titled returns "" and the caller falls back to
+ * the bare session id. B2 follow-up: reading only the legacy shape made
+ * EVERY runtime-titled session render as a bare UUID.
+ *
+ * @param {object} item - Raw `session.list` item.
+ * @returns {string} Title, or "" when not derivable.
+ */
+function readableSessionTitle(item) {
+  const values = item && item.projections && item.projections.values;
+  if (!values || typeof values !== "object" || Array.isArray(values)) return "";
+  if (typeof values.title === "string" && values.title.length > 0) {
+    return values.title;
+  }
+  const wrapped = values.sessionTitle;
+  if (wrapped && typeof wrapped.title === "string" && wrapped.title.length > 0) {
+    return wrapped.title;
+  }
+  return "";
+}
+
+/**
  * Reduce raw session items to root (non-subagent, non-child) QuickPick rows.
  *
  * Only `sessionId` is required; every other field is passed through loosely.
@@ -387,13 +482,7 @@ function rootSessionItems(items) {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     if (item.origin === "subagent") continue;
     if (item.parentSessionId) continue;
-    const title = item.projections
-      && item.projections.values
-      && item.projections.values.sessionTitle
-      && typeof item.projections.values.sessionTitle.title === "string"
-      && item.projections.values.sessionTitle.title.length > 0
-      ? item.projections.values.sessionTitle.title
-      : item.sessionId;
+    const title = readableSessionTitle(item) || item.sessionId;
     rows.push({
       sessionId: item.sessionId,
       title,
@@ -588,6 +677,7 @@ module.exports = {
   resolveFetchImpl,
   listSessions,
   createSession,
+  renameSession,
   ensureWorkspaceSession,
   rootSessionItems,
   reuseBlankSession,

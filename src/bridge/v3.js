@@ -1,7 +1,7 @@
 "use strict";
 
 const { deepStrictEqual } = require('node:assert');
-const { createChangeTracker, validateWireEdits, MAX_LABEL_CHARS } = require('../changeTracker');
+const { createChangeTracker, validateWireEdits, assertEditsWithinDocuments, MAX_LABEL_CHARS } = require('../changeTracker');
 
 /**
  * v3a runtime bridge handlers (plan R6, D3 verdict).
@@ -20,10 +20,13 @@ const { createChangeTracker, validateWireEdits, MAX_LABEL_CHARS } = require('../
 const MAX_TERMINALS = 8;
 const RING_BYTES = 8 * 1024;
 const MAX_FIND_FILES = 500;
+const MAX_BREAKPOINTS = 50;
 const MAX_PROGRESS = 2;
 const PROGRESS_AUTO_END_MS = 120000;
 const CONFIRM_TIMEOUT_MS = 120000;
 const CALL_EXPORT_TIMEOUT_MS = 30000;
+const FIND_FILES_TIMEOUT_MS = 5000;
+const DEFAULT_FIND_FILES_EXCLUDE = '**/{node_modules,.git,dist,out}/**';
 
 function v3Error(bridgeCode, message) {
   const error = new Error(message);
@@ -154,6 +157,40 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
       if (!entry) throw v3Error('VSCODE_TERMINAL_NOT_FOUND', 'Unknown terminalId: ' + terminalId);
       return entry;
     };
+    // A8 (issue #7): mirror real terminal output into the ring through
+    // window.onDidWriteTerminalData when the host exposes it, so
+    // terminal/read sees process output (echo, command results) and not
+    // only the text this bridge itself sent. The event is terminal-scoped;
+    // only entries whose Terminal instance matches are captured.
+    //
+    // terminalDataWriteEvent is a PROPOSED VS Code API: on hosts where the
+    // proposal is not enabled for this extension the property is a getter
+    // that THROWS "CANNOT use API proposal" on mere access — so probing with
+    // typeof is not safe. The only safe probe is a try/catch; when it is
+    // unavailable the ring keeps capturing sendText only (graceful degrade).
+    let onTerminalData = null;
+    try {
+      const candidate = vscode.window.onDidWriteTerminalData;
+      if (typeof candidate === 'function') onTerminalData = candidate;
+    } catch {
+      onTerminalData = null; // getter-style gate: proposal not enabled here
+    }
+    if (onTerminalData) {
+      try {
+        onTerminalData((event) => {
+          if (!event || typeof event.data !== 'string') return;
+          for (const entry of terminals.values()) {
+            if (event.terminal === entry.terminal) capture(entry, event.data);
+          }
+        });
+      } catch {
+        // Call-time gate (observed on VS Code 1.123): the wrapper method is
+        // exposed to EVERY extension, and the proposal entitlement is enforced
+        // when the wrapper is INVOKED — reading + typeof both succeed, the
+        // subscription call throws "CANNOT use API proposal". Degrade to the
+        // sendText-echo ring, identical to proposal-absent hosts.
+      }
+    }
     handlers['vscode/terminal/create'] = async (params) => {
       if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'terminal/create params must be an object');
       if (terminals.size >= MAX_TERMINALS) {
@@ -265,17 +302,138 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
         throw v3Error('VSCODE_DEBUG_STACK_FAILED', 'Could not read the debug stack: ' + (error && error.message ? error.message : String(error)));
       }
     };
+    // D1 (issue #8): breakpoint bridge. Official vscode.debug API only
+    // (breakpoints / addBreakpoints / removeBreakpoints with
+    // SourceBreakpoint construction) — customRequest('setBreakpoints') is
+    // deliberately NOT used: its replace semantics would bypass the UI's
+    // breakpoint bookkeeping. The bridge speaks 1-based lines/columns (what
+    // stack frames and editors show); VS Code positions are 0-based and
+    // converted at this boundary.
+    if (Array.isArray(vscode.debug.breakpoints)) {
+      const describeBreakpoint = (bp) => {
+        if (!bp) return null;
+        const base = {
+          enabled: bp.enabled !== false,
+          condition: typeof bp.condition === 'string' ? bp.condition : '',
+          hitCondition: typeof bp.hitCondition === 'string' ? bp.hitCondition : '',
+          logMessage: typeof bp.logMessage === 'string' ? bp.logMessage : '',
+        };
+        if (bp.location && bp.location.uri && bp.location.range && bp.location.range.start) {
+          return {
+            ...base,
+            kind: 'source',
+            uri: String(bp.location.uri),
+            line: bp.location.range.start.line + 1,
+            column: bp.location.range.start.character + 1,
+          };
+        }
+        if (typeof bp.functionName === 'string' || typeof bp.methodName === 'string') {
+          return { ...base, kind: 'function', functionName: bp.functionName || bp.methodName || '' };
+        }
+        return null;
+      };
+      handlers['vscode/debug/listBreakpoints'] = async () => ({
+        breakpoints: (Array.isArray(vscode.debug.breakpoints) ? vscode.debug.breakpoints : [])
+          .map((bp) => describeBreakpoint(bp))
+          .filter((entry) => entry !== null),
+      });
+    }
+    if (typeof vscode.debug.addBreakpoints === 'function'
+      && vscode.SourceBreakpoint && typeof vscode.Location === 'function'
+      && typeof vscode.Position === 'function'
+      && vscode.Uri && typeof vscode.Uri.parse === 'function') {
+      handlers['vscode/debug/addBreakpoints'] = async (params) => {
+        if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'debug/addBreakpoints params must be an object');
+        const requested = Array.isArray(params.breakpoints) ? params.breakpoints : [];
+        if (requested.length === 0) throw v3Error('VSCODE_INVALID_PARAMS', 'debug/addBreakpoints requires a non-empty breakpoints array');
+        if (requested.length > MAX_BREAKPOINTS) {
+          throw v3Error('VSCODE_BREAKPOINT_LIMIT', 'debug/addBreakpoints allows at most ' + MAX_BREAKPOINTS + ' breakpoints per call');
+        }
+        const constructed = [];
+        for (const raw of requested) {
+          if (!isRecord(raw)) throw v3Error('VSCODE_INVALID_PARAMS', 'each breakpoint must be an object');
+          const uri = requireString(raw.uri, 'breakpoint.uri');
+          if (!Number.isInteger(raw.line) || raw.line < 1) {
+            throw v3Error('VSCODE_INVALID_PARAMS', 'breakpoint.line must be a 1-based positive integer');
+          }
+          const column = raw.column === undefined ? 1 : raw.column;
+          if (!Number.isInteger(column) || column < 1) {
+            throw v3Error('VSCODE_INVALID_PARAMS', 'breakpoint.column must be a 1-based positive integer');
+          }
+          // 1-based bridge input -> 0-based VS Code position.
+          const location = new vscode.Location(vscode.Uri.parse(uri), new vscode.Position(raw.line - 1, column - 1));
+          constructed.push(new vscode.SourceBreakpoint(
+            location,
+            raw.enabled === undefined ? true : Boolean(raw.enabled),
+            typeof raw.condition === 'string' ? raw.condition : '',
+            typeof raw.hitCondition === 'string' ? raw.hitCondition : '',
+            typeof raw.logMessage === 'string' ? raw.logMessage : '',
+          ));
+        }
+        await vscode.debug.addBreakpoints(constructed);
+        appendOutputLine('[bridge] breakpoints added: ' + constructed.length);
+        return { added: constructed.length };
+      };
+    }
+    if (typeof vscode.debug.removeBreakpoints === 'function' && Array.isArray(vscode.debug.breakpoints)) {
+      handlers['vscode/debug/removeBreakpoints'] = async (params) => {
+        if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'debug/removeBreakpoints params must be an object');
+        const current = Array.isArray(vscode.debug.breakpoints) ? vscode.debug.breakpoints : [];
+        const matched = [];
+        if (params.all === true) {
+          matched.push(...current);
+        } else {
+          const wanted = Array.isArray(params.breakpoints) ? params.breakpoints : [];
+          if (wanted.length === 0) {
+            throw v3Error('VSCODE_INVALID_PARAMS', 'debug/removeBreakpoints requires all:true or a non-empty breakpoints array');
+          }
+          for (const raw of wanted) {
+            if (!isRecord(raw)) throw v3Error('VSCODE_INVALID_PARAMS', 'each breakpoint filter must be an object');
+            const uri = requireString(raw.uri, 'breakpoint.uri');
+            const line = raw.line;
+            if (line !== undefined && (!Number.isInteger(line) || line < 1)) {
+              throw v3Error('VSCODE_INVALID_PARAMS', 'breakpoint.line must be a 1-based positive integer');
+            }
+            for (const bp of current) {
+              if (!bp || !bp.location || !bp.location.uri || !bp.location.range || !bp.location.range.start) continue;
+              if (bp.location.uri.toString() !== uri) continue;
+              if (line !== undefined && bp.location.range.start.line + 1 !== line) continue;
+              if (!matched.includes(bp)) matched.push(bp);
+            }
+          }
+        }
+        if (matched.length > 0) await vscode.debug.removeBreakpoints(matched);
+        appendOutputLine('[bridge] breakpoints removed: ' + matched.length);
+        return { removed: matched.length };
+      };
+    }
   }
 
   // ---- workspace / window ---------------------------------------------------
+  // B4/U8: never forward an unbounded query to a huge workspace. The caller's
+  // exclude wins when supplied; otherwise a default exclude keeps
+  // node_modules/.git/dist/out out of the scan, and a hard timeout returns a
+  // model-visible empty result instead of hanging the bridge.
   handlers['vscode/workspace/findFiles'] = async (params) => {
     if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'findFiles params must be an object');
     const include = requireString(params.include, 'include');
-    const exclude = typeof params.exclude === 'string' && params.exclude.length > 0 ? params.exclude : undefined;
+    const exclude = typeof params.exclude === 'string' && params.exclude.length > 0
+      ? params.exclude
+      : DEFAULT_FIND_FILES_EXCLUDE;
     const requested = Number.isInteger(params.maxResults) && params.maxResults > 0 ? params.maxResults : MAX_FIND_FILES;
     const maxResults = Math.min(requested, MAX_FIND_FILES);
-    const uris = await vscode.workspace.findFiles(include, exclude, maxResults);
-    return { files: (Array.isArray(uris) ? uris : []).map((uri) => String(uri)).slice(0, maxResults), capped: uris.length >= maxResults };
+    const outcome = await Promise.race([
+      Promise.resolve(vscode.workspace.findFiles(include, exclude, maxResults)).then((uris) => ({ uris, timedOut: false })),
+      new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ uris: null, timedOut: true }), FIND_FILES_TIMEOUT_MS);
+        if (timer.unref) timer.unref();
+      }),
+    ]);
+    if (outcome.timedOut) {
+      return { files: [], capped: false, timedOut: true };
+    }
+    const uris = Array.isArray(outcome.uris) ? outcome.uris : [];
+    return { files: uris.map((uri) => String(uri)).slice(0, maxResults), capped: uris.length >= maxResults, timedOut: false };
   };
 
   // ---- user-visible surfaces (consent-gated: dsh.bridge.ui) -----------------
@@ -589,11 +747,16 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
   }
 
   // ---- changes/push (L2 gate: dsh.features.changes-review) -------------------
-  // Not-approved paths return a model-visible result instead of throwing, so
-  // the DSH agent can report the user's decision without a bridge error.
+  // F-d (Codex-aligned): this is a DIRECT write channel. The extension adds
+  // no approval gate of its own — permission is single-sourced from the DSH
+  // sandbox that owns the calling agent (read-only / workspace-write /
+  // full-access tiers live there). Safety here = typed-edit validation
+  // before landing (structure + live-document ranges), a before-snapshot in
+  // the journal, and file-level undo in the changes tree (the review
+  // surface). The workspace-boundary restriction is likewise gone: DSH's
+  // sandbox decides which paths are writable, not this handler.
   if (getFlag('features.changes-review')) {
     const tracker = changeTracker || createChangeTracker({ storageUri: null, vscode });
-    const sessionApprovals = new Set();
 
     handlers['vscode/changes/push'] = async (params) => {
       if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'changes/push params must be an object');
@@ -606,42 +769,27 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
         }
       }
       if (params.mode !== undefined && params.mode !== 'ask' && params.mode !== 'session') {
+        // Legacy wire field from the 1.0.x approval era: still validated for
+        // shape, ignored otherwise (no approval semantics remain).
         throw v3Error('VSCODE_INVALID_PARAMS', "changes/push mode must be 'ask' or 'session'");
       }
       const sessionId = typeof params.sessionId === 'string' ? params.sessionId : '';
       const label = typeof params.label === 'string' ? params.label : '';
-      const mode = params.mode === 'session' ? 'session' : 'ask';
       const edits = validateWireEdits(params.edits, vscode);
-
-      if (mode === 'session' && sessionId.length > 0 && sessionApprovals.has(sessionId)) {
-        const before = await tracker.snapshotBefore(edits);
-        await tracker.applyEdits(edits);
-        const entry = await tracker.record({ sessionId, label, edits: stringifyEdits(edits), before });
-        return { applied: true, approved: true, changeIds: [entry.id] };
-      }
-
-      const files = new Set(edits.map((edit) => String(edit.uri))).size;
-      const detail = `${files} file(s), ${edits.length} edit(s)` + (label.length > 0 ? ` — ${label}` : '');
-      const message = `DSH requests workspace edits (${detail})`;
-      const choice = await withTimeout(
-        vscode.window.showWarningMessage(message, { modal: true }, 'Allow Once', 'Allow Session', 'Reject'),
-        CONFIRM_TIMEOUT_MS,
-      );
-
-      if (choice === 'Allow Session') {
-        if (sessionId.length > 0) sessionApprovals.add(sessionId);
-      } else if (choice !== 'Allow Once') {
-        return {
-          applied: false,
-          approved: false,
-          reason: choice === 'Reject' ? 'user-rejected' : 'timeout-or-dismissed',
-        };
-      }
+      // F-b: reject coordinates outside the live document BEFORE writing —
+      // otherwise zombie entries wedge the tree when applyEdit declines.
+      await assertEditsWithinDocuments(edits, vscode);
 
       const before = await tracker.snapshotBefore(edits);
       await tracker.applyEdits(edits);
-      const entry = await tracker.record({ sessionId, label, edits: stringifyEdits(edits), before });
-      return { applied: true, approved: true, changeIds: [entry.id] };
+      const entry = await tracker.record({
+        sessionId,
+        label,
+        edits: stringifyEdits(edits),
+        before,
+        status: 'accepted',
+      });
+      return { applied: true, changeIds: [entry.id] };
     };
   }
 
@@ -683,6 +831,9 @@ function stringifyEdits(edits) {
 module.exports = {
   CALL_EXPORT_TIMEOUT_MS,
   CONFIRM_TIMEOUT_MS,
+  DEFAULT_FIND_FILES_EXCLUDE,
+  FIND_FILES_TIMEOUT_MS,
+  MAX_BREAKPOINTS,
   MAX_FIND_FILES,
   MAX_PROGRESS,
   MAX_TERMINALS,

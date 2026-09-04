@@ -5,7 +5,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const { packageRootsFromShim } = require('./shimResolver');
-const { nodeCandidates } = require('./localRuntimeResolver');
+const { nodeCandidates, detectDshVersionNear } = require('./localRuntimeResolver');
 const { MANAGED_PROFILE } = require('./managedRuntimeLaunch');
 
 /** Valid dsh.launch.method values. 'auto' = managed first, then command. */
@@ -82,7 +82,13 @@ async function resolveCommandRuntime({
       profileHome: path.join(resolvedHome, 'profiles', profileName),
       profileName,
       source: 'command-path',
-      dshVersion: null,
+      // A9: recover the official package version from the npm layout around
+      // the hit so compat flags (theme-follow / toolsV3) and Diagnose see a
+      // real version instead of "unknown".
+      dshVersion: await detectDshVersionNear(hit, {
+        readFile: deps.readFile,
+        realpath: deps.realpath,
+      }),
     });
   }
 
@@ -97,7 +103,10 @@ async function resolveCommandRuntime({
       profileHome: path.join(resolvedHome, 'profiles', profileName),
       profileName,
       source: 'command-path',
-      dshVersion: null,
+      dshVersion: await detectDshVersionNear(hit, {
+        readFile: deps.readFile,
+        realpath: deps.realpath,
+      }),
     });
   }
   if (!(lower.endsWith('.cmd') || lower.endsWith('.bat') || lower.endsWith('.ps1'))) {

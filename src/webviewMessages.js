@@ -19,6 +19,8 @@ const DSH_THEME_CHANGED = 'dshThemeChanged';
  * @param {Function} [handlers.interaction]
  * @param {Function} [handlers.threadResult]
  * @param {Function} [handlers.handshakeError]
+ * @param {Function} [handlers.sessionChanged] - Receives the sessionId of an
+ *   in-iframe conversation switch (dshSessionChanged relay).
  * @returns {(message: unknown) => boolean} true when a known message was routed.
  */
 function createWebviewMessageHandler({
@@ -27,6 +29,7 @@ function createWebviewMessageHandler({
   interaction = undefined,
   threadResult = undefined,
   handshakeError = undefined,
+  sessionChanged = undefined,
 }) {
   if (typeof openBrowser !== 'function' || typeof retry !== 'function') {
     throw new TypeError('Webview message handlers must be functions');
@@ -51,6 +54,10 @@ function createWebviewMessageHandler({
     }
     if (message.type === MESSAGE_TYPES.THREAD_ATTACH_RESULT && typeof threadResult === 'function') {
       threadResult(message);
+      return true;
+    }
+    if (message.type === 'dshSessionChanged' && typeof sessionChanged === 'function') {
+      sessionChanged(message.sessionId);
       return true;
     }
     return false;

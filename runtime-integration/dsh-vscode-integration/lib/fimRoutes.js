@@ -153,9 +153,12 @@ export function createFimRoutes({ env = process.env, ctx = null, fetchImpl = glo
         return;
       }
       if (baseUrl.length === 0 || apiKey.length === 0) {
+        // The message is user-facing guidance: the extension surfaces it in a
+        // warning the first time a 503 is observed (F-e), so spell out the
+        // exact fix steps.
         writeJson(response, 503, {
           error: 'fim-not-configured',
-          message: 'Set dsh.fim.baseUrl and the DSH FIM API key on the extension side, then restart the DSH server',
+          message: 'Tab completion is not configured: set dsh.fim.baseUrl and store the DSH FIM API key (command "dsh.fim.setApiKey"), then restart the DSH server (command "dsh.restartServer")',
         });
         return;
       }

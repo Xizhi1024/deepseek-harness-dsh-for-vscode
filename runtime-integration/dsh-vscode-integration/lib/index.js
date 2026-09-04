@@ -3,8 +3,10 @@ import { execFileSync } from 'node:child_process';
 import net from 'node:net';
 
 import { createBridgeTools } from './tools.js';
+import { createEditObserver } from './editObserver.js';
 import { createLmRoutes } from './lmRoute.js';
 import { createFimRoutes } from './fimRoutes.js';
+import { createLinkRoutes, editorOpenViaBridge } from './linkRoutes.js';
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
@@ -30,6 +32,19 @@ const WATCHDOG_EXPIRY_MS = 60 * 1000;
 const HEARTBEAT_ENV = 'DSH_VSCODE_HEARTBEAT_PATH';
 const WINDOW_ID_ENV = 'DSH_VSCODE_WINDOW_ID';
 const WATCHDOG_ENV = 'DSH_VSCODE_WATCHDOG';
+const OBSERVE_TOOLS_ENV = 'DSH_VSCODE_OBSERVE_TOOLS';
+
+/**
+ * C2 gate for the edit/write observer. Defaults to ON; the extension
+ * translates the dsh.changes.observe-tools setting into this spawn-env key.
+ * @param {object} env
+ * @returns {boolean}
+ */
+function observeToolsEnabled(env = process.env) {
+  const value = env && env[OBSERVE_TOOLS_ENV];
+  if (typeof value !== 'string') return true;
+  return !['0', 'off', 'false', 'no'].includes(value.trim().toLowerCase());
+}
 
 function failure(request, message) {
   return {
@@ -367,10 +382,21 @@ function apply(ctx) {
       version: packageJson.version,
     });
     const started = bridge.start();
+    // C2: observe DSH edit/write tool executions (attribution only — never a
+    // gate) and forward metadata-only notifications over the live bridge
+    // generation. Dropped silently while disconnected (never replayed).
+    let observer = null;
+    if (started.running && observeToolsEnabled(process.env)) {
+      observer = createEditObserver({
+        ctx,
+        notify: (params) => started.notify('vscode/dshEditObserved', params),
+      });
+    }
     return () => {
+      if (observer) observer.dispose();
       if (started && typeof started.stop === 'function') started.stop();
     };
-  }, 'dsh-vscode-integration: vscode bridge tools');
+  }, 'dsh-vscode-integration: vscode bridge tools + edit observer');
 
   ctx.effect(() => {
     const routes = createLmRoutes({ env: process.env, ctx });
@@ -383,12 +409,31 @@ function apply(ctx) {
     const fim = createFimRoutes({ env: process.env, ctx });
     return () => fim.dispose();
   }, 'dsh-vscode-integration: /api/fim route');
+
+  // B3 (issue #6): same-origin open-link route for reply-path linkify. The
+  // browser client POSTs { path, line, col }; this side resolves relative
+  // paths against the child cwd (the VS Code workspace root) and opens via
+  // the existing channels: openThroughBridge (textDocumentBridge, gated by
+  // the extension's dsh.features.editor-links) or, when a line was clicked,
+  // the v3 vscode/editor/open method for the selection. No route mounts when
+  // the editor-links env is absent (feature off).
+  ctx.effect(() => {
+    const links = createLinkRoutes({
+      env: process.env,
+      ctx,
+      net,
+      openImpl: openThroughBridge,
+      editorOpenImpl: ({ params }) => editorOpenViaBridge({ env: process.env, net, params }),
+    });
+    return () => links.dispose();
+  }, 'dsh-vscode-integration: /api/vscode/open-link route');
 }
 
 export {
   apply,
   inject,
   name,
+  observeToolsEnabled,
   openThroughBridge,
   parseHeartbeat,
   readHeartbeat,

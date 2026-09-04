@@ -3,6 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { compareDshVersions } = require('./dshCompat');
+
 const MANAGED_PROFILE = 'web';
 const PROFILE_NAME_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 
@@ -11,33 +13,6 @@ const PROFILE_NAME_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 // the health probe ever runs, so the flag is version-gated and additionally
 // self-healed at spawn time (see ServerManager's no-open retry).
 const NO_OPEN_MIN_VERSION = '0.1.0-rc.7';
-
-/**
- * Compare two dsh version strings (core triple + optional -rc.N prerelease).
- * Returns a negative number when a < b, positive when a > b, 0 when equal.
- * Unparseable input yields null (caller decides the fallback policy).
- */
-function compareDshVersions(a, b) {
-  const parse = (value) => {
-    const match = /^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/.exec(String(value || '').trim());
-    if (!match) return null;
-    return {
-      core: match.slice(1, 4).map(Number),
-      rc: match[4] === undefined ? null : Number(match[4]),
-    };
-  };
-  const left = parse(a);
-  const right = parse(b);
-  if (!left || !right) return null;
-  for (let i = 0; i < 3; i++) {
-    if (left.core[i] !== right.core[i]) return left.core[i] - right.core[i];
-  }
-  // A release (no prerelease tag) sorts ABOVE any -rc.N of the same core.
-  if (left.rc === null && right.rc === null) return 0;
-  if (left.rc === null) return 1;
-  if (right.rc === null) return -1;
-  return left.rc - right.rc;
-}
 
 /**
  * Whether the runtime's dsh version positively supports --no-open.

@@ -15,6 +15,13 @@
  * `sessionNavigation` clientRequest / postJson / readJsonBody /
  * assertServerResponse precedent so the DSH_SESSION_API_* error surface stays
  * identical across the extension host.
+ *
+ * Upstream source anchors below cite `dsh-host-apiproxy` paths, which match
+ * runtimes <= 0.1.1-rc.2 (the verified floor install). Upstream removed that
+ * package in 0.1.2-alpha and moved the same wire shapes to
+ * `@deepseek-ai/dsh-api-session-controller`; the envelopes this client
+ * emits and parses are unchanged across both (verified 2026-09-02 against
+ * upstream master 49a606bc5b).
  */
 
 const {
@@ -353,6 +360,14 @@ function createDshChatClient({
    *   - only `session/event` frames whose `sessionId` matches are considered;
    *     every other frame is ignored.
    *   - `onText(string)` is called once per visible text delta, in order.
+   *   - `onReady()` (optional) is called exactly once after the SSE connection
+   *     is established and the server has subscribed the session bus - at that
+   *     point no live session/event can be missed. It is never called when
+   *     the connection fails; a throw routes to `consumer-error`.
+   *   - `onEvent(event, sessionId)` (optional) is called once for every
+   *     matching `session/event` frame BEFORE the text-delta filter, so
+   *     non-text events (e.g. `tool/call`) are observable too. A throw routes
+   *     to `consumer-error`, exactly like onText/onReady.
    *   - `onDone({reason})` is called exactly once when the stream ends or is
    *     interrupted. Reasons: `'stream-end'`, `'aborted'`,
    *     `'DSH_SESSION_STREAM_STALLED'`, `'DSH_SESSION_API_INVALID_RESPONSE'`,
@@ -368,10 +383,14 @@ function createDshChatClient({
    * @param {string} args.sessionId - Session whose text deltas are forwarded.
    * @param {Function} args.onText - Called with each text delta string.
    * @param {Function} args.onDone - Called once with `{reason}`.
+   * @param {Function} [args.onReady] - Called once after the connection is
+   *   established (server subscribed; no delta can be missed from this point).
+   * @param {Function} [args.onEvent] - Called with (event, sessionId) for
+   *   every matching session/event frame, before the text-delta filter.
    * @param {AbortSignal} [args.signal] - Caller abort signal.
    * @returns {Promise<{reason: string}>} Terminal reason (also passed to onDone).
    */
-  async function streamSession({ sessionId, onText, onDone, signal } = {}) {
+  async function streamSession({ sessionId, onText, onDone, onReady, onEvent, signal } = {}) {
     if (typeof sessionId !== "string" || sessionId.length === 0) {
       throw new TypeError("sessionId must be a non-empty string");
     }
@@ -380,6 +399,12 @@ function createDshChatClient({
     }
     if (typeof onDone !== "function") {
       throw new TypeError("onDone must be a function");
+    }
+    if (typeof onReady !== "undefined" && typeof onReady !== "function") {
+      throw new TypeError("onReady must be a function when provided");
+    }
+    if (typeof onEvent !== "undefined" && typeof onEvent !== "function") {
+      throw new TypeError("onEvent must be a function when provided");
     }
 
     const resolvedFetch = resolveFetchImpl({ fetchImpl });
@@ -479,6 +504,24 @@ function createDshChatClient({
       let buffer = "";
       armStall();
 
+      // The server subscribes the session bus before returning the SSE
+      // Response, so once the reader is acquired no live session/event frame
+      // can be missed. Notify readiness before consuming any delta so callers
+      // can order dependent requests (e.g. send session.prompt only now).
+      if (typeof onReady === "function") {
+        try {
+          const maybePromise = onReady();
+          if (maybePromise && typeof maybePromise.then === "function") {
+            await maybePromise;
+          }
+        } catch (_) {
+          finish("consumer-error");
+          return done;
+        }
+        if (done !== null) return done;
+        armStall();
+      }
+
       while (done === null) {
         let read;
         try {
@@ -525,6 +568,17 @@ function createDshChatClient({
           }
           if (frame.type !== "session/event") continue;
           if (frame.sessionId !== sessionId) continue;
+          if (typeof onEvent === "function") {
+            try {
+              const maybePromise = onEvent(frame.event, sessionId);
+              if (maybePromise && typeof maybePromise.then === "function") {
+                await maybePromise;
+              }
+            } catch (_) {
+              finish("consumer-error");
+              break;
+            }
+          }
           const text = extractTextDelta(frame.event);
           if (text === null) continue;
           try {

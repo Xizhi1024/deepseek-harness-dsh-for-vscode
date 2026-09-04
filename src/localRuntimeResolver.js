@@ -312,7 +312,14 @@ async function resolveLocalDshRuntime({
   for (const candidate of roots) {
     const manifestPath = await firstRegularFile([path.join(candidate, 'package.json')], 'DSH package manifest');
     if (!manifestPath) continue;
-    const parsed = JSON.parse(await fs.promises.readFile(manifestPath, 'utf8'));
+    let parsed;
+    try {
+      parsed = JSON.parse(await fs.promises.readFile(manifestPath, 'utf8'));
+    } catch {
+      // A9: an unreadable/corrupt manifest must not abort the whole scan —
+      // skip to the next candidate instead of failing resolution outright.
+      continue;
+    }
     if (parsed.name !== '@deepseek-ai/dsh') continue;
     resolvedPackageRoot = await fs.promises.realpath(path.dirname(manifestPath));
     packageJson = parsed;
@@ -385,8 +392,57 @@ async function resolveLocalDshRuntime({
   });
 }
 
+/**
+ * A9 (issue #5): best-effort DSH package version discovery near a resolved
+ * command hit (a POSIX symlink script or a Windows .exe, where no package
+ * manifest is directly known). Resolves symlinks, then walks up from the
+ * hit's directory checking both a direct package.json and the npm global
+ * layout <ancestor>/node_modules/@deepseek-ai/dsh/package.json at each
+ * level. Never throws; returns the version string or null.
+ *
+ * @param {string} filePath - The resolved command path.
+ * @param {object} [seams] - Optional test seams.
+ * @param {Function} [seams.readFile] - async (path) => string.
+ * @param {Function} [seams.realpath] - async (path) => string.
+ * @returns {Promise<string|null>}
+ */
+async function detectDshVersionNear(filePath, { readFile, realpath } = {}) {
+  const read = readFile || ((candidate) => fs.promises.readFile(candidate, 'utf8'));
+  const resolveReal = realpath || ((candidate) => fs.promises.realpath(candidate));
+  try {
+    const absolute = path.resolve(String(filePath));
+    const real = await resolveReal(absolute).catch(() => absolute);
+    let dir = path.dirname(path.resolve(real));
+    for (let depth = 0; depth < 6; depth++) {
+      for (const manifestPath of [
+        path.join(dir, 'package.json'),
+        path.join(dir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'),
+      ]) {
+        try {
+          const parsed = JSON.parse(await read(manifestPath));
+          if (
+            parsed && parsed.name === '@deepseek-ai/dsh'
+            && typeof parsed.version === 'string' && parsed.version.length > 0
+          ) {
+            return parsed.version;
+          }
+        } catch {
+          // try the next layout/ancestor
+        }
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    // best effort only — a null version degrades diagnostics, never launch
+  }
+  return null;
+}
+
 module.exports = {
   nodeCandidates,
   packageCandidates,
   resolveLocalDshRuntime,
+  detectDshVersionNear,
 };

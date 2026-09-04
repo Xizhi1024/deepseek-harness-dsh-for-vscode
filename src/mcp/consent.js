@@ -49,9 +49,18 @@ function createConsentGate({ globalState, vscode, loc = (value) => value, timeou
     return read().includes(serverName);
   }
 
+  /**
+   * Consented server names (sorted copy) — the QuickPick source for the
+   * forget-consent command so the user always picks an exact stored name.
+   */
+  function list() {
+    return read().slice();
+  }
+
   function forget(serverName) {
+    const target = typeof serverName === 'string' ? serverName.trim() : '';
     const previous = read();
-    const next = previous.filter((name) => name !== serverName);
+    const next = previous.filter((name) => name !== target);
     write(next);
     return next.length !== previous.length;
   }
@@ -87,6 +96,7 @@ function createConsentGate({ globalState, vscode, loc = (value) => value, timeou
     ensureConsent,
     forget,
     isConsented,
+    list,
   });
 }
 

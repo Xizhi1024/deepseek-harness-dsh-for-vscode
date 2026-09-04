@@ -28,6 +28,26 @@ function tokenMatches(actual, expected) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
+// C2 contract for vscode/dshEditObserved params:
+// { tool: 'edit'|'write', path: string, sessionId: string, size: number,
+//   truncated: boolean, beforeText?: string } — beforeText (2026-09-04) is
+// the optional pre-execute file content (≤1 MiB) for true before diffs;
+// oversized or metadata-only notifications omit it.
+const EDIT_OBSERVED_MAX_BEFORE_TEXT_BYTES = 1024 * 1024;
+function isValidDshEditObservedParams(params) {
+  if (!isRecord(params)) return false;
+  if (params.tool !== 'edit' && params.tool !== 'write') return false;
+  if (typeof params.path !== 'string' || params.path.length === 0) return false;
+  if (typeof params.sessionId !== 'string') return false;
+  if (typeof params.size !== 'number' || !Number.isFinite(params.size) || params.size < 0) return false;
+  if (typeof params.truncated !== 'boolean') return false;
+  if (params.beforeText !== undefined) {
+    if (typeof params.beforeText !== 'string') return false;
+    if (Buffer.byteLength(params.beforeText, 'utf8') > EDIT_OBSERVED_MAX_BEFORE_TEXT_BYTES) return false;
+  }
+  return true;
+}
+
 function bridgeError(code, message) {
   const error = new Error(message);
   error.bridgeCode = code;
@@ -58,6 +78,7 @@ class VersionedBridgeServer {
     protocolVersions,
     maxFrameBytes = VSCODE_MAX_FRAME_BYTES,
     requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+    onDshEditObserved = null,
   } = {}) {
     if (!isRecord(handlers)) throw new Error('VersionedBridgeServer handlers must be an object');
     if (protocolVersions === undefined) {
@@ -75,6 +96,10 @@ class VersionedBridgeServer {
       if (!REQUEST_METHODS.includes(name)) throw new Error(`Unsupported VS Code bridge handler: ${name}`);
       if (typeof handlers[name] !== 'function') throw new Error(`VS Code bridge handler must be a function: ${name}`);
     }
+    if (onDshEditObserved !== null && typeof onDshEditObserved !== 'function') {
+      throw new Error('VersionedBridgeServer onDshEditObserved must be a function');
+    }
+    this.onDshEditObserved = onDshEditObserved;
     this.handlers = Object.freeze({ ...handlers });
     this.workspace = workspace || {
       windowId: crypto.randomUUID(),
@@ -242,7 +267,14 @@ class VersionedBridgeServer {
       controller?.abort(bridgeError('VSCODE_REQUEST_CANCELLED', 'VS Code bridge request cancelled'));
       return;
     }
-    if (frame.id === undefined) return;
+    if (frame.id === undefined) {
+      // C2: the only client→server notification the bridge understands.
+      // Any other id-less frame stays ignored (pre-existing behavior).
+      if (frame.method === 'vscode/dshEditObserved') {
+        this._handleDshEditObserved(connection, frame);
+      }
+      return;
+    }
     const id = frame.id;
     if (typeof id !== 'string' && typeof id !== 'number') {
       this._writeError(connection.socket, null, -32600, 'VSCODE_INVALID_PARAMS', 'JSON-RPC id must be a string or number');
@@ -295,6 +327,23 @@ class VersionedBridgeServer {
     } finally {
       clearTimeout(timer);
       connection.pending.delete(id);
+    }
+  }
+
+  // C2: receive side of the edit-observation notification. Parameters are
+  // validated against the C2 contract; anything invalid is dropped silently
+  // (a notification has no id, so there is nobody to answer). A missing or
+  // throwing sink never disturbs the connection.
+  _handleDshEditObserved(connection, frame) {
+    if (!connection.initialized) return;
+    const methods = NOTIFICATIONS_BY_VERSION[connection.protocolVersion] || [];
+    if (!methods.includes('vscode/dshEditObserved')) return; // v3+ only
+    if (!isValidDshEditObservedParams(frame.params)) return;
+    if (typeof this.onDshEditObserved !== 'function') return;
+    try {
+      this.onDshEditObserved(frame.params);
+    } catch {
+      // observation sink failure must never disturb the bridge
     }
   }
 
@@ -396,5 +445,6 @@ module.exports = {
   VSCODE_PROTOCOL_VERSION,
   VersionedBridgeServer,
   bridgeError,
+  isValidDshEditObservedParams,
   tokenMatches,
 };

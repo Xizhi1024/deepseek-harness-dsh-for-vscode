@@ -8,6 +8,8 @@
  * modules. The asm layer wires these deps to the real implementations.
  */
 
+const { deriveSessionTitle } = require('./sessionTitler');
+
 /** Maximum accepted prompt length in characters. */
 const MAX_PROMPT_LENGTH = 100000;
 
@@ -63,6 +65,10 @@ function defaultLoc(template, params = {}) {
  *   session id when `ask` is called without an explicit sessionId.
  * @param {Function} deps.listSessionsFn - Lists sessions via
  *   `sessionNavigation.listSessions(currentServer.url, { signal })`.
+ * @param {Function} [deps.titleSession] - Optional one-shot rename hook
+ *   (asm: the shared sessionTitler) called with a title derived from the
+ *   first prompt (B2 bare-UUID-title guard). Failures are swallowed and
+ *   never affect the ask result.
  * @param {Function} deps.getBaseUrl - Returns the current DSH server URL, or
  *   null/undefined/empty when no server is connected.
  * @param {object} deps.editorContext - Editor context with `attachFiles` and
@@ -86,6 +92,9 @@ function createExportsFace(deps) {
   }
   if (typeof deps.listSessionsFn !== 'function') {
     throw new TypeError('deps.listSessionsFn must be a function');
+  }
+  if (deps.titleSession !== undefined && typeof deps.titleSession !== 'function') {
+    throw new TypeError('deps.titleSession must be a function when provided');
   }
   if (typeof deps.getBaseUrl !== 'function') {
     throw new TypeError('deps.getBaseUrl must be a function');
@@ -111,6 +120,7 @@ function createExportsFace(deps) {
   const chatClient = deps.chatClient;
   const resolveSessionId = deps.resolveSessionId;
   const listSessionsFn = deps.listSessionsFn;
+  const titleSession = typeof deps.titleSession === 'function' ? deps.titleSession : null;
   const getBaseUrl = deps.getBaseUrl;
   const editorContext = deps.editorContext;
   const vscodeUri = deps.vscode.Uri;
@@ -288,7 +298,18 @@ function createExportsFace(deps) {
       // resolveSessionId errors propagate unchanged (unwrapped).
       sessionId = await resolveSessionId();
     }
-    return chatClient.prompt({ sessionId, content: prompt, mode, signal: opts.signal });
+    const result = await chatClient.prompt({ sessionId, content: prompt, mode, signal: opts.signal });
+    // B2: sessions reached through the API keep bare-UUID titles; give the
+    // session a readable title derived from this first prompt. The shared
+    // titler is memoized per session; failures are swallowed and never
+    // affect the ask result.
+    if (titleSession) {
+      const title = deriveSessionTitle(prompt);
+      if (title.length > 0) {
+        Promise.resolve().then(() => titleSession(sessionId, title)).catch(() => {});
+      }
+    }
+    return result;
   }
 
   /**
