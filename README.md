@@ -29,7 +29,7 @@ Embeds the full DSH web UI in the VS Code auxiliary sidebar: every window automa
 ## 🚀 Usage
 
 1. Press `Ctrl+Alt+B` — the extension starts (or reuses) the local `dsh web` and loads the UI
-2. Select code → right-click **Add to DSH Thread**; the draft receives a compact `file:line` link, press Enter to send
+2. Select code → right-click **Add to DSH Thread**; the draft receives a compact `file:line` link, press Enter to send (Ctrl+Enter / Cmd+Enter inserts a line break)
 3. Type `@dsh` + your question in the VS Code chat — replies stream from your local DSH session
 4. Let DSH propose an edit through the bridge: it lands in the **DSH Changes** view for diff / accept / undo — nothing is written without approval
 

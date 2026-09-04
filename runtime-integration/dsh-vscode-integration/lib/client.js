@@ -246,6 +246,65 @@ window.__ModuleLoader__.load({
       return () => document.removeEventListener('keydown', onKeyDown, true);
     }
 
+    // Upstream regression (DSH dffe955ed2, 2026-08-02): the composer's
+    // Ctrl/Cmd+Enter newline chord — the convention this input was built on
+    // and documented with in the DSH ledger — became the accelerated
+    // submit/steer gesture. Inside the VS Code sidebar that reads as a bug:
+    // write a multi-line reply over an attachment, press Ctrl+Enter for the
+    // line break, and the draft submits instead ("the composer emptied
+    // itself"). The embedded shell restores the chord by capturing the
+    // keydown before the DSH handler can see it. The newline itself rides the
+    // browser edit pipeline (execCommand insertText -> input event -> React
+    // onChange -> keyboard.setDraft), so it enters the machine's own draft
+    // history as an ordinary edit instead of forking a browser-owned one.
+    // An empty draft passes the chord through unchanged: the upstream
+    // empty-draft Cmd/Ctrl+Enter queue-steer gesture keeps working.
+    function insertComposerNewline(el) {
+      let inserted = false;
+      try {
+        inserted = document.execCommand('insertText', false, '\n');
+      } catch { /* some engines refuse programmatic edits */ }
+      if (inserted) return;
+      // Engines without execCommand support: splice the value and synthesize
+      // the input event so the controlled component still picks it up.
+      const start = typeof el.selectionStart === 'number' ? el.selectionStart : el.value.length;
+      const end = typeof el.selectionEnd === 'number' ? el.selectionEnd : start;
+      try {
+        el.setRangeText('\n', start, end, 'end');
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      } catch { /* last resort failed: leave the draft untouched */ }
+    }
+
+    function installComposerCtrlEnterNewline() {
+      const onKeyDown = (event) => {
+        if (event.defaultPrevented) return;
+        if (event.key !== 'Enter') return;
+        if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+        // keyCode 229 is the legacy IME-composition signal engines emit
+        // without isComposing; a composition-closing Enter belongs to the IME.
+        if (event.isComposing || event.keyCode === 229) return;
+        const target = event.target;
+        if (!target || typeof target.closest !== 'function') return;
+        let card;
+        try {
+          card = target.closest('[data-composer-card]');
+        } catch { /* detached node */ }
+        if (!card || typeof card.querySelector !== 'function') return;
+        let el;
+        try {
+          el = card.querySelector('textarea');
+        } catch { /* detached node */ }
+        if (!el || el !== document.activeElement) return;
+        if (el.disabled || el.readOnly) return;
+        if (typeof el.value !== 'string' || el.value.length === 0) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        insertComposerNewline(el);
+      };
+      document.addEventListener('keydown', onKeyDown, true);
+      return () => document.removeEventListener('keydown', onKeyDown, true);
+    }
+
     // R15: execCommand fallback. When the embedded page runs
     // document.execCommand('copy'/'cut') and the browser denies it, forward the
     // selection through the clipboard bridge; when execCommand('paste') is
@@ -630,6 +689,7 @@ window.__ModuleLoader__.load({
         const restoreClipboard = installClipboardBridge();
         const restoreExecFallback = installExecCommandFallback();
         const restoreMacShortcutBridge = installMacShortcutBridge();
+        const stopCtrlEnterNewline = installComposerCtrlEnterNewline();
         const stopReplyLinkify = installReplyLinkify();
         window.parent.postMessage({
           type: 'dshThreadReady', channel: THREAD_CHANNEL, version: THREAD_VERSION,
@@ -641,6 +701,7 @@ window.__ModuleLoader__.load({
           restoreClipboard();
           restoreExecFallback();
           restoreMacShortcutBridge();
+          stopCtrlEnterNewline();
           stopReplyLinkify();
           document.removeEventListener('click', onClick, true);
           window.removeEventListener('message', listener);

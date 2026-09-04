@@ -5,6 +5,12 @@ All notable changes to this project are documented here, following [Keep a Chang
 
 ## [Unreleased]
 
+### Fixed / 修复（附件草稿 Ctrl+Enter 误提交，2026-09-04）
+
+- **嵌入侧栏内 Ctrl/Cmd+Enter 把草稿直接提交**：右键"添加到 DSH 对话"后在草稿上写多行回复，按 Ctrl+Enter（macOS ⌘+Enter）想换行——DSH Web 输入框自 2026-08-02 上游提交 `dffe955ed2`（steer 功能）起把该组合键从"换行"改成了"加速提交/steer"，草稿瞬间被发送（用户观感：对话框消失）。嵌入式集成包 `dsh-vscode-integration`（0.7.0 → 0.8.0）新增 capture 阶段按键桥：仅当嵌入 VS Code（`dsh_embed=vscode`）、目标是聊天输入框（`[data-composer-card]` 内聚焦 textarea）、草稿非空、非 IME 组合态时，拦截该组合键并经 `execCommand('insertText')` → input 事件 → React onChange → `keyboard.setDraft` 走 DSH 自身的草稿记账插入换行（不 fork 浏览器侧 undo 历史；execCommand 被拒时回退 setRangeText + 合成 input 事件）。空草稿放行——上游"空草稿 Ctrl+Enter steer 整个队列"手势保留；普通 Enter 提交、Shift+Enter 原生换行、输入框外的 Ctrl+Enter 全部不受影响。
+  Ctrl/Cmd+Enter in the embedded composer submitted the draft instead of breaking the line: upstream DSH repurposed the chord as accelerated submit/steer in dffe955ed2 (2026-08-02), so writing a multi-line reply over an attachment and pressing Ctrl+Enter (Cmd+Enter on macOS) instantly sent the message. The runtime-integration package (0.7.0 → 0.8.0) restores the chord inside the VS Code embed only: a capture-phase keydown bridge claims Ctrl/Cmd+Enter on the focused chat composer with a non-empty draft (IME composing excluded) and inserts the newline through the DSH app's own draft pipeline (execCommand insertText → input event → onChange → setDraft; no browser-side undo fork, with a setRangeText fallback). The empty-draft pass-through keeps the upstream queue-steer gesture, and plain Enter / Shift+Enter / chords outside the composer are untouched.
+- 回归测试：`runtime-integration/dsh-vscode-integration/test/ctrlEnterNewline.test.js`（11 例：双平台组合键、空草稿放行、composer 外不接管、IME、Alt 变体、execCommand 回退、禁用态、已 preventDefault 尊重）；webviewHandshake 的 keydown 监听 harness 改为数组存储（mac ⌘V 桥测试语义不变）。
+
 ## [1.1.2] - 2026-09-05
 
 > 含前轮 [Unreleased] 累积：kind 事故双防线（F1-F2）、变更树五连修 + before 快照链（F3-F9）、本轮 HANDOFF-3 两 bug 收尾。**发版声明**：FIM Tab 补全（POC，默认关闭）未做端到端检测——README 双语已标注。

@@ -229,10 +229,14 @@ function loadClientHarness(options = {}) {
     navigator: { clipboard, platform: options.platform ?? 'MacIntel' },
     document: {
       addEventListener(type, callback) {
-        documentListeners[type] = callback;
+        // Multiple bridges register document keydown listeners (mac shortcut
+        // bridge + composer Ctrl/Cmd+Enter newline); keep them all so tests
+        // can dispatch like the DOM would.
+        if (!documentListeners[type]) documentListeners[type] = [];
+        documentListeners[type].push(callback);
       },
-      removeEventListener(type) {
-        delete documentListeners[type];
+      removeEventListener(type, callback) {
+        documentListeners[type] = (documentListeners[type] || []).filter((fn) => fn !== callback);
       },
       execCommand(command) {
         execCommands.push(command);
@@ -368,12 +372,12 @@ test('client installs a macOS Cmd+V paste bridge inside the embedded iframe', ()
   const harness = loadClientHarness();
   const { cleanup } = applyClient(harness);
 
-  const keydown = harness.documentListeners.keydown;
-  assert.ok(keydown, 'client must install a keydown listener on macOS');
+  const keydownListeners = harness.documentListeners.keydown;
+  assert.ok(Array.isArray(keydownListeners) && keydownListeners.length > 0, 'client must install keydown listeners on macOS');
   assert.strictEqual(harness.execCommands.length, 0);
 
   let prevented = false;
-  keydown({
+  const event = {
     metaKey: true,
     ctrlKey: false,
     code: 'KeyV',
@@ -382,20 +386,35 @@ test('client installs a macOS Cmd+V paste bridge inside the embedded iframe', ()
     preventDefault() {
       prevented = true;
     },
-  });
+  };
+  for (const listener of keydownListeners) listener(event);
 
   assert.strictEqual(harness.execCommands.length, 1);
   assert.strictEqual(harness.execCommands[0], 'paste');
   assert.strictEqual(prevented, true, 'Cmd+V must suppress the intercepted native handling');
 
   cleanup();
-  assert.strictEqual(harness.documentListeners.keydown, undefined, 'cleanup must remove the keydown bridge');
+  assert.deepStrictEqual(harness.documentListeners.keydown, [], 'cleanup must remove every keydown bridge');
 });
 
 test('client does not install the paste bridge on non-mac platforms', () => {
   const harness = loadClientHarness({ platform: 'Win32' });
-  applyClient(harness);
+  const { cleanup } = applyClient(harness);
 
-  assert.strictEqual(harness.documentListeners.keydown, undefined, 'paste shortcut bridge is macOS-only');
+  let prevented = false;
+  const event = {
+    metaKey: true,
+    ctrlKey: false,
+    code: 'KeyV',
+    key: 'v',
+    defaultPrevented: false,
+    preventDefault() {
+      prevented = true;
+    },
+  };
+  for (const listener of harness.documentListeners.keydown || []) listener(event);
+  assert.strictEqual(prevented, false, 'paste shortcut bridge is macOS-only');
   assert.strictEqual(harness.execCommands.length, 0);
+
+  cleanup();
 });
