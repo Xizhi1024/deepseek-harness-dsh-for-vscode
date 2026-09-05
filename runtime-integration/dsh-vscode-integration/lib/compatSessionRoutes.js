@@ -101,7 +101,7 @@ export function buildMuxDataLine(frame) {
   return 'data: ' + JSON.stringify(full) + '\n\n';
 }
 
-function createSessionCommandHandler(sessionController) {
+function createSessionCommandHandler(sessionController, commands = SESSION_COMMANDS) {
   return async (request, response) => {
     let envelope;
     try {
@@ -111,7 +111,7 @@ function createSessionCommandHandler(sessionController) {
       return;
     }
     const command = envelope && typeof envelope === 'object'
-      ? SESSION_COMMANDS.get(envelope.method)
+      ? commands.get(envelope.method)
       : undefined;
     if (!command) {
       writeJson(response, 404, { error: 'unknown-method' });
@@ -124,12 +124,40 @@ function createSessionCommandHandler(sessionController) {
       const target = command.service === 'commands'
         ? sessionController.commands
         : sessionController;
-      const value = await target[command.method](payload);
+      const value = await target[command.method](payload, AbortSignal.timeout(30000));
       writeJson(response, 200, { result: { ok: true, value } });
     } catch (error) {
       writeJson(response, 200, { result: remoteErrorToResult(error) });
     }
   };
+}
+
+/** Workspace list became a baseline stream in rc.1. Read and close exactly
+ * one generation; do not retain a subscriber for a one-shot REST request. */
+export function installCompatWorkspaceRoutes(ctx) {
+  const controller = ctx.workspaceController;
+  const adapter = {
+    async list(_payload, signal) {
+      if (typeof controller.list === 'function') return controller.list({}, signal);
+      const stream = controller.follow(signal);
+      try {
+        const first = await stream.next();
+        if (first.done || first.value?.type !== 'baseline') throw new Error('Workspace baseline unavailable');
+        return first.value.value;
+      } finally {
+        await stream.return?.();
+      }
+    },
+    create(payload) { return controller.create(payload); },
+  };
+  const commands = new Map([
+    ['workspace.list', { service: 'controller', method: 'list' }],
+    ['workspace.create', { service: 'controller', method: 'create' }],
+  ]);
+  const disposers = [...commands.keys()].map((method) => ctx.webServer.register({
+    kind: 'exact', path: `/api/${method}`, handler: createSessionCommandHandler(adapter, commands),
+  }));
+  return { dispose() { for (const dispose of disposers) dispose(); } };
 }
 
 function createEventsMuxHandler(ctx, deps = {}) {

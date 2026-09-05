@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events';
 import {
   buildMuxDataLine,
   installCompatSessionRoutes,
+  installCompatWorkspaceRoutes,
   normalizePromptPayload,
   remoteErrorToResult,
 } from '../lib/compatSessionRoutes.js';
@@ -68,6 +69,29 @@ function makeResponse() {
 function envelope(method, payload) {
   return JSON.stringify({ type: 'client-request', rpcId: 'rpc-1', method, payload });
 }
+
+test('workspace compatibility reads one baseline, closes the stream, and forwards creation', async () => {
+  const webServer = makeWebServer();
+  let closed = false;
+  const workspace = { workspaceId: 'w1', path: '/test', sessionIds: [] };
+  const routes = installCompatWorkspaceRoutes({ webServer, workspaceController: {
+    async *follow(signal) {
+      assert.ok(signal instanceof AbortSignal);
+      try { yield { type: 'baseline', value: { items: [workspace] } }; }
+      finally { closed = true; }
+    },
+    create: async (payload) => ({ workspace: { ...workspace, path: payload.path }, created: true }),
+  } });
+  const listed = makeResponse();
+  await webServer.routes.get('/api/workspace.list').handler(makePost(envelope('workspace.list', {})), listed);
+  assert.deepEqual(JSON.parse(listed.body).result.value.items, [workspace]);
+  assert.equal(closed, true);
+  const created = makeResponse();
+  await webServer.routes.get('/api/workspace.create').handler(makePost(envelope('workspace.create', { path: '/new' })), created);
+  assert.equal(JSON.parse(created.body).result.value.workspace.path, '/new');
+  routes.dispose();
+  assert.equal(webServer.routes.size, 0);
+});
 
 test('installCompatSessionRoutes mounts the five frozen routes and disposes them', () => {
   const controller = makeController();

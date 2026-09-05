@@ -7,7 +7,7 @@ import { createEditObserver } from './editObserver.js';
 import { createLmRoutes } from './lmRoute.js';
 import { createFimRoutes } from './fimRoutes.js';
 import { createLinkRoutes, editorOpenViaBridge } from './linkRoutes.js';
-import { installCompatSessionRoutes } from './compatSessionRoutes.js';
+import { installCompatSessionRoutes, installCompatWorkspaceRoutes } from './compatSessionRoutes.js';
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
@@ -484,6 +484,11 @@ function apply(ctx) {
   ctx.inject(['sessionController', 'webServer'], (scope) => {
     const routes = installCompatSessionRoutes(scope);
     console.log('[dsh-vscode-integration] session REST compat routes mounted (/api/session.*, /api/events.mux)');
+    return () => routes.dispose();
+  });
+  ctx.inject(['sessionController', 'workspaceController', 'webServer'], (scope) => {
+    const routes = installCompatWorkspaceRoutes(scope);
+    console.log('[dsh-vscode-integration] workspace REST compat routes mounted');
     return () => routes.dispose();
   });
 
