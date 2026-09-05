@@ -2,7 +2,7 @@
   "name": "dsh-vs-sidebar",
   "displayName": "%dsh.displayName%",
   "description": "%dsh.ext.description%",
-  "version": "1.1.4",
+  "version": "1.1.6",
   "publisher": "Xizhi1024",
   "license": "MIT",
   "pricing": "Free",
@@ -503,7 +503,9 @@
         },
         "dsh.extraArgs": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "scope": "machine",
           "description": "%dsh.cfg.extraArgs%"

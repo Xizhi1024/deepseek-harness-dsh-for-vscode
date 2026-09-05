@@ -20,6 +20,7 @@
 
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { loopbackFetch } = require('./loopbackAuth');
 
 /** API path for the JSON-RPC session methods. @type {string} */
 const SESSION_LIST_PATH = "/api/session.list";
@@ -225,12 +226,12 @@ function assertServerResponse(body) {
 async function postJson(baseUrl, apiPath, envelope, fetchImpl, signal) {
   let response;
   try {
-    response = await fetchImpl(endpointUrl(baseUrl, apiPath), {
+    response = await loopbackFetch(baseUrl, apiPath, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(envelope),
       signal,
-    });
+    }, fetchImpl);
   } catch (err) {
     if (isAbortError(err)) throw err;
     throw new DshSessionError(

@@ -1,4 +1,5 @@
 'use strict';
+const { loopbackFetch } = require('./loopbackAuth');
 
 /**
  * Extension-side FIM (fill-in-the-middle) core logic.
@@ -262,7 +263,7 @@ function createInlineCompletionProvider(deps) {
     }
 
     try {
-      const response = await fetchImpl(`${serverUrl}/api/fim`, {
+      const response = await loopbackFetch(serverUrl, '/api/fim', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${bridgeToken}`,
@@ -270,7 +271,7 @@ function createInlineCompletionProvider(deps) {
         },
         body: JSON.stringify({ model, prefix: context.prefix, suffix: context.suffix }),
         signal: controller.signal,
-      });
+      }, fetchImpl);
 
       const ok = typeof response.ok === 'boolean'
         ? response.ok

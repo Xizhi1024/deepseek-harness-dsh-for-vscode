@@ -45,6 +45,8 @@ for (const required of [
   'CHANGELOG.md',
   'src/extension.js',
   'src/lifecycle.js',
+  'src/startupGate.js',
+  'src/loopbackAuth.js',
   'src/runtimeArtifact.js',
   'src/runtimeArchive.js',
   'src/runtimeDownloader.js',

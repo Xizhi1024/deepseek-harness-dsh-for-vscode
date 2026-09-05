@@ -81,7 +81,8 @@ const { createSessionTitler } = require('./sessionTitler');
 const { buildDiagnoseReport, showDiagnoseQuickPick } = require('./diagnose/report');
 const { createInlineCompletionProvider } = require('./inlineCompletion');
 const { createExportsFace } = require('./exportsFace');
-const { createWorkspaceContext } = require("./workspaceContext");
+const { createWorkspaceContext, resolveDefaultPort } = require("./workspaceContext");
+const { createWebEmbedProxy, needsEmbedProxy } = require("./webEmbedProxy");
 const { createWorkspaceBinding, BINDING_STATES } = require("./context/workspaceBinding");
 const { createEditorContext } = require("./editorContext");
 const { createV3Handlers } = require("./bridge/v3");
@@ -107,6 +108,7 @@ const {
   resolveDshHome,
 } = require('./dshHome');
 const { LifecycleQueue } = require("./lifecycle");
+const { StartupGate } = require("./startupGate");
 const { createFeatureRegistry } = require("./featureRegistry");
 const { maybeOnboard, runOnboardingWizard } = require("./onboarding");
 
@@ -118,6 +120,8 @@ let hostContext = null; // workspace/config facade bound during activation
 let manager = null; // ServerManager instance (created in activate)
 let currentServer = null; // RunningServer | null
 let currentExternalUrl = null; // client-reachable URL (forwarded in remote workspaces)
+let currentBrowserUrl = null; // child launch URL for open-in-browser (proxy URL never leaves the window)
+let embedProxy = null; // loopback forwarder for authenticated children (SameSite wall in webviews)
 let currentSessionId = null; // DSH session id to pass to the iframe (dsh_session)
 let currentDshTheme = null; // active VS Code theme ('dark'|'light') for dsh_theme / dshThemeChanged
 let currentView = null; // vscode.WebviewView | null
@@ -126,6 +130,7 @@ let boundCwd = null; // workspace root the current server is bound to (null = no
 let lastConfig = null; // last config snapshot used for change detection (reconciler)
 let restartPromptTimer = null; // A2/U2: debounced "Restart now?" prompt for injection-class settings
 let lifecycle = null; // the one queue for every lifecycle transition
+let startupGate = new StartupGate();
 let viewGeneration = 0; // invalidates delayed connects for disposed/replaced views
 
 /**
@@ -175,6 +180,8 @@ let mcpConsentGate = null; // S2b per-server consent gate (created in L0)
 let callExportJournalInstance = null; // E-T2b callExport journal (created in L0, wired into v3)
 let embedPatchPath = null; // generated --patch overlay applied to extension-owned DSH children
 let runtimeStorageRoot = null; // managed runtime storage under VS Code global storage
+let activeGlobalStorageUri = null; // F5 may redirect extension-owned state away from the installed extension
+let activeDefaultPort = null; // F5 may pin a dedicated default port (DSH_VSCODE_PORT) away from the installed one
 let activeDshHome = null; // effective shared/isolated DSH user-data home
 let activeDshHomeInfo = null; // effective mode/path/source for diagnostics
 let ensureRuntime = null; // resolves/verifies (and optionally provisions) the managed runtime
@@ -202,6 +209,19 @@ let ownerWindowId = null; // stable window identity (vscode.env.windowId or deri
 let heartbeatFilePath = null; // per-window heartbeat path injected via DSH_VSCODE_HEARTBEAT_PATH
 let heartbeatTimer = null; // 10s heartbeat writer
 let ownerStartTs = null; // extension-host process start timestamp (PID-reuse guard)
+
+function storageUriFor(context) {
+  return activeGlobalStorageUri || context.globalStorageUri;
+}
+
+function resolveActiveGlobalStorageUri(context, env = process.env) {
+  const configured = String(env.DSH_VSCODE_STORAGE_ROOT || '').trim();
+  if (!configured) return context.globalStorageUri;
+  if (!path.isAbsolute(configured) || configured.includes('\0')) {
+    throw new Error('DSH_VSCODE_STORAGE_ROOT must be an absolute path without NUL');
+  }
+  return vscode.Uri.file(path.resolve(configured));
+}
 
 async function waitForResolvedView(timeoutMs = 3000) {
   const deadline = Date.now() + timeoutMs;
@@ -261,11 +281,16 @@ async function openInstancePanel({
     panel.dispose();
     throw error;
   }
-  const externalUrl = await externalize(server.url);
+  // Panels share the sidebar's child and its embed proxy; the direct URL is
+  // the fallback for tokenless/reused servers and before the first bind.
+  const externalUrl = needsEmbedProxy(server) && embedProxy
+    ? await externalize(embedProxy.url)
+    : await externalize(server.url);
   const sessionValue = sessionIdFromValue(sessionId);
   const paint = () => {
     panel.webview.html = framePage({
       url: externalUrl,
+      browserUrl: safeHttpUrl(server.url),
       lang: facade.env.language,
       failText: loc("Failed to load: DSH service unreachable"),
       openBrowserLabel: loc("Open in browser"),
@@ -393,7 +418,7 @@ function prepareDshHome(config, context) {
   const resolved = resolveDshHome({
     mode: config.homeMode,
     configuredPath: config.homePath,
-    globalStoragePath: context.globalStorageUri.fsPath,
+    globalStoragePath: storageUriFor(context).fsPath,
   });
   activeDshHome = resolved.path;
   const integration = installDshIntegration(
@@ -506,7 +531,7 @@ function deriveWindowId(vscodeObj) {
  * @returns {string}
  */
 function heartbeatPathFor(context, windowId) {
-  return path.join(context.globalStorageUri.fsPath, 'heartbeat', `dsh-${windowId}.json`);
+  return path.join(storageUriFor(context).fsPath, 'heartbeat', `dsh-${windowId}.json`);
 }
 
 /**
@@ -720,6 +745,7 @@ function renderFrame(context) {
   try { changeTree?.setActiveSession?.(currentSessionId); } catch (_) { /* advisory */ }
   render(framePage({
     url: currentExternalUrl,
+    browserUrl: currentBrowserUrl || currentExternalUrl,
     lang: vscode.env.language,
     failText: loc("Failed to load: DSH service unreachable"),
     openBrowserLabel: loc("Open in browser"),
@@ -767,6 +793,22 @@ async function bindServer(context, server, cwd) {
   boundCwd = cwd;
   const url = await externalize(server.url);
   currentExternalUrl = url;
+  currentBrowserUrl = url;
+  // Authenticated children cannot hold their SameSite=Strict cookie inside a
+  // webview iframe; serve the embedded UI through a loopback forwarder that
+  // carries the cookie host-side. Direct URL stays the fallback everywhere.
+  if (needsEmbedProxy(server)) {
+    try {
+      if (embedProxy) embedProxy.close();
+      embedProxy = createWebEmbedProxy({ log: (message) => appendDiagnostic(`[embed] ${message}`) });
+      const proxyUrl = await embedProxy.start(server.url);
+      currentExternalUrl = await externalize(proxyUrl);
+      appendDiagnostic(`[embed] iframe served via loopback proxy ${proxyUrl} -> ${server.url}`);
+    } catch (error) {
+      embedProxy = null;
+      appendDiagnostic(`[embed] proxy unavailable (${error && error.message}); iframe uses the direct URL`);
+    }
+  }
   const mode = loc(server.owned ? "managed" : "reused");
   // A6/U9: when the port-conflict fallback moved the server off the
   // configured port, the tooltip says which port is actually in use.
@@ -811,7 +853,11 @@ async function bindServer(context, server, cwd) {
   renderFrame(context);
 }
 
-async function connectNow(context) {
+function connectNow(context, options) {
+  return startupGate.run(() => connectAttempt(context), options);
+}
+
+async function connectAttempt(context) {
   try {
     // The Restart-Clean entry only applies to the next failed startup.
     pendingCleanRestart = false;
@@ -947,6 +993,7 @@ async function connectNow(context) {
       });
     }
     await bindServer(context, server, cwd);
+    return workspaceBinding.state().state !== BINDING_STATES.ERROR;
   } catch (err) {
     currentServer = null;
     boundCwd = null;
@@ -955,6 +1002,7 @@ async function connectNow(context) {
     const cfg = hostContext.config();
     const url = "http://" + cfg.host + ":" + cfg.port;
     currentExternalUrl = safeHttpUrl(url) === "about:blank" ? null : await externalize(url);
+    currentBrowserUrl = currentExternalUrl;
     const cleanEligible = isCleanRestartEligible(err);
     pendingCleanRestart = cleanEligible;
     appendDiagnostic(`[startup] ${renderStartupError(err, loc)}`);
@@ -970,19 +1018,20 @@ async function connectNow(context) {
         lang: vscode.env.language,
       }));
     } catch (_) { /* never throw out of connect() */ }
+    return false;
   }
 }
 
 /** Queue an ensure operation, optionally tied to one resolved view instance. */
-function scheduleConnect(context, expectedViewGeneration = null) {
-  return lifecycle.enqueue("connect", async () => {
+function scheduleConnect(context, expectedViewGeneration = null, force = false) {
+  return lifecycle.enqueueOnce(`connect:${viewGeneration}:${force}`, async () => {
     if (
       expectedViewGeneration !== null
       && (expectedViewGeneration !== viewGeneration || !currentView)
     ) {
       return;
     }
-    await connectNow(context);
+    await connectNow(context, { force });
   });
 }
 
@@ -1004,9 +1053,10 @@ async function reconnectNow(context) {
   await stopOwnedServer();
   currentServer = null;
   currentExternalUrl = null;
+  currentBrowserUrl = null;
   currentSessionId = null;
   followEditProjection(null);
-  await connectNow(context);
+  await connectNow(context, { force: true });
 }
 
 /** D1 clean restart: write the clean overlay, enter clean mode and restart. */
@@ -1086,6 +1136,7 @@ async function rebindToWorkspace(context) {
   if (!currentServer || (currentServer.owned && !manager.hasOwnedChild())) {
     currentServer = null;
     currentExternalUrl = null;
+    currentBrowserUrl = null;
     currentSessionId = null;
     followEditProjection(null);
     await connectNow(context);
@@ -1327,6 +1378,7 @@ function readMcpSources(vscode, fsApi = fs) {
  */
 async function setupCoreServer({ context, services }) {
   lifecycle = new LifecycleQueue();
+  startupGate = new StartupGate();
   workspaceBinding = (injectedDependencies.createWorkspaceBinding || createWorkspaceBinding)({
     vscode,
     baseUrlProvider: () => currentServer && currentServer.url,
@@ -1339,18 +1391,18 @@ async function setupCoreServer({ context, services }) {
     // ignore stale controller abort errors during repeated activation
   }
   runtimeAbort = new AbortController();
-  runtimeStorageRoot = path.join(context.globalStorageUri.fsPath, 'runtime');
+  runtimeStorageRoot = path.join(storageUriFor(context).fsPath, 'runtime');
   const initialConfig = hostContext.config();
   const initialSharedHome = resolveDshHome({
     mode: HOME_MODES.SHARED,
     configuredPath: initialConfig.homePath,
-    globalStoragePath: context.globalStorageUri.fsPath,
+    globalStoragePath: storageUriFor(context).fsPath,
   }).path;
   const migration = await migrateLegacyHomeMode({
     vscode,
     context,
     sharedHome: initialSharedHome,
-    isolatedHome: path.join(context.globalStorageUri.fsPath, '.dsh'),
+    isolatedHome: path.join(storageUriFor(context).fsPath, '.dsh'),
   });
   if (migration.changed) {
     vscode.window.showWarningMessage(loc(
@@ -1439,9 +1491,11 @@ async function setupCoreServer({ context, services }) {
         } catch (_) { /* non-fatal */ }
       }
       if (s.state === "error") {
+        startupGate.recordFailure();
         setStatusBar("$(error) " + (s.message ? loc(s.message, s.params) : loc("DSH: unavailable")));
         currentServer = null;
         currentExternalUrl = null;
+        currentBrowserUrl = null;
         currentSessionId = null;
         followEditProjection(null);
         boundCwd = null;
@@ -1624,7 +1678,7 @@ async function setupCoreSidebar({ context, services }) {
     // older facades without registerTreeDataProvider simply skip the guard
   }
   const rawChangeTracker = injectedDependencies.changeTracker
-    || createChangeTracker({ storageUri: context.globalStorageUri, vscode });
+    || createChangeTracker({ storageUri: storageUriFor(context), vscode });
   // Wrap record so a later L2 change tree can reveal newly arrived entries
   // without the L0 handler depending on L2 UI. The wrapper reuses the frozen
   // tracker's methods, which close over the journal state, so no bind is needed.
@@ -1662,7 +1716,7 @@ async function setupCoreSidebar({ context, services }) {
         if (typeof payload.beforeText === 'string'
           && Buffer.byteLength(payload.beforeText, 'utf8') <= 1024 * 1024) {
           try {
-            const snapshotDir = path.join(context.globalStorageUri.fsPath, 'changes', 'snapshots');
+            const snapshotDir = path.join(storageUriFor(context).fsPath, 'changes', 'snapshots');
             fs.mkdirSync(snapshotDir, { recursive: true });
             const snapshotPath = path.join(snapshotDir, entry.id);
             fs.writeFileSync(snapshotPath, payload.beforeText, 'utf8');
@@ -1729,7 +1783,7 @@ async function setupCoreSidebar({ context, services }) {
   services.mcpConsentGate = mcpConsentGate;
   callExportJournalInstance = injectedDependencies.callExportJournal
     || callExportJournal.createCallExportJournal({
-      storageDirProvider: () => context.globalStorageUri || null,
+      storageDirProvider: () => storageUriFor(context) || null,
     });
   services.callExportJournal = callExportJournalInstance;
   const extensionBridgeHandlers = injectedDependencies.extensionBridgeHandlers === undefined
@@ -1791,9 +1845,10 @@ async function setupCoreSidebar({ context, services }) {
         view.webview.onDidReceiveMessage(createWebviewMessageHandler({
           openBrowser: () => {
             // The status page also renders after a failed connect; in that
-            // state currentServer is null but currentExternalUrl points at
-            // the configured endpoint, so keep this handler usable there.
-            const candidate = currentExternalUrl && safeHttpUrl(currentExternalUrl);
+            // state currentServer is null but the URLs point at the
+            // configured endpoint, so keep this handler usable there. Prefer
+            // the child launch URL — the embed proxy dies with the window.
+            const candidate = safeHttpUrl(currentBrowserUrl || currentExternalUrl);
             if (candidate && candidate !== "about:blank") {
               vscode.env.openExternal(vscode.Uri.parse(candidate));
             }
@@ -1806,7 +1861,7 @@ async function setupCoreSidebar({ context, services }) {
             if (cleanMode && manager?.isCleanMode?.()) {
               return lifecycle.enqueue("restart server", () => restartNormalNow(context)).catch(() => {});
             }
-            return scheduleConnect(context, resolvedViewGeneration).catch(() => {});
+            return scheduleConnect(context, resolvedViewGeneration, true).catch(() => {});
           },
           interaction: (message) => {
             // Route to the feature-registered interaction handlers
@@ -1831,6 +1886,7 @@ async function setupCoreSidebar({ context, services }) {
               if (await stopOwnedServer()) {
                 currentServer = null;
                 currentExternalUrl = null;
+                currentBrowserUrl = null;
                 boundCwd = null;
               }
             }).catch(() => {});
@@ -2226,7 +2282,7 @@ async function setupMcpConsume() {
 function setupCallExport({ context, services }) {
   callExportJournalInstance = injectedDependencies.callExportJournal
     || callExportJournal.createCallExportJournal({
-      storageDirProvider: () => context.globalStorageUri || null,
+      storageDirProvider: () => storageUriFor(context) || null,
     });
   services.callExportJournal = callExportJournalInstance;
 }
@@ -2285,7 +2341,7 @@ async function setupChangesReview({ context, services }) {
   changeTree = createChangeTree({
     vscode,
     tracker: changeTracker,
-    storageUri: context.globalStorageUri,
+    storageUri: storageUriFor(context),
     loc,
     // Session-following default: the tree shows only the sidebar's active
     // session; dsh.changes.toggleScope flips to the global 'all' view.
@@ -2328,7 +2384,7 @@ function startChangeWatcher(context) {
     changeWatcher = createChangeWatcher({
       vscode,
       tracker: changeTracker,
-      storageUri: context.globalStorageUri,
+      storageUri: storageUriFor(context),
       loc,
       onDiagnostic: (line) => appendDiagnostic(line),
     });
@@ -2419,8 +2475,8 @@ function registerFeatureCommands(context, featureOk) {
           vscode.window.showErrorMessage(loc("DSH: unavailable"));
           return;
         }
-        if (currentExternalUrl) {
-          await vscode.env.openExternal(vscode.Uri.parse(currentExternalUrl));
+        if (currentBrowserUrl || currentExternalUrl) {
+          await vscode.env.openExternal(vscode.Uri.parse(currentBrowserUrl || currentExternalUrl));
         }
       });
     }),
@@ -2448,6 +2504,7 @@ function registerFeatureCommands(context, featureOk) {
         await stopOwnedServer();
         currentServer = null;
         currentExternalUrl = null;
+        currentBrowserUrl = null;
         currentSessionId = null;
         followEditProjection(null);
         boundCwd = null;
@@ -2861,8 +2918,11 @@ function registerFeatureCommands(context, featureOk) {
 
 async function activateWithDependencies(context, dependencies = {}) {
   vscode = createVscodeFacade(dependencies.vscode || require("vscode"));
-  hostContext = createWorkspaceContext(vscode, context);
   injectedDependencies = dependencies || {};
+  activeGlobalStorageUri = resolveActiveGlobalStorageUri(context, dependencies.env || process.env);
+  activeDefaultPort = resolveDefaultPort(dependencies.env || process.env);
+  fs.mkdirSync(activeGlobalStorageUri.fsPath, { recursive: true });
+  hostContext = createWorkspaceContext(vscode, context, activeGlobalStorageUri, activeDefaultPort);
 
   // C1 watchdog + OutputChannel「DSH」state. Reset on every activation so a
   // re-activation (tests / Reload in-process) never leaks a stale heartbeat
@@ -3057,6 +3117,9 @@ async function deactivate() {
     currentView = null;
     currentServer = null;
     currentExternalUrl = null;
+    currentBrowserUrl = null;
+    embedProxy?.close();
+    embedProxy = null;
     currentSessionId = null;
     // C2.5: stop the edit-event projection subscription (if any).
     try {
@@ -3070,6 +3133,8 @@ async function deactivate() {
     exportsFaceInstance = null;
     stopHeartbeat();
     outputChannel = null;
+    activeGlobalStorageUri = null;
+    activeDefaultPort = null;
   }
 }
 

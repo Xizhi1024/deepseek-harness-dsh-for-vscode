@@ -1,4 +1,5 @@
 "use strict";
+const { loopbackFetch } = require('./loopbackAuth');
 
 /**
  * DSH chat HTTP client for the VS Code sidebar.
@@ -472,11 +473,11 @@ function createDshChatClient({
 
       let response;
       try {
-        response = await resolvedFetch(url, {
+        response = await loopbackFetch(parsed, EVENTS_MUX_PATH, {
           method: "GET",
           headers: { accept: "text/event-stream" },
           signal: controller.signal,
-        });
+        }, resolvedFetch);
       } catch (err) {
         finish(isAbortError(err) ? "aborted" : "DSH_SESSION_API_UNAVAILABLE");
         return done;

@@ -7,6 +7,7 @@ class LifecycleQueue {
     this._accepting = true;
     this._chain = Promise.resolve();
     this._onError = onError;
+    this._pending = new Map();
   }
 
   /** @returns {boolean} true after shutdown begins. */
@@ -28,6 +29,14 @@ class LifecycleQueue {
     });
     this._chain = next.catch((error) => this._onError(label, error));
     return next;
+  }
+
+  /** Share queued/running duplicate work without changing ordinary queue semantics. */
+  enqueueOnce(key, operation) {
+    if (this._pending.has(key)) return this._pending.get(key);
+    const pending = this.enqueue(key, operation).finally(() => this._pending.delete(key));
+    this._pending.set(key, pending);
+    return pending;
   }
 
   /** Prevent queued-but-not-started and future operations from running. */

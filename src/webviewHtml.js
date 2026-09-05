@@ -233,6 +233,9 @@ ${WEBVIEW_CSP_META}
  *
  * @param {object} options
  * @param {string} options.url - DSH web URL to embed in the iframe.
+ * @param {string} [options.browserUrl] - URL for the fallback "open in browser"
+ *   link when it must differ from the iframe URL (embed proxy: the iframe uses
+ *   the proxy, a browser should use the child's launch URL). Defaults to url.
  * @param {string} [options.sessionId] - Optional DSH session id for the iframe URL.
  * @param {string} [options.theme] - Optional `dark` or `light` theme marker for the iframe URL.
  * @param {string} [options.failText] - Fallback heading when the iframe cannot load.
@@ -243,6 +246,7 @@ ${WEBVIEW_CSP_META}
  */
 function framePage({
   url,
+  browserUrl = undefined,
   sessionId,
   theme,
   failText = "Failed to load: DSH service unreachable",
@@ -251,7 +255,7 @@ function framePage({
   lang = "en",
 } = {}) {
   const safeFrameUrl = escapeHtml(withVscodeEmbedMode(url, sessionId, theme));
-  const safeBrowserUrl = escapeHtml(safeHttpUrl(url));
+  const safeBrowserUrl = escapeHtml(safeHttpUrl(browserUrl || url));
   let frameOrigin = 'null';
   try { frameOrigin = new URL(safeHttpUrl(url)).origin; } catch { /* null sentinel */ }
   const safeFrameOriginScript = JSON.stringify(frameOrigin).replace(/</g, '\\u003c');

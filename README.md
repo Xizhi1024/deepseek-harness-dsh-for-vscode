@@ -23,6 +23,20 @@ Embeds the full DSH web UI in the VS Code auxiliary sidebar: every window automa
 
 The extension reads the installed official DSH package version before launch. Versions before `0.1.2-rc.1` are expected to expose the legacy `apiProxy` host and native session REST routes; `0.1.2-rc.1+` is expected to expose `sessionController`, so the bundled integration restores the removed REST surface. The version selects the diagnostic expectation only: live capability negotiation claims whichever service actually exists, keeping forks and prereleases fail-open instead of blocking plugin activation.
 
+Authenticated runtimes (`0.1.2-rc.1+`) protect the browser surface with a `SameSite=Strict` cookie that a normal browser tab can hold but a webview iframe cannot (third-party context). Since 1.1.6 the extension automatically embeds such children through a loopback forwarder owned by the extension host (HTTP, SSE and the Typert WebSocket all relayed host-side) — no configuration is needed, and the sidebar works the same on old and new runtimes.
+
+## 🧪 Release status (1.1.6)
+
+**Verified this release**: sidebar embedding against a real `0.1.2-rc.1` child end to end (index, session create/list, SSE event stream, WebSocket remote channel and workspace list, all through the embed forwarder in a third-party-iframe context); per-window port behavior; full unit suite (776 tests).
+
+**Not verified / known gaps**:
+
+- A full conversation round-trip against a live model provider from a **dev-isolated DSH home** (`.vscode-test/f5/`): UI, workspace tree and model catalog were verified, but prompts require the provider key to be stored in that home (web Models page) or exported — the key vault is per-home.
+- **Add to DSH Thread** timed out once during live F5 testing; the entire message chain (extension → shell → iframe client → reply) was verified correct in a faithful third-party-iframe repro and the timeout did not reproduce. If it recurs, please open an [issue](https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/issues) with the exact sequence.
+- FIM tab completion remains a POC and was not end-to-end verified (unchanged, see the table note).
+
+**Roadmap**: the next major release restructures runtime boundary management — home/profile selection, runtime version negotiation, child ownership, port/instance discovery, startup URL/token, health checks and installed/dev coordination will derive from one runtime identity across prepare → spawn → authenticated readiness → teardown. Expect internal breaking changes with compatible user behavior.
+
 ## 📦 Install
 
 - **Marketplace (recommended)**: search **DeepSeek Harness** (publisher Xizhi1024) in the Extensions view, or `code --install-extension Xizhi1024.dsh-vs-sidebar`

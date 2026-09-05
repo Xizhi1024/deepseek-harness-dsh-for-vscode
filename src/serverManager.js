@@ -28,6 +28,7 @@ const {
   supportsNoOpenFlag,
 } = require('./managedRuntimeLaunch');
 const { STARTUP_ERRORS } = require('./startupErrors');
+const { loopbackFetch } = require('./loopbackAuth');
 
 // Shared contract constants normally come from ./types. Fall back to local
 // defaults so this file stays independently testable when copied in isolation.
@@ -467,7 +468,7 @@ class ServerManager {
       && this._ownedServer.port === port
     );
     return {
-      url: `http://${host}:${port}`,
+      url: owned ? this._ownedServer.url : `http://${host}:${port}`,
       host,
       port,
       pid: owned ? this._child.pid : null,
@@ -494,8 +495,9 @@ class ServerManager {
       const result = await this.probeWithRetry(host, port);
       if (result && result.reachable && result.isDsh) {
         this._emit('reusing', 'Found a running DSH instance at http://{host}:{port}, reusing', { host, port });
-        this._startHealthWatch(host, port);
-        return this._reuseHandle(host, port);
+        const server = this._reuseHandle(host, port);
+        this._startHealthWatch(server.url, host, port);
+        return server;
       }
     } catch {
       // The caller keeps its original error and decides whether to surface it.
@@ -533,10 +535,26 @@ class ServerManager {
    *   { reachable: false, reason: 'timeout' } — listener silent: port busy
    *   { reachable: false, reason: '<code>' }  — other transport failure
    */
-  async probe(host, port) {
+  async probe(host, port, requestTarget = '/') {
+    if (typeof requestTarget === 'string' && requestTarget.startsWith('/?token=')) {
+      try {
+        const response = await loopbackFetch(`http://${host}:${port}${requestTarget}`, null,
+          { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+        const body = await response.text();
+        return { reachable: true, isDsh: response.status === 200 && body.includes(BOOT_MARKER) };
+      } catch (error) {
+        return { reachable: false, reason: error?.cause?.code === 'ECONNREFUSED' ? 'refused' : 'auth-probe-failed' };
+      }
+    }
     return new Promise((resolve) => {
       let done = false;
       let raw = '';
+      const target = typeof requestTarget === 'string'
+        && requestTarget.startsWith('/')
+        && requestTarget.length <= 4096
+        && !/[\r\n]/.test(requestTarget)
+        ? requestTarget
+        : '/';
       const finish = (result) => {
         if (!done) {
           done = true;
@@ -550,7 +568,7 @@ class ServerManager {
       socket.setTimeout(PROBE_TIMEOUT_MS);
       socket.on('connect', () => {
         socket.write(
-          `GET / HTTP/1.1\r\nHost: ${host}:${port}\r\nConnection: close\r\nAccept: text/html\r\n\r\n`
+          `GET ${target} HTTP/1.1\r\nHost: ${host}:${port}\r\nConnection: close\r\nAccept: text/html\r\n\r\n`
         );
       });
       socket.on('data', (chunk) => {
@@ -589,11 +607,11 @@ class ServerManager {
    * when DSH is busy (e.g. streaming a reply) and a single probe would time
    * out.
    */
-  async probeWithRetry(host, port, { attempts = 3, delayMs = 400 } = {}) {
+  async probeWithRetry(host, port, { attempts = 3, delayMs = 400, requestTarget = '/' } = {}) {
     const n = Math.max(1, attempts); // at least one attempt, even for 0/negative input
     let last = null;
     for (let i = 0; i < n; i++) {
-      last = await this.probe(host, port);
+      last = await this.probe(host, port, requestTarget);
       if (last.reachable) return last;
       if (i < n - 1) {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -610,14 +628,16 @@ class ServerManager {
   async healthCheck(url) {
     let host;
     let port;
+    let parsed;
     try {
-      const parsed = new URL(url);
+      parsed = new URL(url);
       host = parsed.hostname;
       port = parsed.port ? Number(parsed.port) : parsed.protocol === 'https:' ? 443 : 80;
     } catch {
       return false;
     }
-    const result = await this.probe(host, port);
+    const requestTarget = `${parsed.pathname || '/'}${parsed.search || ''}`;
+    const result = await this.probe(host, port, requestTarget);
     return Boolean(result.isDsh);
   }
 
@@ -657,7 +677,10 @@ class ServerManager {
     if (autoStart && this._child && this._ownedServer && this._ownedServer.host === host) {
       const own = this._ownedServer;
       this._emit('probing', 'Probing DSH service: http://{host}:{port}…', { host, port: own.port });
-      const ownProbe = await this.probeWithRetry(host, own.port);
+      const ownUrl = new URL(own.url);
+      const ownProbe = await this.probeWithRetry(host, own.port, {
+        requestTarget: `${ownUrl.pathname || '/'}${ownUrl.search || ''}`,
+      });
       this._throwIfCancelled(generation);
       if (ownProbe.isDsh) return this._reuseHandle(host, own.port);
       // A child that no longer serves DSH must not be left behind while a
@@ -921,7 +944,7 @@ class ServerManager {
     this._throwIfCancelled(generation);
     this._applyRuntimeProfileGuard();
     try {
-      return await this._spawnWithPatchSelfHeal(host, port, cwd, registryFile, generation, true);
+      return await this._spawnAttempt(host, port, cwd, registryFile, generation, true);
     } catch (err) {
       // --no-open self-heal: a runtime older than 0.1.0-rc.7 rejects the
       // flag through Commander's "unknown option" error and exits before
@@ -933,7 +956,7 @@ class ServerManager {
       if (!isNoOpenStderr(this._readLastSpawnLogTail())) throw err;
       this._noOpenSuppressed = true;
       try {
-        const server = await this._spawnWithPatchSelfHeal(host, port, cwd, registryFile, generation, true);
+        const server = await this._spawnAttempt(host, port, cwd, registryFile, generation, true);
         this._selfHealCount += 1;
         this._emit('selfheal', 'DSH runtime rejected --no-open (older than 0.1.0-rc.7); retried without the flag');
         return server;
@@ -969,33 +992,37 @@ class ServerManager {
     }
   }
 
+  /**
+   * Read the authenticated startup URL emitted by the child we just spawned.
+   * The URL is accepted only when its loopback host and port exactly match the
+   * owned launch target. This keeps a stale or foreign log line from widening
+   * the readiness boundary.
+   */
+  _readOwnedStartupUrl(host, port) {
+    const tail = this._readLastSpawnLogTail();
+    const matches = [...tail.matchAll(/(?:^|\r?\n)dsh web:\s+(https?:\/\/[^\s]+)/g)];
+    for (let index = matches.length - 1; index >= 0; index -= 1) {
+      try {
+        const parsed = new URL(matches[index][1]);
+        const parsedPort = parsed.port ? Number(parsed.port) : 80;
+        const token = parsed.searchParams.get('token');
+        if (parsed.protocol !== 'http:' || parsed.hostname !== host || parsedPort !== port) continue;
+        if (!token || token.length > 2048 || parsed.username || parsed.password || parsed.hash) continue;
+        return parsed.toString();
+      } catch {
+        // Ignore partial lines while the child is still flushing its log.
+      }
+    }
+    return null;
+  }
+
   /** Session flag: the current runtime rejected --no-open once already. */
   noOpenSuppressed() {
     return Boolean(this._noOpenSuppressed);
   }
 
-  // D1 -patch self-heal: when the first spawn exits early while a --patch
-  // overlay was in effect, retry exactly once with the patch removed. A
-  // successful retry continues transparently and is recorded for Diagnose;
-  // a second early exit reports the original SPAWN_EXITED_EARLY error.
-  async _spawnWithPatchSelfHeal(host, port, cwd, registryFile, generation, usePatch) {
-    const hadPatch = usePatch && this._effectivePatchPath() != null;
-    try {
-      return await this._spawnAttempt(host, port, cwd, registryFile, generation, usePatch);
-    } catch (err) {
-      if (!(hadPatch && err && err.code === 'SPAWN_EXITED_EARLY')) throw err;
-      try {
-        const server = await this._spawnAttempt(host, port, cwd, registryFile, generation, false);
-        this._selfHealCount += 1;
-        this._emit('selfheal', 'DSH exited early with --patch; retried without --patch');
-        return server;
-      } catch (err2) {
-        // No second retry: the original SPAWN_EXITED_EARLY code stands.
-        throw err2;
-      }
-    }
-  }
-
+  // The overlay provides required integration routes. Never drop it to turn
+  // a failed boot into a healthy web page with a broken session API.
   _spawnAttempt(host, port, cwd, registryFile, generation = this._cancelGeneration, usePatch = true) {
     this._throwIfCancelled(generation);
     if (!this.resolvedRuntime) {
@@ -1099,12 +1126,18 @@ class ServerManager {
           reject(new ServerError('DSH lifecycle operation was cancelled'));
           return;
         }
-        const probeResult = await this.probe(host, port);
+        const startupUrl = this._readOwnedStartupUrl(host, port);
+        let requestTarget = '/';
+        if (startupUrl) {
+          const parsed = new URL(startupUrl);
+          requestTarget = `${parsed.pathname || '/'}${parsed.search || ''}`;
+        }
+        const probeResult = await this.probe(host, port, requestTarget);
         if (settled) return;
 
         if (probeResult.reachable && probeResult.isDsh) {
           settled = true;
-          resolve(this._finalizeReady(host, port, cwd, child.pid, registryFile, logPath));
+          resolve(this._finalizeReady(host, port, cwd, child.pid, registryFile, logPath, startupUrl));
           return;
         }
 
@@ -1134,7 +1167,7 @@ class ServerManager {
    * registry (same-port entry replaced, others kept), emit {state:"ready"}
    * and return the RunningServer object.
    */
-  _finalizeReady(host, port, cwd, pid, registryFile, logPath = null) {
+  _finalizeReady(host, port, cwd, pid, registryFile, logPath = null, startupUrl = null) {
     this._registryFile = registryFile || null;
     if (registryFile) {
       const entryCwd = cwd === null || cwd === undefined || cwd === '' ? null : cwd;
@@ -1153,10 +1186,10 @@ class ServerManager {
         ...(logPath ? { log: logPath } : {}),
       });
     }
-    const server = { url: `http://${host}:${port}`, host, port, pid, owned: true };
+    const server = { url: startupUrl || `http://${host}:${port}`, host, port, pid, owned: true };
     this._ownedServer = server;
     this._emit('ready', 'DSH web ready: http://{host}:{port} (pid={pid})', { host, port, pid }, server);
-    this._startHealthWatch(host, port);
+    this._startHealthWatch(server.url, host, port);
     return server;
   }
 
@@ -1186,7 +1219,7 @@ class ServerManager {
    * of silently showing a dead iframe. The timer self-clears on loss; stop()
    * and a fresh ensureServer cycle clear it as well.
    */
-  _startHealthWatch(host, port, intervalMs = 30000) {
+  _startHealthWatch(url, host, port, intervalMs = 30000) {
     this._clearHealthWatch();
     // Instance-level override (mainly a test seam) beats the default cadence.
     const cadence = Number.isInteger(this._healthIntervalMs) && this._healthIntervalMs > 0
@@ -1194,10 +1227,10 @@ class ServerManager {
       : intervalMs;
     this._healthPort = port;
     this._healthTimer = setInterval(() => {
-      Promise.resolve(this.probe(host, port))
-        .then((result) => {
+      Promise.resolve(this.healthCheck(url))
+        .then((healthy) => {
           if (this._healthTimer === null) return;
-          if (result && result.reachable && result.isDsh) return;
+          if (healthy) return;
           this._clearHealthWatch();
           this._emit('lost', 'DSH service stopped answering at http://{host}:{port}', { host, port });
         })
@@ -1382,6 +1415,7 @@ module.exports = {
   ServerError,
   CLOSE_POLICIES,
   DEFAULT_CLOSE_POLICY,
+  PORT_SCAN_LIMIT,
   killProcessTree,
   normalizeClosePolicy,
   shouldStopOnViewClose,

@@ -49,6 +49,68 @@ test('probe recognizes a fragmented boot marker over raw HTTP/TCP', async (t) =>
   );
 });
 
+test('authenticated health probe uses the owned DSH startup URL', async (t) => {
+  const server = http.createServer((req, res) => {
+    if (req.url !== '/?token=owned-test-token') { // allow-secret-scan
+      res.writeHead(401, { 'content-type': 'text/plain' });
+      res.end('unauthorized');
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end('<!doctype html><script>window.__DSH_BOOT__={}</script>');
+  });
+  t.after(() => close(server));
+  await listen(server);
+
+  const manager = new ServerManager();
+  const port = server.address().port;
+  assert.deepStrictEqual(
+    await manager.probe('127.0.0.1', port),
+    { reachable: true, isDsh: false },
+  );
+  assert.strictEqual(
+    await manager.healthCheck(`http://127.0.0.1:${port}/?token=owned-test-token`), // allow-secret-scan
+    true,
+  );
+});
+
+test('owned startup URL is accepted only from the current spawn log and endpoint', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-startup-url-'));
+  const logPath = path.join(root, 'spawn.log');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const manager = new ServerManager();
+  manager._lastSpawnLogPath = logPath;
+
+  fs.writeFileSync(logPath, [
+    'dsh web: http://127.0.0.1:4998/?token=stale-token', // allow-secret-scan
+    'dsh web: http://127.0.0.1:4999/?token=current-token', // allow-secret-scan
+  ].join('\n'));
+  assert.equal(
+    manager._readOwnedStartupUrl('127.0.0.1', 4999),
+    'http://127.0.0.1:4999/?token=current-token', // allow-secret-scan
+  );
+  assert.equal(manager._readOwnedStartupUrl('127.0.0.1', 5000), null);
+
+  fs.writeFileSync(logPath, 'dsh web: http://example.com:4999/?token=foreign-token\n'); // allow-secret-scan
+  assert.equal(manager._readOwnedStartupUrl('127.0.0.1', 4999), null);
+});
+
+test('ready handle retains the authenticated URL without publishing its token to the registry', (t) => {
+  const registryFile = path.join(os.tmpdir(), `dsh-auth-reg-${process.pid}-${Date.now()}.json`);
+  t.after(() => fs.rmSync(registryFile, { force: true }));
+  const manager = new ServerManager();
+  manager._startHealthWatch = () => {};
+  const startupUrl = 'http://127.0.0.1:4999/?token=ready-token'; // allow-secret-scan
+
+  manager._child = { pid: process.pid };
+  const ready = manager._finalizeReady(
+    '127.0.0.1', 4999, null, process.pid, registryFile, null, startupUrl,
+  );
+  assert.equal(ready.url, startupUrl);
+  assert.equal(manager._reuseHandle('127.0.0.1', 4999).url, startupUrl);
+  assert.equal(fs.readFileSync(registryFile, 'utf8').includes('ready-token'), false); // allow-secret-scan
+});
+
 test('ServerManager preserves the standalone self-test behavior', async (t) => {
   const servers = [];
   const files = [];
@@ -695,4 +757,3 @@ test('stop() with no owned endpoint never probes (F-f regression guard)', async 
   await manager.stop();
   assert.strictEqual(probes, 0, 'a stop without an owned server must not probe');
 });
-

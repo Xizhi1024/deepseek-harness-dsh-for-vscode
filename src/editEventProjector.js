@@ -1,4 +1,5 @@
 "use strict";
+const { loopbackFetch } = require('./loopbackAuth');
 
 /**
  * C2.5: edit/write attribution projected from the DSH session event stream.
@@ -254,7 +255,7 @@ function createEditEventProjector({
     url.searchParams.set("sessionId", sessionId);
     let response;
     try {
-      response = await (fetchImpl || globalThis.fetch)(url.toString(), { method: "GET" });
+      response = await loopbackFetch(base, url.toString(), { method: "GET" }, fetchImpl || globalThis.fetch);
     } catch (err) {
       safeLog("backfill fetch failed: " + (err && err.message ? err.message : String(err)));
       return;

@@ -69,33 +69,15 @@ function makeSpawnFn(harness, exits = []) {
   };
 }
 
-test('self-heal retries exactly once without --patch and succeeds transparently', async () => {
-  const harness = new CleanSpawnHarness({
-    embedPatchPath: 'C:\\overlay.yml',
-  });
+test('failed integration boot never drops the required overlay', async () => {
+  const harness = new CleanSpawnHarness({ embedPatchPath: 'C:\\overlay.yml' });
   harness.spawnFn = makeSpawnFn(harness, [{ code: 1, signal: null }, null]);
-  harness.probeReadyAt = 2; // second attempt (without --patch) becomes healthy
-  const server = await harness._spawnAndWait('127.0.0.1', 4299, null, null);
-
-  assert.strictEqual(server.owned, true);
-  assert.strictEqual(harness.usePatches.length, 2, 'first with patch, second without');
-  assert.deepStrictEqual(harness.usePatches, [true, false]);
-  assert.strictEqual(harness.selfHealCount(), 1, 'successful self-heal is recorded');
-});
-
-test('self-heal second failure reports the original SPAWN_EXITED_EARLY code', async () => {
-  const harness = new CleanSpawnHarness({
-    embedPatchPath: 'C:\\overlay.yml',
-  });
-  harness.spawnFn = makeSpawnFn(harness, [{ code: 1, signal: null }, { code: 1, signal: null }]);
-
-  await assert.rejects(
-    harness._spawnAndWait('127.0.0.1', 4300, null, null),
-    (err) => err && err.code === 'SPAWN_EXITED_EARLY'
-  );
-  assert.strictEqual(harness.usePatches.length, 2, 'exactly one retry, never three');
-  assert.deepStrictEqual(harness.usePatches, [true, false]);
-  assert.strictEqual(harness.selfHealCount(), 0, 'failed self-heal is not counted');
+  harness.probeReadyAt = 2; // A bare web server could appear healthy after dropping the overlay.
+  await assert.rejects(harness._spawnAndWait('127.0.0.1', 4299, null, null),
+    (err) => err.code === 'SPAWN_EXITED_EARLY');
+  assert.deepStrictEqual(harness.usePatches, [true]);
+  assert.equal(harness.spawnCalls, 1);
+  assert.equal(harness.selfHealCount(), 0);
 });
 
 test('no retry when the first spawn had no --patch', async () => {

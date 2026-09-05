@@ -6,8 +6,17 @@
       "type": "extensionHost",
       "request": "launch",
       "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}"
-      ]
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "--disable-extensions",
+        "--disable-workspace-trust",
+        "--user-data-dir=${workspaceFolder}/.vscode-test/f5/user-data",
+        "--extensions-dir=${workspaceFolder}/.vscode-test/f5/extensions"
+      ],
+      "env": {
+        "DSH_HOME": "${workspaceFolder}/.vscode-test/f5/dsh-home",
+        "DSH_VSCODE_STORAGE_ROOT": "${workspaceFolder}/.vscode-test/f5/extension-storage",
+        "DSH_VSCODE_PORT": "3200"
+      }
     }
   ]
 }
