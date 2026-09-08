@@ -114,9 +114,11 @@ const walk = (dir) => {
       walk(full);
       continue;
     }
-    // Mirror .vscodeignore: **/*.log never ships (the only global exclude
-    // that reaches the integration tree; root-anchored test/** does not).
+    // Mirror .vscodeignore: **/*.log and **/codemap.md never ship (the only
+    // global excludes that reach the integration tree; root-anchored test/**
+    // does not).
     if (item.name.endsWith('.log')) continue;
+    if (item.name === 'codemap.md') continue;
     treeIntegration.push(path.relative(process.cwd(), full).split(path.sep).join('/'));
   }
 };

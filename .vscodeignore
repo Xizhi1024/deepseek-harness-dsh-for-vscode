@@ -26,6 +26,8 @@ dsh-instances.json
 .dsh-*/**
 
 # Repo-internal planning/audit notes stay out of the VSIX
+# Architecture codemaps are repo documentation, never package payload
+**/codemap.md
 USABILITY-AUDIT.md
 PLAN-*.md
 HANDOFF-*.md
