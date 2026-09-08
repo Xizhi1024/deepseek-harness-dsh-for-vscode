@@ -2357,6 +2357,18 @@ async function setupChangesReview({ context, services }) {
   // change reveals itself in the view.
   services.changesReview = {
     onEntry: (entry) => {
+      // Passive sources (FileSystemWatcher external edits, tool-intercept
+      // attribution) must NOT steal sidebar focus: in multi-window setups a
+      // single shared disk change would reveal the auxiliary sidebar in
+      // every affected window at once. Refresh the tree silently instead.
+      if (entry && (entry.source === 'external' || entry.source === 'tool-intercept')) {
+        try {
+          changeTree?.refresh?.();
+        } catch (_) {
+          // refresh is best-effort; the view updates on next expansion
+        }
+        return;
+      }
       try {
         void changeTree?.reveal(entry);
       } catch (_) {

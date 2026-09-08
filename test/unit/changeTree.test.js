@@ -266,7 +266,7 @@ test('toggleScope flips between the session view and the all-scope grouped view'
   tree.dispose();
 });
 
-test('change tree reveal refreshes, reveals the entry and focuses the view', async (t) => {
+test('change tree reveal refreshes and reveals the entry without focusing the container', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-change-tree-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const vscode = fakeVscode();
@@ -277,6 +277,27 @@ test('change tree reveal refreshes, reveals the entry and focuses the view', asy
   await tree.reveal(entry);
   assert.strictEqual(vscode.reveals.length, 1);
   assert.strictEqual(vscode.reveals[0].item.id, entry.id);
+  // A successful treeView.reveal must NOT run the container focus command:
+  // it opens the whole dsh-sidebar and stole focus in every window sharing
+  // the workspace (multi-instance spontaneous sidebar focus bug).
+  assert.ok(!vscode.executedCommands.some((args) => args[0] === 'dsh.changes.focus'));
+  tree.dispose();
+});
+
+test('change tree reveal falls back to the focus command only when treeView.reveal fails', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-change-tree-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  vscode.window.createTreeView = () => ({
+    reveal: () => { throw new Error('view not visible'); },
+    onDidChangeVisibility: () => ({ dispose() {} }),
+    dispose() {},
+  });
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const entry = await tracker.record({ label: 'x', edits: [] });
+  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root } });
+
+  await tree.reveal(entry);
   assert.ok(vscode.executedCommands.some((args) => args[0] === 'dsh.changes.focus'));
   tree.dispose();
 });

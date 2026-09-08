@@ -799,17 +799,26 @@ function createChangeTree({
 
   async function reveal(entry) {
     refresh();
+    let revealed = false;
     try {
       if (treeView && typeof treeView.reveal === 'function') {
         await treeView.reveal(entry, { select: true, focus: true });
+        revealed = true;
       }
     } catch {
       // reveal is best-effort; the refresh above already updates the list
     }
-    try {
-      await vscode.commands.executeCommand('dsh.changes.focus');
-    } catch {
-      // the focus command may be unavailable in tests
+    // Fallback ONLY when treeView.reveal was unavailable or failed: the
+    // focus command reveals the whole dsh-sidebar container, so running it
+    // unconditionally yanked the auxiliary sidebar open on every recorded
+    // change — in every window sharing the workspace (bug: multi-instance
+    // spontaneous sidebar focus).
+    if (!revealed) {
+      try {
+        await vscode.commands.executeCommand('dsh.changes.focus');
+      } catch {
+        // the focus command may be unavailable in tests
+      }
     }
   }
 
