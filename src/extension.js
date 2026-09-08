@@ -2356,23 +2356,18 @@ async function setupChangesReview({ context, services }) {
   // Wire the L0 tracker wrapper to the L2 tree so every newly recorded
   // change reveals itself in the view.
   services.changesReview = {
-    onEntry: (entry) => {
-      // Passive sources (FileSystemWatcher external edits, tool-intercept
-      // attribution) must NOT steal sidebar focus: in multi-window setups a
-      // single shared disk change would reveal the auxiliary sidebar in
-      // every affected window at once. Refresh the tree silently instead.
-      if (entry && (entry.source === 'external' || entry.source === 'tool-intercept')) {
-        try {
-          changeTree?.refresh?.();
-        } catch (_) {
-          // refresh is best-effort; the view updates on next expansion
-        }
-        return;
-      }
+    onEntry: () => {
+      // NO auto-reveal, ever: recording a change must never steal sidebar
+      // focus. Active bridge pushes are per-window private, but passive
+      // sources (FileSystemWatcher external edits, tool-intercept
+      // attribution) fire in EVERY window sharing the workspace — one disk
+      // change revealed the auxiliary sidebar in all of them at once. The
+      // user opens the tree themselves; entries are visible on arrival via
+      // the silent refresh.
       try {
-        void changeTree?.reveal(entry);
+        changeTree?.refresh?.();
       } catch (_) {
-        // reveal is advisory; the view still refreshes on next expansion
+        // refresh is best-effort; the view updates on next expansion
       }
     },
   };
