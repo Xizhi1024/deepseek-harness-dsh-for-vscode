@@ -25,7 +25,9 @@ The extension reads the installed official DSH package version before launch. Ve
 
 Authenticated runtimes (`0.1.2-rc.1+`) protect the browser surface with a `SameSite=Strict` cookie that a normal browser tab can hold but a webview iframe cannot (third-party context). Since 1.1.6 the extension automatically embeds such children through a loopback forwarder owned by the extension host (HTTP, SSE and the Typert WebSocket all relayed host-side) — no configuration is needed, and the sidebar works the same on old and new runtimes.
 
-## 🧪 Release status (1.1.6)
+## 🧪 Release status (1.1.7)
+
+**This update**: recording DSH changes never steals sidebar focus anymore (multi-window setups stopped auto-opening every sidebar at once), and a freshly scaffolded profile inherits the `web` profile's module config (dependencies, bundles, patch-layer disables). Full notes in CHANGELOG.md.
 
 **Verified this release**: sidebar embedding against a real `0.1.2-rc.1` child end to end (index, session create/list, SSE event stream, WebSocket remote channel and workspace list, all through the embed forwarder in a third-party-iframe context); per-window port behavior; full unit suite (776 tests).
 

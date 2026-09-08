@@ -8,13 +8,18 @@
 
 | 项 / Item | 值 / Value |
 |---|---|
-| 扩展版本 / Extension | 1.1.2 |
+| 扩展版本 / Extension | 1.1.7 |
 | DSH runtime 下限 / floor | `0.1.0-rc.7`（--no-open 启动旗标要求；更早版本在健康探测前退出） |
 | 实测基线 / verified installs | `0.1.1-rc.2`（本地 npm 全局安装，2026-08-23） |
 | 上游核对基线 / verified upstream | master `49a606bc5b` = `0.1.2-alpha.5`（2026-09-02 fetch） |
 | 线协议兼容 / wire compat | `session.list` / `session.create` / `session.rename` / `session.prompt` / `GET /api/session.export` 信封、载荷、行键在 0.1.0-rc.7 .. 0.1.2-alpha.x 全程不变（2026-09-02 逐面核实） |
 
 ## 轮次记录 / Rounds
+
+- 扩展 1.1.6 → 1.1.7。三件事：①多窗口多实例侧栏抢焦点根治（`changeTree.reveal` 无条件 `dsh.changes.focus` + `onEntry` 全来源 reveal 联动 → 现全来源只静默 refresh，focus 命令仅兜底）；②`profileScaffold` 首建 profile 继承 donor（默认 `web`）的 dependencies/bundles/cordis.patch.yml，扩展自管的 `dsh-vscode-integration` 排除；③全库 codemap（根 Atlas + 14 目录级 + AGENTS.md + REFACTOR-PLAN.md），codemap 不进 VSIX。
+- **测试**：changeTree 23（+2 新例：reveal 成功不执行 focus、reveal 失败才兜底）；profileScaffold 7（+3 新例：继承/不重继承/坏 donor 容错）；全套件 744+37 通过（`extension.test.js` 子测试 37/37，进程退出僵死为既有问题、与本轮无关，已用基线 stash 对比确认）。
+- **发版产物**：dsh-vs-sidebar-1.1.7.vsix；lint / test:unit / test:package（115 文件）/ test:secrets 全绿。
+- **遗留**：`extension.test.js` 退出僵死（某测试激活的 server/watcher 未 dispose，`npm test` 全量体验受阻）；Diagnose U7 人话化、U8 findFiles 超时、U9 端口 tooltip 仍未做（见 REFACTOR-PLAN.md Phase 4）。
 
 ### Round 2026-09-05 · 1.1.2（变更树移交收尾 + 发版）
 

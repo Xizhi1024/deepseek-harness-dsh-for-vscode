@@ -5,6 +5,22 @@ All notable changes to this project are documented here, following [Keep a Chang
 
 ## [Unreleased]
 
+## [1.1.7] - 2026-09-08
+
+### Fixed / 修复（多实例侧栏抢焦点）
+
+- **记录变更时不再抢侧栏焦点（多窗口多实例场景一次全弹的根因）**：`changeTree.reveal()` 在 `treeView.reveal` 成功后仍无条件执行 `dsh.changes.focus`——该命令会打开整个 `dsh-sidebar` 辅助侧栏容器并切到变更视图；叠加 `onEntry` 对每条新落库变更的 reveal 联动后，任何一次落盘修改（FileSystemWatcher 的 `external` 来源在**每个**打开相同/重叠文件夹的窗口各自记一条）都会让所有相关窗口的 DSH 侧栏同时弹开抢焦点。现在：`dsh.changes.focus` 仅在 `treeView.reveal` 不可用/失败时兜底；`onEntry` 对**所有来源**只做静默 `refresh()`——DSH 主动推送（`changes/push`、`dshEditObserved`、SSE projector）也一样，扩展永远不因"发生了变更"而替用户打开侧栏；手动入口（切会话、Ctrl+K、addFileToThread、状态栏点击）行为不变。
+  Recording a change never steals sidebar focus anymore. `changeTree.reveal()` ran the `dsh.changes.focus` command unconditionally — it opens the whole `dsh-sidebar` container — and `onEntry` revealed the tree for every newly journaled entry, so one on-disk change (FileSystemWatcher `external` entries are recorded in EVERY window sharing the folder) opened all sidebars at once. The focus command is now only a fallback when `treeView.reveal` fails, and `onEntry` silently `refresh()`es for every source — active bridge pushes included; the extension never opens the sidebar on its own. Manual entry points are unchanged.
+
+### Added / 新增（profile 模块配置继承）
+
+- **新建脚手架 profile 继承 `web` profile 的模块配置**：此前扩展自有 profile（默认 `vscode`）首建是空插件树——用户在终端 `dsh web` 里装的模块、启停与禁用规则一概不携带，侧栏能力面与终端 DSH 不一致。现在首建时若同 home 下存在 donor profile（默认 `web`），脚手架继承其 `package.json` dependencies 与 `dsh.profile.bundles`（排除扩展自管的 `dsh-vscode-integration`），并原样复制 `cordis.patch.yml`（模块禁用/护栏/insert）。已存在的 profile 永不重继承；损坏的 donor 回退空模板；HMR guard 语义不变。
+  A freshly scaffolded profile inherits the donor `web` profile's module config: `package.json` dependencies, the `dsh.profile.bundles` list (minus the extension-managed `dsh-vscode-integration`), and `cordis.patch.yml` verbatim (disables, guards, inserts) — keeping the embedded sidebar feature-equivalent to the user's terminal DSH. Existing profiles are never re-inherited; malformed donors fall back to the empty template.
+
+### Docs / 文档
+
+- 新增全库架构地图（codemap）：根 Atlas `codemap.md` + 14 个目录级 codemap + `AGENTS.md` 导航注册 + 分阶段重构计划 `REFACTOR-PLAN.md`；codemap 文件不进 VSIX（.vscodeignore + 打包门禁同步排除）。
+
 ## [1.1.6] - 2026-09-05
 
 ### Fixed / 修复（webview 嵌入认证墙）

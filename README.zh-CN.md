@@ -25,7 +25,9 @@
 | Node.js | 自动发现；非标准位置设 `dsh.local.nodePath` |
 | Windows + WSL | 工作区在 WSL 内时，请把默认终端配置设为 **Windows** shell（PowerShell/cmd）——WSL 默认终端会让扩展宿主终端与终端桥不稳定；Diagnose 检测到 WSL 默认终端时会提示 |
 
-## 🧪 本版本状态（1.1.6）
+## 🧪 本版本状态（1.1.7）
+
+**本次更新**：记录 DSH 变更不再抢侧栏焦点（多窗口场景不再一次全弹）；新建脚手架 profile 继承 `web` profile 的模块配置（依赖、bundles、patch 层禁用项）。完整说明见 CHANGELOG.md。
 
 **本轮已验证**：面向真实 `0.1.2-rc.1` 子进程的侧边栏嵌入端到端链路（首页、会话创建/列表、SSE 事件流、WebSocket 远程通道与工作区列表，全部经嵌入转发器在第三方 iframe 语境下验证）；窗口端口行为；完整单元测试套件（776 项）。
 
