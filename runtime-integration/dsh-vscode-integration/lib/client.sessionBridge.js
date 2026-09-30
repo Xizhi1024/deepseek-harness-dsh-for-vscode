@@ -11,6 +11,10 @@ window.__ModuleLoader__.load({
     const base = ['channel', 'version', 'surfaceId', 'surfaceEpoch', 'type'];
     const nonnegative = (value) => Number.isSafeInteger(value) && value >= 0;
     const sameSurface = (a, b) => a.surfaceId === b.surfaceId && a.surfaceEpoch === b.surfaceEpoch;
+    // Exact target adapter pairs the hello-ack may carry. Mirrors
+    // TARGET_RUNTIME_IDENTITIES in lib/adapters/dsh020.js and the adapterId
+    // enum in contracts/session-bridge-v1.json — the three must not drift.
+    const TARGET_ADAPTER_IDS = { '0.2.0-rc.1': 'dsh-0.2.0-rc.1', '0.2.0-rc.2': 'dsh-0.2.0-rc.2' };
     const errorCodes = ['INVALID_ARGUMENT', 'UNAUTHENTICATED', 'FORBIDDEN', 'UNSUPPORTED_RUNTIME', 'CAPABILITY_UNAVAILABLE', 'NOT_READY', 'NOT_FOUND', 'CONFLICT', 'STALE_TARGET', 'CANCELLED', 'TIMEOUT', 'TRANSPORT_LOST', 'OUTCOME_UNKNOWN', 'BACKPRESSURE', 'RESYNC_REQUIRED', 'PROTOCOL_MISMATCH', 'INTERNAL'];
     function validTarget(value) {
       const fields = ['surfaceId', 'surfaceEpoch', 'selectionGeneration', 'state'];
@@ -26,7 +30,7 @@ window.__ModuleLoader__.load({
       if (direction === 'toHost' && !['hello-ack', 'result', 'targetChanged'].includes(message.type)) return false;
       if (message.type === 'hello-init') return keys(message, [...base, 'nonce']) && typeof message.nonce === 'string' && /^[a-f0-9]{32}$/.test(message.nonce);
       if (message.type === 'hello-ack') {
-        if (!keys(message, [...base, 'runtimeVersion', 'adapterId', 'capabilities']) || typeof message.runtimeVersion !== 'string' || message.runtimeVersion.length < 1 || message.runtimeVersion.length > 100 || message.adapterId !== 'dsh-0.2.0-rc.1') return false;
+        if (!keys(message, [...base, 'runtimeVersion', 'adapterId', 'capabilities']) || typeof message.runtimeVersion !== 'string' || message.runtimeVersion.length < 1 || message.runtimeVersion.length > 100 || TARGET_ADAPTER_IDS[message.runtimeVersion] !== message.adapterId) return false;
         if (!keys(message.capabilities, ['navigation', 'targetObservation', 'insertion', 'theme', 'clipboard'])) return false;
         return Object.values(message.capabilities).every((value) => object(value) && (value.state === 'available' ? keys(value, ['state'])
           : keys(value, ['state', 'reason']) && ['unavailable', 'unverified'].includes(value.state) && typeof value.reason === 'string' && value.reason.length > 0 && value.reason.length <= 4096));
@@ -60,7 +64,10 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function createSessionBridge({ ctx, createBrowserSessionAdapter, window: win, nonce, initialSession, clock = Date, timers = globalThis }) {
+    function createSessionBridge({ ctx, createBrowserSessionAdapter, runtimeIdentity, window: win, nonce, initialSession, clock = Date, timers = globalThis }) {
+      if (!runtimeIdentity || TARGET_ADAPTER_IDS[runtimeIdentity.runtimeVersion] !== runtimeIdentity.adapterId) {
+        throw new Error('The session bridge requires an exact target runtime identity.');
+      }
       let identity;
       let adapter;
       let offTarget = () => {};
@@ -81,7 +88,9 @@ window.__ModuleLoader__.load({
         return { code: known ? error.code : 'INTERNAL', message: known ? String(error.message).slice(0, 500) : 'Browser session operation failed', retryable: false, effect: known && error.effect === 'unknown' ? 'unknown' : 'none' };
       }
       function ack() {
-        post({ ...envelope('hello-ack'), runtimeVersion: '0.2.0-rc.1', adapterId: 'dsh-0.2.0-rc.1', capabilities: adapter.getCapabilities() });
+        // The loader injects the exact selected identity (dsh_runtime param);
+        // the bridge never hardcodes one version over another.
+        post({ ...envelope('hello-ack'), ...runtimeIdentity, capabilities: adapter.getCapabilities() });
         post({ ...envelope('targetChanged'), target: adapter.getTarget() });
       }
       function clearRequests() {

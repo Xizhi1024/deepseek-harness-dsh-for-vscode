@@ -483,7 +483,7 @@ test('autoStart resolves the configured runtime before spawn and hands it to Ser
   assert.strictEqual(ensureRuntimeOptions.signal.aborted, true, 'deactivate must abort in-flight provisioning');
 });
 
-for (const version of [undefined, null, 'unknown', '0.2.0-rc.2']) {
+for (const version of [undefined, null, 'unknown', '0.3.0-rc.1']) {
   test(`autoStart rejects unverified version ${String(version)} before profile preparation or spawn`, async (t) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-unverified-owned-'));
     t.after(async () => { await deactivate(); fs.rmSync(root, { recursive: true, force: true }); });
@@ -757,19 +757,20 @@ test('unverified external runtime stays browser-only and session commands perfor
   assert.ok(fake.errorMessages.every((message) => message.includes('verified integration handshake')));
 });
 
-test('repeated target connection preserves the existing iframe and surface epoch', async (t) => {
+for (const [targetVersion, targetAdapterId] of [['0.2.0-rc.1', 'dsh-0.2.0-rc.1'], ['0.2.0-rc.2', 'dsh-0.2.0-rc.2']]) {
+test(`repeated target connection preserves the existing iframe and surface epoch (${targetVersion})`, async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-target-reconnect-'));
   t.after(async () => { await deactivate(); fs.rmSync(root, { recursive: true, force: true }); });
   const packageRoot = path.join(root, 'runtime');
   fs.mkdirSync(packageRoot);
-  fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.0-rc.1' }));
+  fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: targetVersion }));
   const fake = createFakeVscode({ autoStart: true, 'features.changes-review': false, 'features.chat-participant': false });
   const workspaceRoot = path.join(root, 'workspace');
   fake.api.workspace.workspaceFolders = [{ uri: { fsPath: workspaceRoot }, name: 'workspace', index: 0 }];
   const context = { globalStorageUri: { fsPath: path.join(root, 'storage') }, subscriptions: [] };
   const spawnEnv = {};
   let owned = false;
-  let resolvedVersion = '0.2.0-rc.1';
+  let resolvedVersion = targetVersion;
   let stopCalls = 0;
   let ensureCalls = 0;
   let capabilityCalls = 0;
@@ -787,8 +788,8 @@ test('repeated target connection preserves the existing iframe and surface epoch
     if (new URL(url).pathname === '/api/vscode/v1/capabilities') {
       capabilityCalls++;
       return Response.json({ protocolVersion: 1, runtimeInstanceId: spawnEnv.DSH_VSCODE_RUNTIME_INSTANCE_ID,
-        runtimeVersion: '0.2.0-rc.1', integrationVersion: require('../runtime-integration/dsh-vscode-integration/package.json').version,
-        adapterId: 'dsh-0.2.0-rc.1', reconnectMode: 'snapshot-reconcile',
+        runtimeVersion: targetVersion, integrationVersion: require('../runtime-integration/dsh-vscode-integration/package.json').version,
+        adapterId: targetAdapterId, reconnectMode: 'snapshot-reconcile',
         features: Object.fromEntries(['workspaces', 'sessions', 'prompt', 'follow', 'cancelSession', 'toolObservation', 'lmRoute', 'fim']
           .map((name) => [name, { state: 'available' }])) });
     }
@@ -840,6 +841,7 @@ test('repeated target connection preserves the existing iframe and surface epoch
   assert.equal(stopCalls, 1);
   assert.equal(spawnEnv.DSH_VSCODE_RUNTIME_INSTANCE_ID, undefined, 'shutdown still disposes the target supervisor and clears its credentials');
 });
+}
 
 test('workspace rebind resolves through binding without stopping the owned child', async () => {
   const fake = createFakeVscode({ autoStart: true });
@@ -1300,6 +1302,7 @@ test('failed-connect status page can open the configured endpoint in browser', a
       return { env: {}, async close() {} };
     },
     createServerManager() { return manager; },
+    discoverDshWebPorts: async () => [], // no real process scan: this test exercises the status page
     async ensureManagedRuntime() {
       throw new Error('managed runtime unavailable');
     },

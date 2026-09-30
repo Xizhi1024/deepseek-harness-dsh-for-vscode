@@ -155,5 +155,98 @@
         "effect": "none"
       }
     }
+  },
+  {
+    "name": "hello-ack rc.2 pair accepted",
+    "valid": true,
+    "options": {},
+    "message": {
+      "channel": "dsh-vscode-session",
+      "version": 1,
+      "surfaceId": "sidebar",
+      "surfaceEpoch": 1,
+      "type": "hello-ack",
+      "runtimeVersion": "0.2.0-rc.2",
+      "adapterId": "dsh-0.2.0-rc.2",
+      "capabilities": {
+        "navigation": {
+          "state": "available"
+        },
+        "targetObservation": {
+          "state": "available"
+        },
+        "insertion": {
+          "state": "available"
+        },
+        "theme": {
+          "state": "available"
+        },
+        "clipboard": {
+          "state": "available"
+        }
+      }
+    }
+  },
+  {
+    "name": "hello-ack mixed pair rejected",
+    "valid": false,
+    "options": {},
+    "message": {
+      "channel": "dsh-vscode-session",
+      "version": 1,
+      "surfaceId": "sidebar",
+      "surfaceEpoch": 1,
+      "type": "hello-ack",
+      "runtimeVersion": "0.2.0-rc.2",
+      "adapterId": "dsh-0.2.0-rc.1",
+      "capabilities": {
+        "navigation": {
+          "state": "available"
+        },
+        "targetObservation": {
+          "state": "available"
+        },
+        "insertion": {
+          "state": "available"
+        },
+        "theme": {
+          "state": "available"
+        },
+        "clipboard": {
+          "state": "available"
+        }
+      }
+    }
+  },
+  {
+    "name": "hello-ack unknown adapter rejected",
+    "valid": false,
+    "options": {},
+    "message": {
+      "channel": "dsh-vscode-session",
+      "version": 1,
+      "surfaceId": "sidebar",
+      "surfaceEpoch": 1,
+      "type": "hello-ack",
+      "runtimeVersion": "0.2.0-rc.3",
+      "adapterId": "dsh-0.2.0-rc.3",
+      "capabilities": {
+        "navigation": {
+          "state": "available"
+        },
+        "targetObservation": {
+          "state": "available"
+        },
+        "insertion": {
+          "state": "available"
+        },
+        "theme": {
+          "state": "available"
+        },
+        "clipboard": {
+          "state": "available"
+        }
+      }
+    }
   }
 ]

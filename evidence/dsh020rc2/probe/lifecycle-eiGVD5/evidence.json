@@ -1,0 +1,88 @@
+{
+  "status": "FAIL",
+  "mode": "lifecycle",
+  "startedAt": "2026-09-30T07:13:46.272Z",
+  "runtimeVersion": "0.2.0-rc.2",
+  "integrationVersion": "0.10.0",
+  "nodeVersion": "v24.11.1",
+  "cases": [],
+  "samples": [],
+  "sourceHashes": {
+    "src/runtime/supervisor.js": "32db1536ccfcba0b32ab0ba290a3593c61927bd0fda132414c6c7f1294f6e696",
+    "src/runtime/client.js": "ad708f4afd6725c7a6b52590aabdf3d1494eeedbeb198c9c091c614a68bbad6a",
+    "src/session/feedHub.js": "3723ddd99ece8b59e2df71a268e6dc28f19de215278cf79b501ed8f72e0b6287",
+    "src/serverManager.js": "bcfa5134b123ba0e04f71a46c043dd6a8dd5ad097fc19f2e80db7fe26336d465"
+  },
+  "integrationHashes": {
+    "package.json": "85e92da5b518ff868fdbd144ca05aa462a45c8d52cdca7a2dbe8893894154065",
+    "lib/index.js": "84f1099f0ad265f89ad179aa73d9e3fac7caa0eda531e07cb444d489f11c8415",
+    "lib/client.js": "78d8570fc0e7fbf08d0e8599f68c7444ece721721af60bcf337bc40980d78dd5",
+    "lib/client.dsh020.js": "0c2fd60cd37aa40eb4496ab2502da5ce9d0203381c1cc8e4846609d6cf9185f8",
+    "lib/client.sessionBridge.js": "7ba5b940c6843d3a47ad3631ab1cdb050e8d5e4f70bc131e1ccdb62d87153dff",
+    "lib/runtimeFacade.js": "da18c9ab7bf73e306fd91db0830d665d43a91870786b306f8374976e1bcee212",
+    "lib/adapters/dsh020.js": "3cb43c5fff9b84fbc590dc2830efd0c24594cf8ca8a0973a672d3a19df5edcfa",
+    "lib/adapters/dsh020rc1.js": "48ca307c4aa85cd4112ff38629a8a2ce97ed36f9b262798f37687cb2922f7b5f",
+    "lib/adapters/dsh020rc2.js": "9486aa8bb6c5c9b0f6fc429132b5d2c4ed131bb5290b6c5b7be4fa1e1d4e6674",
+    "contracts/runtime-v1.json": "87b1a6a851e1d7fe01e2939d1f6238560807dee72f5a5e06139ddc25a6e037b7",
+    "contracts/session-bridge-v1.json": "f62a79ec1c8058ff513472b0c940b211a50a86f81ca8bd67d2e724cb4a56cd43",
+    "contracts/validate.cjs": "8f8b9a6a3e45424ebbeb431dda1a929847392d38c94cf4ba86c280583590dbf1",
+    "lib/tools.js": "4c2fb34913997abe783f20656738800e07d1e43609432f6f95b2dc67a747c9cb",
+    "lib/lmRoute.js": "0e5b1177aded885ab56a152dde34109c3049c011ab12010c7a6b98ea0bfda354",
+    "lib/fimRoutes.js": "9798836381f42a8f2982fd7cc2338a2e438df89a469cbe03e667d7af2ac2530c",
+    "lib/linkRoutes.js": "6f37de8cdd9241a736cf4190e3dad4a8c9eb1a0b85b5dd10e4ecc1a231b087a9",
+    "lib/compatSessionRoutes.js": "94eefb905afcf46dcc453a27f8d085be4de92c0374f650fa9ae418b89b66c5a7",
+    "lib/editObserver.js": "b8594e91abd9814b9f784b05ffc4db8bd6b38f62729adcb37ab06d7e2dcddfc3"
+  },
+  "isolation": {
+    "freshHomes": true,
+    "freshWorkspaces": true,
+    "allowlistedChildEnvironment": true,
+    "personalKeys": false
+  },
+  "cycles": [
+    {
+      "cycle": 1,
+      "pid": 52688,
+      "port": 5056,
+      "instanceId": "7aa5124a-ff64-4d5c-b330-4873b94abb03",
+      "exited": true
+    },
+    {
+      "cycle": 2,
+      "pid": 57412,
+      "port": 5057,
+      "instanceId": "7e589b22-9fba-48be-956d-93b90097690e",
+      "exited": true
+    },
+    {
+      "cycle": 3,
+      "pid": 65968,
+      "port": 5058,
+      "instanceId": "27471c35-be3c-4f38-814b-1e6d6cf1a178",
+      "exited": true
+    },
+    {
+      "cycle": 4,
+      "pid": 13708,
+      "port": 5059,
+      "instanceId": "8935aaa8-5271-490c-9277-413be749c7c2",
+      "exited": true
+    }
+  ],
+  "failure": {
+    "code": "TIMEOUT",
+    "message": "See isolated evidence; raw errors withheld."
+  },
+  "cleanup": [
+    {
+      "pid": 13708,
+      "clean": true
+    }
+  ],
+  "finishedAt": "2026-09-30T07:14:20.792Z",
+  "limitations": [
+    "Runtime component acceptance only; no installed VSIX or browser UI.",
+    "RSS samples describe this ten-minute workload without claiming a general absence of leaks.",
+    "Public ports expose no upstream queue depth; retry-timer peak and dispatch depth are the observed bounds."
+  ]
+}

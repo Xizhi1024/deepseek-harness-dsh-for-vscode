@@ -181,6 +181,7 @@
         "adapterId": {
           "enum": [
             "dsh-0.2.0-rc.1",
+            "dsh-0.2.0-rc.2",
             "legacy-0.1.2-rc.1"
           ]
         },

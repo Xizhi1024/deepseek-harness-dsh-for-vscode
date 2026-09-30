@@ -11,7 +11,7 @@ function loadChunk(name) {
   });
   return exported;
 }
-const { createBrowserSessionAdapter } = loadChunk('client.dsh020rc1.js');
+const { createBrowserSessionAdapter } = loadChunk('client.dsh020.js');
 const { createSessionBridge, validateSessionMessage } = loadChunk('client.sessionBridge.js');
 const identity = { surfaceId: 'sidebar', surfaceEpoch: 2 };
 const base = { channel: 'dsh-vscode-session', version: 1, ...identity };
@@ -181,7 +181,8 @@ function bridgeFixture() {
     parent: { postMessage: (message) => sent.push(message) },
     addEventListener: (_, fn) => { receive = fn; }, removeEventListener() {},
   };
-  const bridge = createSessionBridge({ ctx: f.ctx, createBrowserSessionAdapter, window: win, nonce: 'a'.repeat(32) });
+  const bridge = createSessionBridge({ ctx: f.ctx, createBrowserSessionAdapter, window: win,
+    runtimeIdentity: { runtimeVersion: '0.2.0-rc.1', adapterId: 'dsh-0.2.0-rc.1' }, nonce: 'a'.repeat(32) });
   const emit = (message, overrides = {}) => receive({ source: win.parent, origin: 'null', data: message, ...overrides });
   const hello = { ...base, type: 'hello-init', nonce: 'a'.repeat(32) };
   const request = (requestId, method, params) => ({ ...base, type: 'request', requestId, method, params });
@@ -226,14 +227,15 @@ test('bridge shares same-id capture and cancels retained result before delivery'
   g.bridge.dispose();
 });
 
-test('target entry uses chunks and never touches legacy current/open or the DOM observer', async () => {
+for (const runtimeVersion of ['0.2.0-rc.1', '0.2.0-rc.2']) {
+test(`target entry uses chunks and never touches legacy current/open or the DOM observer (${runtimeVersion})`, async () => {
   const f = fixture();
   const listeners = new Set();
   const cleanups = [];
   const chunks = [];
   let client;
   const win = {
-    location: { search: '?dsh_embed=vscode&dsh_runtime=0.2.0-rc.1&dsh_bridge_nonce=' + 'a'.repeat(32) },
+    location: { search: `?dsh_embed=vscode&dsh_runtime=${runtimeVersion}&dsh_bridge_nonce=` + 'a'.repeat(32) },
     addEventListener: (type, fn) => { if (type === 'message') listeners.add(fn); },
     removeEventListener: (type, fn) => { if (type === 'message') listeners.delete(fn); },
     getSelection: () => ({ toString: () => '' }),
@@ -254,7 +256,8 @@ test('target entry uses chunks and never touches legacy current/open or the DOM 
   client.apply({ ...f.ctx, effect: (fn) => { const cleanup = fn(); cleanups.push(cleanup); },
     inject: (_, fn) => { const cleanup = fn(f.ctx); return { dispose: cleanup }; } });
   await tick();
-  assert.deepEqual(chunks.sort(), ['./client.dsh020rc1.js', './client.sessionBridge.js']);
+  assert.deepEqual(chunks.sort(), ['./client.dsh020.js', './client.sessionBridge.js']);
   for (const cleanup of cleanups) cleanup();
   assert.equal(listeners.size, 0);
 });
+}

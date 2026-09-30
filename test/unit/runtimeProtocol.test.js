@@ -10,6 +10,16 @@ test('session wire fixtures exercise the deployed canonical schemas', () => {
   }
 });
 
+test('capability reports pair their runtime version with the exact adapter', () => {
+  const features = Object.fromEntries(['workspaces', 'sessions', 'prompt', 'follow', 'cancelSession', 'toolObservation', 'lmRoute', 'fim']
+    .map((name) => [name, { state: 'available' }]));
+  const report = { protocolVersion: 1, adapterId: 'dsh-0.2.0-rc.2', runtimeVersion: '0.2.0-rc.2',
+    integrationVersion: '0.11.0', runtimeInstanceId: 'runtime-1', reconnectMode: 'snapshot-reconcile', features };
+  assert.equal(contract.validateCapabilityReport(report), true);
+  assert.equal(contract.validateCapabilityReport({ ...report, runtimeVersion: '0.2.0-rc.1' }), false, 'mixed pairs are rejected');
+  assert.equal(contract.validateCapabilityReport({ ...report, runtimeVersion: '0.3.0-rc.1', adapterId: 'dsh-0.3.0-rc.1' }), false, 'unknown pairs are rejected');
+});
+
 test('RPC allow-list preserves steer and parts, rejects extra input and wrong replies', () => {
   const input = { protocolVersion: 1, requestId: 'r-1', method: 'session.prompt', params: {
     sessionId: 's-1', content: [{ kind: 'text', text: 'hello' }], mode: 'steer', clientRequestId: 'prompt-1',

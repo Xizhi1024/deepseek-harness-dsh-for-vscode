@@ -22,7 +22,7 @@ const { installDshIntegration, INTEGRATION_FILES } = require('../src/dshIntegrat
 const { deriveRuntimeProfileName, ensureProfileScaffold } = require('../src/profileScaffold');
 const { ensureHmrDisabled } = require('../src/hmrGuard');
 const { writeEmbedOverlay } = require('../src/embedOverlay');
-const { sanitizedChildEnv } = require('./probe-dsh020rc1');
+const { sanitizedChildEnv, parseProbeArguments } = require('./probe-dsh020');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const sha256 = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
@@ -144,10 +144,11 @@ async function localChangesProvider(ctx, config) {
 }
 
 async function main() {
-  const [packageRoot, outputRoot] = process.argv.slice(2);
+  const { positional, target } = parseProbeArguments(process.argv.slice(2));
+  const [packageRoot, outputRoot] = positional;
   assert.ok(path.isAbsolute(packageRoot || '') && path.isAbsolute(outputRoot || ''));
   const runtimeManifest = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
-  assert.equal(runtimeManifest.name, '@deepseek-ai/dsh'); assert.equal(runtimeManifest.version, '0.2.0-rc.1');
+  assert.equal(runtimeManifest.name, '@deepseek-ai/dsh'); assert.equal(runtimeManifest.version, target || '0.2.0-rc.1');
   await verifyNodeRuntime(process.execPath);
   fs.mkdirSync(outputRoot, { recursive: true });
   const runRoot = fs.mkdtempSync(path.join(outputRoot, 'changes-'));
@@ -184,10 +185,17 @@ async function main() {
     const fixtureRoot = path.join(home, 'profiles', profileName, 'node_modules', 'vscode-changes-provider'); fs.mkdirSync(fixtureRoot, { recursive: true });
     fs.writeFileSync(path.join(fixtureRoot, 'package.json'), JSON.stringify({ name: 'vscode-changes-provider', version: '1.0.0', type: 'module', main: 'index.mjs' }));
     fs.writeFileSync(path.join(fixtureRoot, 'index.mjs'), `export const name='vscode-changes-provider';\nexport const inject=['llm'];\nexport const apply=${localChangesProvider.toString()};\nexport default {name,inject,apply};\n`);
+    // dsh-llm sits beside the package in staging trees and nested in global
+    // installs; take the first copy that exists.
+    const llmIndex = [
+      path.join(path.dirname(packageRoot), 'dsh-llm/lib/index.js'),
+      path.join(packageRoot, 'node_modules', '@deepseek-ai', 'dsh-llm', 'lib', 'index.js'),
+    ].find((candidate) => fs.existsSync(candidate));
+    assert.ok(llmIndex, 'The dsh-llm package is required by the changes probe');
     fs.writeFileSync(path.join(home, 'profiles', profileName, 'cordis.patch.yml'), [
       '- id: agent-default-model', '  config:', '    provider: vscode-changes-probe', '    model: deterministic',
       '- id: session-title-llm', '  disabled: true', '- insert:', '    - id: vscode-changes-provider', '      name: vscode-changes-provider', '      config:',
-      `        llmModule: ${JSON.stringify(pathToFileURL(path.join(path.dirname(packageRoot), 'dsh-llm/lib/index.js')).href)}`,
+      `        llmModule: ${JSON.stringify(pathToFileURL(llmIndex).href)}`,
       `        targetPath: ${JSON.stringify(targetPath)}`, `        targetUri: ${JSON.stringify(pathToFileURL(targetPath).href)}`, '',
     ].join('\n'));
     ensureHmrDisabled({ dshHome: home, profileName, dshVersion: runtimeManifest.version });

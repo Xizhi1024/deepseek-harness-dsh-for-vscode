@@ -20,9 +20,12 @@ window.__ModuleLoader__.load({
       return window.parent !== window && new URLSearchParams(window.location.search).get('dsh_embed') === 'vscode';
     }
 
-    function targetRuntime() {
-      return new URLSearchParams(window.location.search).get('dsh_runtime') === '0.2.0-rc.1';
-    }
+    // Exact target-line versions the loader understands. Mirrors the
+    // adapterId pairs in lib/adapters/dsh020.js and contracts/runtime-v1.json.
+    const TARGET_RUNTIME_VERSIONS = ['0.2.0-rc.1', '0.2.0-rc.2'];
+    const TARGET_ADAPTER_IDS = { '0.2.0-rc.1': 'dsh-0.2.0-rc.1', '0.2.0-rc.2': 'dsh-0.2.0-rc.2' };
+    const runtimeVersion = () => new URLSearchParams(window.location.search).get('dsh_runtime');
+    const targetRuntime = () => TARGET_RUNTIME_VERSIONS.includes(runtimeVersion());
 
     function startTargetSessionBridge(ctx) {
       let disposed = false;
@@ -31,7 +34,7 @@ window.__ModuleLoader__.load({
       // Package-local chunks are a public 0.2 loader capability. Keep the
       // older runtime entirely on its existing loader and service path.
       const loaded = Promise.all([
-        require.async('./client.dsh020rc1.js'),
+        require.async('./client.dsh020.js'),
         require.async('./client.sessionBridge.js'),
       ]);
       // An unavailable optional service can keep the inject callback waiting;
@@ -43,6 +46,7 @@ window.__ModuleLoader__.load({
           if (disposed || stopped) return;
           bridge = bridgeModule.createSessionBridge({
             ctx: scope, window, createBrowserSessionAdapter: adapterModule.createBrowserSessionAdapter,
+            runtimeIdentity: { runtimeVersion: runtimeVersion(), adapterId: TARGET_ADAPTER_IDS[runtimeVersion()] },
             nonce: new URLSearchParams(window.location.search).get('dsh_bridge_nonce'),
             initialSession: new URLSearchParams(window.location.search).get('dsh_session'),
           });

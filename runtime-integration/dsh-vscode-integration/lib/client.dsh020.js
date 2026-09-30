@@ -1,12 +1,12 @@
 window.__ModuleLoader__.load({
   id: 'dsh-vscode-integration',
-  chunk: 'client.dsh020rc1.js',
+  chunk: 'client.dsh020.js',
   factory: () => {
     const fail = (code, message, effect = 'none') => Object.assign(new Error(message), { code, retryable: false, effect });
     const isSource = (source) => source && typeof source.getSnapshot === 'function' && typeof source.subscribe === 'function';
     const isId = (id) => typeof id === 'string' && id.length > 0 && id.length <= 256 && !id.includes('\0');
 
-    /** Exact 0.2.0-rc.1 public browser service adapter; no DOM or private selection access. */
+    /** Exact DSH 0.2.0 target-line public browser service adapter (identity injected by the loader); no DOM or private selection access. */
     function createBrowserSessionAdapter({ ctx, surfaceIdentity, document: doc, clock = Date, timers = globalThis }) {
       const identity = Object.freeze({ surfaceId: surfaceIdentity.surfaceId, surfaceEpoch: surfaceIdentity.surfaceEpoch });
       const source = ctx.uiSession && ctx.uiSession.adapter && ctx.uiSession.adapter.current;

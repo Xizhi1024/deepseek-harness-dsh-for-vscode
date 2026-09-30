@@ -8,15 +8,15 @@
 
 | 项 / Item | 值 / Value |
 |---|---|
-| 扩展版本 / Extension | `1.2.0` candidate，未完成发布验收、未市场发布 |
-| 集成包 / Integration | `0.10.0` |
-| 目标 / Target | 精确 DSH `0.2.0-rc.1`，自有认证 facade + 公共 controller adapter |
+| 扩展版本 / Extension | `1.2.1` candidate，未完成发布验收、未市场发布 |
+| 集成包 / Integration | `0.11.0` |
+| 目标 / Target | 精确 DSH `0.2.0-rc.1` 与 `0.2.0-rc.2`（每版本独立精确 adapter），自有认证 facade + 公共 controller adapter |
 | 旧版 / Legacy | 精确 DSH `0.1.2-rc.1`，独立 legacy REST 适配路径 |
-| 上游基线 / Upstream | `4878cdabd87d4041bdaff61d04c966883b9fd07a`，精确 npm 包及公开接口证据 |
+| 上游基线 / Upstream | `4878cdabd87d4041bdaff61d04c966883b9fd07a`（rc.1）；rc.2 为官方 npm 全局安装树逐包对比证据（evidence/dsh020rc2/） |
 | Node 子进程 / Child | `^22.19.0 \|\| >=24.0.0`，验证实际选定可执行文件 |
-| Profile / Home | 目标后缀 `-dsh020rc1`；同 home 的会话及凭据仍共享 |
+| Profile / Home | 目标后缀 `-dsh020rc1` / `-dsh020rc2`；同 home 的会话及凭据仍共享 |
 | 未验证版本 / Unverified | 不启动受管集成；未验证外部实例仅 browser-only，不调用会话写操作 |
-| 最终验收 / Evidence | [HANDOFF-1.2.0-VALIDATION.md](HANDOFF-1.2.0-VALIDATION.md)；安装态仍在验证 |
+| 最终验收 / Evidence | rc.2 适配报告 [HANDOFF-1.2.1-DSH-0.2.0-rc.2.md](HANDOFF-1.2.1-DSH-0.2.0-rc.2.md)；安装态与 UI 验收仍在验证 |
 
 ## 轮次记录 / Rounds
 

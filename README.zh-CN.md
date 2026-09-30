@@ -17,7 +17,7 @@
 | 项目 | 要求 |
 |---|---|
 | VS Code | ≥ 1.106，桌面版；不支持远程、虚拟及不受信任工作区 |
-| 目标 DSH | 精确版本 `0.2.0-rc.1`；安装命令为 `npm i -g @deepseek-ai/dsh@0.2.0-rc.1` |
+| 目标 DSH | 精确版本 `0.2.0-rc.1` 或 `0.2.0-rc.2`（每版本独立精确适配）；安装命令为 `npm i -g @deepseek-ai/dsh@0.2.0-rc.2` |
 | 旧版 DSH | 精确版本 `0.1.2-rc.1`，使用独立 legacy 适配器 |
 | 目标子进程 Node.js | `^22.19.0 \|\| >=24.0.0`；检查实际选择的可执行文件，不以 VS Code 内置 Node 代替；可设置 `dsh.local.nodePath` |
 | 集成包 | 本候选捆绑 `dsh-vscode-integration@0.10.0` |
@@ -65,7 +65,7 @@
 
 ### Profile 与数据范围
 
-目标 DSH `0.2.0-rc.1` 下，默认 profile `vscode` 变成 `vscode-dsh020rc1`，使插件树及 patch 配置与 legacy 分离。**Profile 不隔离 home 级会话与凭据**：使用同一 home 的进程仍共享这些数据；需要独立数据时应使用 isolated home。首次建立 profile 可以继承 donor 模块配置；重启与停止只作用于扩展自有子进程。
+目标 DSH 运行时下，默认 profile `vscode` 分别变为 `vscode-dsh020rc1` / `vscode-dsh020rc2`，使插件树及 patch 配置与 legacy 分离。**Profile 不隔离 home 级会话与凭据**：使用同一 home 的进程仍共享这些数据；需要独立数据时应使用 isolated home。首次建立 profile 可以继承 donor 模块配置；重启与停止只作用于扩展自有子进程。
 
 ## License
 

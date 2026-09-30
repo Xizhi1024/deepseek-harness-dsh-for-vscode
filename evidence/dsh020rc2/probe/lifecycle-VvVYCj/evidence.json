@@ -1,0 +1,167 @@
+{
+  "status": "PASS",
+  "mode": "lifecycle",
+  "startedAt": "2026-09-30T07:31:33.123Z",
+  "runtimeVersion": "0.2.0-rc.1",
+  "integrationVersion": "0.11.0",
+  "nodeVersion": "v24.11.1",
+  "cases": [
+    {
+      "id": "ten-real-supervisor-start-stops",
+      "status": "PASS",
+      "starts": 10,
+      "exits": 10
+    },
+    {
+      "id": "two-owned-one-trusted-borrowed-isolation",
+      "status": "PASS",
+      "ownerPids": [
+        19348,
+        60412
+      ],
+      "borrowerSideEffects": {
+        "prepares": 0,
+        "stops": 0,
+        "nodeChecks": 0
+      },
+      "trustedEndpointSelection": "Test-only DI supplies owner credentials to a real borrowed ServerManager probe; no general external discovery is claimed."
+    },
+    {
+      "id": "unknown-version-and-missing-node-prelaunch-gates",
+      "status": "PASS",
+      "spawned": 0,
+      "prepared": 0
+    }
+  ],
+  "samples": [],
+  "sourceHashes": {
+    "src/runtime/supervisor.js": "32db1536ccfcba0b32ab0ba290a3593c61927bd0fda132414c6c7f1294f6e696",
+    "src/runtime/client.js": "ad708f4afd6725c7a6b52590aabdf3d1494eeedbeb198c9c091c614a68bbad6a",
+    "src/session/feedHub.js": "3723ddd99ece8b59e2df71a268e6dc28f19de215278cf79b501ed8f72e0b6287",
+    "src/serverManager.js": "bcfa5134b123ba0e04f71a46c043dd6a8dd5ad097fc19f2e80db7fe26336d465"
+  },
+  "integrationHashes": {
+    "package.json": "4be958cd7ef6fb9648414085489319b310626828b0760f56ccaf9a9a86af18f0",
+    "lib/index.js": "84f1099f0ad265f89ad179aa73d9e3fac7caa0eda531e07cb444d489f11c8415",
+    "lib/client.js": "78d8570fc0e7fbf08d0e8599f68c7444ece721721af60bcf337bc40980d78dd5",
+    "lib/client.dsh020.js": "0c2fd60cd37aa40eb4496ab2502da5ce9d0203381c1cc8e4846609d6cf9185f8",
+    "lib/client.sessionBridge.js": "7ba5b940c6843d3a47ad3631ab1cdb050e8d5e4f70bc131e1ccdb62d87153dff",
+    "lib/runtimeFacade.js": "da18c9ab7bf73e306fd91db0830d665d43a91870786b306f8374976e1bcee212",
+    "lib/adapters/dsh020.js": "3cb43c5fff9b84fbc590dc2830efd0c24594cf8ca8a0973a672d3a19df5edcfa",
+    "lib/adapters/dsh020rc1.js": "48ca307c4aa85cd4112ff38629a8a2ce97ed36f9b262798f37687cb2922f7b5f",
+    "lib/adapters/dsh020rc2.js": "9486aa8bb6c5c9b0f6fc429132b5d2c4ed131bb5290b6c5b7be4fa1e1d4e6674",
+    "contracts/runtime-v1.json": "87b1a6a851e1d7fe01e2939d1f6238560807dee72f5a5e06139ddc25a6e037b7",
+    "contracts/session-bridge-v1.json": "f62a79ec1c8058ff513472b0c940b211a50a86f81ca8bd67d2e724cb4a56cd43",
+    "contracts/validate.cjs": "ee83c908f0ccc7d5ac13848d5d9bd1a88f66c7a8f143a5dc7b49c8b96091069a",
+    "lib/tools.js": "4c2fb34913997abe783f20656738800e07d1e43609432f6f95b2dc67a747c9cb",
+    "lib/lmRoute.js": "0e5b1177aded885ab56a152dde34109c3049c011ab12010c7a6b98ea0bfda354",
+    "lib/fimRoutes.js": "9798836381f42a8f2982fd7cc2338a2e438df89a469cbe03e667d7af2ac2530c",
+    "lib/linkRoutes.js": "6f37de8cdd9241a736cf4190e3dad4a8c9eb1a0b85b5dd10e4ecc1a231b087a9",
+    "lib/compatSessionRoutes.js": "94eefb905afcf46dcc453a27f8d085be4de92c0374f650fa9ae418b89b66c5a7",
+    "lib/editObserver.js": "b8594e91abd9814b9f784b05ffc4db8bd6b38f62729adcb37ab06d7e2dcddfc3"
+  },
+  "isolation": {
+    "freshHomes": true,
+    "freshWorkspaces": true,
+    "allowlistedChildEnvironment": true,
+    "personalKeys": false
+  },
+  "cycles": [
+    {
+      "cycle": 1,
+      "pid": 6488,
+      "port": 11706,
+      "instanceId": "2d25e7e2-8b44-43cb-83e8-f8e70e9031d7",
+      "exited": true
+    },
+    {
+      "cycle": 2,
+      "pid": 54860,
+      "port": 11707,
+      "instanceId": "3c11fdd1-420f-4e23-bb0e-679ebd9dbf75",
+      "exited": true
+    },
+    {
+      "cycle": 3,
+      "pid": 62136,
+      "port": 11708,
+      "instanceId": "d1f89f5f-3718-46bb-9663-c4fdf2853835",
+      "exited": true
+    },
+    {
+      "cycle": 4,
+      "pid": 59844,
+      "port": 11709,
+      "instanceId": "069ddc7d-ef33-4384-bb84-03919816f122",
+      "exited": true
+    },
+    {
+      "cycle": 5,
+      "pid": 70424,
+      "port": 11710,
+      "instanceId": "a5e4207b-9fc2-4538-9a7c-0021f8099dfe",
+      "exited": true
+    },
+    {
+      "cycle": 6,
+      "pid": 19260,
+      "port": 11711,
+      "instanceId": "ec74922f-fd2b-481a-9933-3da46a8fd2cd",
+      "exited": true
+    },
+    {
+      "cycle": 7,
+      "pid": 59732,
+      "port": 11712,
+      "instanceId": "18e95c04-6932-45f8-8f02-cdca25719904",
+      "exited": true
+    },
+    {
+      "cycle": 8,
+      "pid": 64004,
+      "port": 11713,
+      "instanceId": "6d60bec5-cf98-4c38-9f44-6b551cc8198d",
+      "exited": true
+    },
+    {
+      "cycle": 9,
+      "pid": 36176,
+      "port": 11714,
+      "instanceId": "5c7237b1-8761-4610-ad75-7402525b5788",
+      "exited": true
+    },
+    {
+      "cycle": 10,
+      "pid": 61860,
+      "port": 11715,
+      "instanceId": "e2067be2-5102-4d73-89f5-3530f9dad7d0",
+      "exited": true
+    }
+  ],
+  "cleanup": [
+    {
+      "clean": true
+    },
+    {
+      "clean": true
+    },
+    {
+      "pid": 60412,
+      "clean": true
+    },
+    {
+      "pid": 19348,
+      "clean": true
+    },
+    {
+      "pid": 61860,
+      "clean": true
+    }
+  ],
+  "finishedAt": "2026-09-30T07:32:27.559Z",
+  "limitations": [
+    "Runtime component acceptance only; no installed VSIX or browser UI.",
+    "RSS samples describe this ten-minute workload without claiming a general absence of leaks.",
+    "Public ports expose no upstream queue depth; retry-timer peak and dispatch depth are the observed bounds."
+  ]
+}

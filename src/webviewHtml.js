@@ -9,6 +9,7 @@ const {
   VERSIONS,
 } = require("./protocol/webview");
 const { DSH_THEME_CHANGED } = require("./webviewMessages");
+const { runtimeDescriptor } = require("./runtime/compatibility");
 
 /**
  * Escapes a value for safe interpolation into HTML text content or an
@@ -258,7 +259,9 @@ function framePage({
   retryLabel = "Retry",
   lang = "en",
 } = {}) {
-  const targetRuntime = runtimeVersion === '0.2.0-rc.1';
+  const descriptor = runtimeDescriptor(runtimeVersion);
+  const targetRuntime = descriptor?.line === 'target';
+  const expectedAdapterId = descriptor?.adapterId || null;
   const sessionIdentity = targetRuntime ? {
     surfaceId: surfaceIdentity && surfaceIdentity.surfaceId || `surface_${randomBytes(8).toString('hex')}`,
     surfaceEpoch: surfaceIdentity && Number.isSafeInteger(surfaceIdentity.surfaceEpoch) ? surfaceIdentity.surfaceEpoch : 0,
@@ -338,6 +341,7 @@ ${WEBVIEW_CSP_META}
     const SESSION_IDENTITY = ${safeScriptJson(sessionIdentity)};
     const SESSION_NONCE = ${safeScriptJson(bridgeNonce)};
     const SESSION_CHANNEL = 'dsh-vscode-session';
+    const EXPECTED_RUNTIME = ${safeScriptJson(targetRuntime ? { runtimeVersion, adapterId: expectedAdapterId } : null)};
     let sessionEpoch = SESSION_IDENTITY ? SESSION_IDENTITY.surfaceEpoch : 0;
     let sessionReady = false;
     let sessionHandshakeTimer;
@@ -411,7 +415,8 @@ ${WEBVIEW_CSP_META}
       if (SESSION_IDENTITY && message && message.channel === SESSION_CHANNEL) {
         if (message.version !== 1 || message.surfaceId !== SESSION_IDENTITY.surfaceId || message.surfaceEpoch !== sessionEpoch) return;
         if (event.source === frame.contentWindow && event.origin === DSH_ORIGIN) {
-          if (message.type === 'hello-ack' && message.runtimeVersion === '0.2.0-rc.1' && message.adapterId === 'dsh-0.2.0-rc.1') {
+          if (message.type === 'hello-ack' && EXPECTED_RUNTIME
+            && message.runtimeVersion === EXPECTED_RUNTIME.runtimeVersion && message.adapterId === EXPECTED_RUNTIME.adapterId) {
             sessionReady = true;
             clearTimeout(sessionHandshakeTimer);
             vscode.postMessage(message);

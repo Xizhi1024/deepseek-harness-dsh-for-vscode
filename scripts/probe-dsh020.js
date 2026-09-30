@@ -1,7 +1,9 @@
 'use strict';
 
-// node scripts/probe-dsh020rc1.js <absolute-installed-dsh-package-root> <absolute-evidence-directory>
+// node scripts/probe-dsh020.js <absolute-installed-dsh-package-root> <absolute-evidence-directory> --target <exact-version> [--with-local-provider]
 // This is a real runtime contract probe, not installed VSIX/UI acceptance.
+// The target version is explicit so rc.2 evidence can never be produced by
+// quietly substituting a version string; each run records what it probed.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -16,7 +18,7 @@ const { writeEmbedOverlay } = require('../src/embedOverlay');
 const { ensureHmrDisabled } = require('../src/hmrGuard');
 const { loopbackFetch } = require('../src/loopbackAuth');
 const { createDshRuntimeClient } = require('../src/runtime/client');
-const { verifyNodeRuntime } = require('../src/runtime/compatibility');
+const { runtimeDescriptor, verifyNodeRuntime } = require('../src/runtime/compatibility');
 
 const sha256 = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 function deploymentFiles(directory, prefix = '') {
@@ -37,13 +39,29 @@ async function freePort() {
   return port;
 }
 
+/** Shared --target parsing so every probe records the exact version it probed. */
+function parseProbeArguments(argv) {
+  const positional = [];
+  let target = null;
+  for (const argument of argv) {
+    if (argument === '--with-local-provider') continue;
+    if (argument === '--target') { target = ''; continue; }
+    if (target === '') { target = argument; continue; }
+    positional.push(argument);
+  }
+  return { positional, target };
+}
+
 async function main() {
-  const [packageRoot, outputRoot] = process.argv.slice(2);
+  const { positional, target } = parseProbeArguments(process.argv.slice(2));
+  const [packageRoot, outputRoot] = positional;
   assert.ok(packageRoot && path.isAbsolute(packageRoot), 'Provide an absolute isolated DSH package root');
   assert.ok(outputRoot && path.isAbsolute(outputRoot), 'Provide an absolute evidence directory');
+  const descriptor = runtimeDescriptor(target);
+  assert.ok(descriptor && descriptor.line === 'target', 'Pass --target <exact-target-version> (supported targets are in src/runtime/compatibility.js)');
   const runtimeManifest = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
   assert.equal(runtimeManifest.name, '@deepseek-ai/dsh');
-  assert.equal(runtimeManifest.version, '0.2.0-rc.1');
+  assert.equal(runtimeManifest.version, target);
   await verifyNodeRuntime(process.execPath);
   fs.mkdirSync(outputRoot, { recursive: true });
   const runRoot = fs.mkdtempSync(path.join(outputRoot, 'run-'));
@@ -80,7 +98,15 @@ async function main() {
       fs.mkdirSync(fixtureRoot, { recursive: true });
       fs.copyFileSync(path.join(__dirname, 'fixtures/dsh020rc1-provider.mjs'), path.join(fixtureRoot, 'index.mjs'));
       fs.writeFileSync(path.join(fixtureRoot, 'package.json'), JSON.stringify({ name: 'vscode-contract-provider', version: '1.0.0', type: 'module', main: 'index.mjs' }));
-      const llmModule = pathToFileURL(path.join(path.dirname(packageRoot), 'dsh-llm/lib/index.js')).href;
+      // dsh-llm is a sibling in staging trees and a nested dependency in
+      // global installs; resolve the first copy that actually exists.
+      const llmCandidates = [
+        path.join(path.dirname(packageRoot), 'dsh-llm/lib/index.js'),
+        path.join(packageRoot, 'node_modules', '@deepseek-ai', 'dsh-llm', 'lib', 'index.js'),
+      ];
+      const llmIndex = llmCandidates.find((candidate) => fs.existsSync(candidate));
+      assert.ok(llmIndex, 'The dsh-llm package is required by --with-local-provider');
+      const llmModule = pathToFileURL(llmIndex).href;
       fs.writeFileSync(path.join(home, 'profiles', profileName, 'cordis.patch.yml'), [
         '- id: agent-default-model', '  config:', '    provider: vscode-contract-probe', '    model: deterministic',
         '- id: session-title-llm', '  disabled: true',
@@ -125,7 +151,7 @@ async function main() {
     const capabilities = await api.capabilities(op());
     assert.equal(capabilities.runtimeVersion, runtimeManifest.version);
     assert.equal(capabilities.integrationVersion, integrationManifest.version);
-    assert.equal(capabilities.adapterId, 'dsh-0.2.0-rc.1');
+    assert.equal(capabilities.adapterId, descriptor.adapterId);
     passed('capabilities', { features: capabilities.features });
     stage = 'workspace';
     const firstWorkspace = await api.ensureWorkspace(workspace, op());
@@ -245,4 +271,4 @@ async function main() {
 }
 
 if (require.main === module) main().catch((error) => { console.error(error.code || error.name || 'Probe failed'); process.exitCode = 1; });
-module.exports = { sanitizedChildEnv, deploymentFiles };
+module.exports = { sanitizedChildEnv, deploymentFiles, parseProbeArguments };

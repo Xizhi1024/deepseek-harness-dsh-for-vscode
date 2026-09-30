@@ -1,0 +1,184 @@
+{
+  "runtimeVersion": "0.2.0-rc.1",
+  "integrationVersion": "0.10.0",
+  "extensionVersion": "1.2.0",
+  "nodeVersion": "v24.11.1",
+  "platform": "win32",
+  "arch": "x64",
+  "runtimeManifestSha256": "6c5d2b98ca97920fffe81eaff8455dfd1e97524c8b3a7a3b0cac4c960ebb363c",
+  "isolated": {
+    "home": true,
+    "workspace": true,
+    "profile": true,
+    "providerEnvironment": true
+  },
+  "cases": [
+    {
+      "id": "startup",
+      "status": "PASS",
+      "owned": true,
+      "authenticatedHealth": true
+    },
+    {
+      "id": "cookie-only",
+      "status": "PASS"
+    },
+    {
+      "id": "wrong-token",
+      "status": "PASS"
+    },
+    {
+      "id": "browser-origin",
+      "status": "PASS"
+    },
+    {
+      "id": "capabilities",
+      "status": "PASS",
+      "features": {
+        "workspaces": {
+          "state": "available"
+        },
+        "sessions": {
+          "state": "available"
+        },
+        "prompt": {
+          "state": "available"
+        },
+        "follow": {
+          "state": "available"
+        },
+        "cancelSession": {
+          "state": "available"
+        },
+        "toolObservation": {
+          "state": "available"
+        },
+        "lmRoute": {
+          "state": "unverified",
+          "reason": "Optional LM routing requires separate provider validation"
+        },
+        "fim": {
+          "state": "unverified",
+          "reason": "Optional FIM requires separate provider validation"
+        }
+      }
+    },
+    {
+      "id": "workspace-create-list-reuse",
+      "status": "PASS"
+    },
+    {
+      "id": "session-create-list-rename",
+      "status": "PASS"
+    },
+    {
+      "id": "follow-opening-snapshot-return-reopen",
+      "status": "PASS"
+    },
+    {
+      "id": "cancel-idle-session",
+      "status": "PASS",
+      "limitation": "Active turn cancellation requires a model-backed probe."
+    },
+    {
+      "id": "same-owned-pid",
+      "status": "PASS"
+    },
+    {
+      "id": "local-provider-stream",
+      "status": "PASS",
+      "chunks": 2,
+      "assistantRecords": 1,
+      "terminal": "completed"
+    },
+    {
+      "id": "local-provider-active-cancel",
+      "status": "PASS",
+      "terminal": "cancelled"
+    },
+    {
+      "id": "local-provider-real-tools",
+      "status": "PASS",
+      "tools": [
+        "read",
+        "write",
+        "edit"
+      ],
+      "dispatch": [
+        "read",
+        "write",
+        "edit"
+      ],
+      "confirmedObservations": 2,
+      "terminal": "completed"
+    }
+  ],
+  "integrationFiles": {
+    "package.json": "85e92da5b518ff868fdbd144ca05aa462a45c8d52cdca7a2dbe8893894154065",
+    "lib/adapters/dsh020.js": "3cb43c5fff9b84fbc590dc2830efd0c24594cf8ca8a0973a672d3a19df5edcfa",
+    "lib/adapters/dsh020rc1.js": "48ca307c4aa85cd4112ff38629a8a2ce97ed36f9b262798f37687cb2922f7b5f",
+    "lib/adapters/dsh020rc2.js": "9486aa8bb6c5c9b0f6fc429132b5d2c4ed131bb5290b6c5b7be4fa1e1d4e6674",
+    "lib/client.dsh020.js": "0c2fd60cd37aa40eb4496ab2502da5ce9d0203381c1cc8e4846609d6cf9185f8",
+    "lib/client.js": "78d8570fc0e7fbf08d0e8599f68c7444ece721721af60bcf337bc40980d78dd5",
+    "lib/client.sessionBridge.js": "7ba5b940c6843d3a47ad3631ab1cdb050e8d5e4f70bc131e1ccdb62d87153dff",
+    "lib/compatSessionRoutes.js": "94eefb905afcf46dcc453a27f8d085be4de92c0374f650fa9ae418b89b66c5a7",
+    "lib/editObserver.js": "b8594e91abd9814b9f784b05ffc4db8bd6b38f62729adcb37ab06d7e2dcddfc3",
+    "lib/fimRoutes.js": "9798836381f42a8f2982fd7cc2338a2e438df89a469cbe03e667d7af2ac2530c",
+    "lib/index.js": "84f1099f0ad265f89ad179aa73d9e3fac7caa0eda531e07cb444d489f11c8415",
+    "lib/linkRoutes.js": "6f37de8cdd9241a736cf4190e3dad4a8c9eb1a0b85b5dd10e4ecc1a231b087a9",
+    "lib/lmRoute.js": "0e5b1177aded885ab56a152dde34109c3049c011ab12010c7a6b98ea0bfda354",
+    "lib/runtimeFacade.js": "da18c9ab7bf73e306fd91db0830d665d43a91870786b306f8374976e1bcee212",
+    "lib/tools.js": "4c2fb34913997abe783f20656738800e07d1e43609432f6f95b2dc67a747c9cb",
+    "contracts/runtime-v1.json": "87b1a6a851e1d7fe01e2939d1f6238560807dee72f5a5e06139ddc25a6e037b7",
+    "contracts/session-bridge-v1.json": "f62a79ec1c8058ff513472b0c940b211a50a86f81ca8bd67d2e724cb4a56cd43",
+    "contracts/validate.cjs": "8f8b9a6a3e45424ebbeb431dda1a929847392d38c94cf4ba86c280583590dbf1"
+  },
+  "toolProbe": [
+    {
+      "tool": {
+        "callId": "probe-call-0",
+        "name": "read",
+        "state": "succeeded"
+      },
+      "content": [
+        {
+          "kind": "text",
+          "text": "<path>D:\\Coding\\DSH\\deepseek-harness-dsh-for-vscode\\evidence\\dsh020rc2\\probe\\run-uDtnej\\workspace\\probe-tool.txt</path>\n<type>file</type>\n<content>\n1: before\n\n(End of file - total 1 lines)\n</content>"
+        }
+      ]
+    },
+    {
+      "tool": {
+        "callId": "probe-call-1",
+        "name": "write",
+        "state": "succeeded"
+      },
+      "content": [
+        {
+          "kind": "text",
+          "text": "<path>D:\\Coding\\DSH\\deepseek-harness-dsh-for-vscode\\evidence\\dsh020rc2\\probe\\run-uDtnej\\workspace\\probe-tool.txt</path>\n<type>file</type>\n<content>\nUpdated file\n</content>"
+        }
+      ]
+    },
+    {
+      "tool": {
+        "callId": "probe-call-2",
+        "name": "edit",
+        "state": "succeeded"
+      },
+      "content": [
+        {
+          "kind": "text",
+          "text": "The file D:\\Coding\\DSH\\deepseek-harness-dsh-for-vscode\\evidence\\dsh020rc2\\probe\\run-uDtnej\\workspace\\probe-tool.txt has been updated successfully."
+        }
+      ]
+    }
+  ],
+  "status": "PASS",
+  "ownedChildAfterStop": false,
+  "ownedPidExited": true,
+  "limitations": [
+    "No installed VSIX or browser UI exercised.",
+    "Deterministic local LlmAdapter backend used; no production model, provider network, Changes accept/undo UI or CH1 notification delivery certified."
+  ]
+}

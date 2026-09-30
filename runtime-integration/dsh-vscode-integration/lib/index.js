@@ -10,6 +10,15 @@ import { createLinkRoutes, editorOpenViaBridge } from './linkRoutes.js';
 import { installCompatSessionRoutes, installCompatWorkspaceRoutes } from './compatSessionRoutes.js';
 import { installRuntimeFacade } from './runtimeFacade.js';
 import { createDsh020rc1Adapter } from './adapters/dsh020rc1.js';
+import { createDsh020rc2Adapter } from './adapters/dsh020rc2.js';
+
+// Explicit selection table: one adapter factory per exact target version,
+// mirroring TARGET_RUNTIME_IDENTITIES in adapters/dsh020.js and the adapterId
+// enum in contracts/runtime-v1.json; an unknown version never gets a facade.
+const TARGET_ADAPTER_FACTORIES = Object.freeze({
+  '0.2.0-rc.1': createDsh020rc1Adapter,
+  '0.2.0-rc.2': createDsh020rc2Adapter,
+});
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
@@ -456,7 +465,8 @@ function installOpenPathBridge(ctx, options = {}) {
 }
 
 function apply(ctx) {
-  const targetRuntime = process.env.DSH_VSCODE_RUNTIME_VERSION === '0.2.0-rc.1';
+  const runtimeVersion = process.env.DSH_VSCODE_RUNTIME_VERSION;
+  const targetRuntime = Object.prototype.hasOwnProperty.call(TARGET_ADAPTER_FACTORIES, runtimeVersion);
   ctx.effect(() => {
     // C1 watchdog: if this DSH process is a VS Code-managed child, keep an eye
     // on its owner window and self-terminate only when the dual condition is
@@ -488,8 +498,8 @@ function apply(ctx) {
   // keep their native routes — the inject never fires there.
   if (targetRuntime) ctx.inject(['sessionController', 'workspaceController', 'webServer'], (scope) => {
     const runtimeInstanceId = process.env.DSH_VSCODE_RUNTIME_INSTANCE_ID;
-    const adapter = createDsh020rc1Adapter({ ctx: scope, runtimeInstanceId,
-      integrationVersion: packageJson.version, runtimeVersion: process.env.DSH_VSCODE_RUNTIME_VERSION });
+    const adapter = TARGET_ADAPTER_FACTORIES[runtimeVersion]({ ctx: scope, runtimeInstanceId,
+      integrationVersion: packageJson.version, runtimeVersion });
     const facade = installRuntimeFacade({ ctx: scope, adapter, runtimeInstanceId, token: process.env.DSH_VSCODE_API_TOKEN });
     return () => facade.dispose();
   });

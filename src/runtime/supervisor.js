@@ -2,7 +2,7 @@
 
 const { randomBytes, randomUUID } = require('node:crypto');
 const { createRuntimeIdentity, runtimeIdentityKey, identityToResolvedRuntime } = require('./identity');
-const { TARGET_ADAPTER, portError, verifyNodeRuntime, assertCapabilityIdentity } = require('./compatibility');
+const { isTargetRuntimeVersion, portError, verifyNodeRuntime, assertCapabilityIdentity } = require('./compatibility');
 
 const STARTUP_MS = 30000;
 const COOLDOWN_MS = 30000;
@@ -121,6 +121,7 @@ function createRuntimeSupervisor({
         if (serverManager.hasOwnedChild?.() && !ownsLifecycle) {
           throw portError('CONFLICT', 'This server manager is owned by another runtime lifecycle.');
         }
+        log('verifying-node');
         await step(verifyNode(identity.executablePath, { signal: controller.signal }));
         log('preparing');
         const prepared = await step(prepareIntegration(identity, op));
@@ -174,7 +175,7 @@ function createRuntimeSupervisor({
     let key;
     try {
       identity = createRuntimeIdentity(selection);
-      if (identity.adapterId !== TARGET_ADAPTER) throw portError('UNSUPPORTED_RUNTIME', 'This supervisor requires the target facade adapter.');
+      if (!isTargetRuntimeVersion(identity.runtimeVersion)) throw portError('UNSUPPORTED_RUNTIME', 'This supervisor requires a target facade adapter.');
       key = runtimeIdentityKey(identity);
     } catch (error) { return Promise.reject(error); }
     if (op.signal?.aborted) return Promise.reject(portError('CANCELLED', 'Runtime operation was cancelled.'));

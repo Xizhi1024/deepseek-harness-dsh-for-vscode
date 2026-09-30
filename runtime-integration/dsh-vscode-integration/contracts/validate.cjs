@@ -20,6 +20,15 @@ const LIMITS = Object.freeze({
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 
+// Exact runtimeVersion -> adapterId pairs. The JSON schemas bound each field
+// to its enum; this map enforces the pairing the enums alone cannot express.
+// Must cover every adapterId in both schema enums and never contain a range.
+const ADAPTER_BY_RUNTIME = Object.freeze({
+  '0.2.0-rc.1': 'dsh-0.2.0-rc.1',
+  '0.2.0-rc.2': 'dsh-0.2.0-rc.2',
+  '0.1.2-rc.1': 'legacy-0.1.2-rc.1',
+});
+
 function matches(value, rule, document = runtime, budget = { nodes: 0 }, depth = 0) {
   if (++budget.nodes > 200000 || depth > 40 || !rule) return false;
   if (rule.$ref) {
@@ -75,7 +84,9 @@ function validateRpcResponse(value, { method, requestId } = {}) {
       ok: { const: true }, value: runtime.methods[method].value },
   });
 }
-function validateCapabilityReport(value) { return matches(value, runtime.$defs.CapabilityReport); }
+function validateCapabilityReport(value) {
+  return matches(value, runtime.$defs.CapabilityReport) && ADAPTER_BY_RUNTIME[value.runtimeVersion] === value.adapterId;
+}
 function validateSessionUpdate(value) {
   if (!matches(value, runtime.$defs.SessionUpdate)) return false;
   return value.kind !== 'edit-observation' || (value.observation.runtimeInstanceId === value.runtimeInstanceId
@@ -92,6 +103,7 @@ function validateSessionMessage(value, { direction, method, requestId } = {}) {
   const def = { 'hello-init': 'HelloInit', 'hello-ack': 'HelloAck', request: 'Request', targetChanged: 'TargetChanged' }[value.type];
   if (def) {
     if (!matches(value, bridge.$defs[def], bridge)) return false;
+    if (value.type === 'hello-ack' && ADAPTER_BY_RUNTIME[value.runtimeVersion] !== value.adapterId) return false;
     if (value.type === 'targetChanged') return sameSurface(value, value.target);
     if (value.type === 'request' && value.method === 'insertion.capture') return sameSurface(value, value.params.expected);
     return true;

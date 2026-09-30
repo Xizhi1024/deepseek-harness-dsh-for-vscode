@@ -4,13 +4,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { assertValidProfileName } = require('./managedRuntimeLaunch');
-const { TARGET_VERSION } = require('./runtime/compatibility');
+const { runtimeDescriptor } = require('./runtime/compatibility');
 
 /** A target plugin copy must never overwrite a live legacy profile's copy. */
 function deriveRuntimeProfileName(configuredProfile, runtimeVersion) {
   assertValidProfileName(configuredProfile);
-  if (runtimeVersion !== TARGET_VERSION) return configuredProfile;
-  const suffix = '-dsh020rc1';
+  const suffix = runtimeDescriptor(runtimeVersion)?.profileSuffix || '';
+  if (!suffix) return configuredProfile;
   if (configuredProfile.length + suffix.length <= 64) return `${configuredProfile}${suffix}`;
   const hash = createHash('sha256').update(configuredProfile).digest('hex').slice(0, 8);
   return `${configuredProfile.slice(0, 64 - suffix.length - hash.length - 1)}-${hash}${suffix}`;

@@ -1,0 +1,37 @@
+{
+  "milestone": "M0",
+  "generated": "2026-09-30",
+  "baseline": {
+    "branch": "adapt/dsh-0.2.0-rc.2",
+    "commit": "4e12cca (chore(baseline): freeze 1.2.0 candidate working tree for rc.2 adaptation (M0))",
+    "parent_master_head": "0ba85aaa2786ac4218b02f8c060dd5f5a7863a66",
+    "note": "Master untouched; baseline commit contains all uncommitted 1.2.0 candidate work (runtime/, session/, protocol/, adapters/, probes, handoffs). Scratch dirs .dsh-accept-test/, .dsh-repair/, .vscode/, thinking-effort-loaded.json excluded via .gitignore."
+  },
+  "extension": { "version": "1.2.0 (candidate, VSIX installed locally; not Marketplace-published)" },
+  "integration": { "version": "0.10.0" },
+  "node": { "version": "v24.11.1", "satisfies": "^22.19.0 || >=24.0.0" },
+  "runtimes": {
+    "rc1": {
+      "source": "read-only staging tree, exact npm packages",
+      "root": "D:/Coding/.codex-staging/dsh-020rc1-runtime/node_modules/@deepseek-ai/dsh",
+      "version": "0.2.0-rc.1",
+      "packages": 288
+    },
+    "rc2": {
+      "source": "official global npm install (user machine, 2026-09-30)",
+      "root": "C:/Users/MSI/AppData/Roaming/npm/node_modules/@deepseek-ai/dsh",
+      "version": "0.2.0-rc.2",
+      "packages": 287,
+      "manifestGaps": "no engines, no gitHead (same as rc.1); Node floor remains the extension's own policy"
+    }
+  },
+  "isolation": {
+    "probe": "probes create isolated home/workspace/profile under the evidence output directory (mkdtemp); provider keys stripped from child env (sanitizedChildEnv allowlist)",
+    "daily_home": "not touched by probes; personal ~/.dsh unaffected"
+  },
+  "evidence_index": [
+    "m0-baseline.json (this file)",
+    "m1-package-diff.json (per-package SHA-256 diff of both trees)",
+    "m1-boundary-evidence.md (interface conclusions per plan section 3)"
+  ]
+}

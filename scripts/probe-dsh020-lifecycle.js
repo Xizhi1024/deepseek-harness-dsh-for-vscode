@@ -1,7 +1,7 @@
 'use strict';
 
 // Real, isolated component acceptance. No installed VSIX/browser claim.
-// node scripts/probe-dsh020rc1-lifecycle.js <package-root> <evidence-root> <steady|lifecycle>
+// node scripts/probe-dsh020-lifecycle.js <package-root> <evidence-root> <steady|lifecycle>
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -20,7 +20,7 @@ const { createDshRuntimeClient } = require('../src/runtime/client');
 const { verifyNodeRuntime } = require('../src/runtime/compatibility');
 const { createSessionFeedHub } = require('../src/session/feedHub');
 const { LIMITS } = require('../src/protocol/runtime');
-const { sanitizedChildEnv } = require('./probe-dsh020rc1');
+const { sanitizedChildEnv, parseProbeArguments } = require('./probe-dsh020');
 
 const execFileAsync = promisify(execFile);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -66,11 +66,12 @@ async function childRss(pid) {
 }
 
 async function main() {
-  const [packageRoot, outputRoot, mode] = process.argv.slice(2);
+  const { positional, target } = parseProbeArguments(process.argv.slice(2));
+  const [packageRoot, outputRoot, mode] = positional;
   assert.ok(path.isAbsolute(packageRoot || '') && path.isAbsolute(outputRoot || ''));
   assert.ok(['steady', 'lifecycle'].includes(mode));
   const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
-  assert.equal(manifest.name, '@deepseek-ai/dsh'); assert.equal(manifest.version, '0.2.0-rc.1');
+  assert.equal(manifest.name, '@deepseek-ai/dsh'); assert.equal(manifest.version, target || '0.2.0-rc.1');
   await verifyNodeRuntime(process.execPath);
   const extensionRoot = path.resolve(__dirname, '..');
   const integrationRoot = path.join(extensionRoot, 'runtime-integration/dsh-vscode-integration');
@@ -270,7 +271,9 @@ async function main() {
         trustedEndpointSelection: 'Test-only DI supplies owner credentials to a real borrowed ServerManager probe; no general external discovery is claimed.' });
 
       const gate = await fixture('failure-gates');
-      await assert.rejects(gate.supervisor.ensure({ ...gate.identity, runtimeVersion: '0.2.0-rc.2' }, op()), { code: 'UNSUPPORTED_RUNTIME' });
+      // rc.2 is a supported target now; the gate case stays on a version that
+      // has no adapter, which is exactly what it exists to prove.
+      await assert.rejects(gate.supervisor.ensure({ ...gate.identity, runtimeVersion: '0.2.0-rc.3' }, op()), { code: 'UNSUPPORTED_RUNTIME' });
       await assert.rejects(gate.supervisor.ensure({ ...gate.identity, executablePath: path.join(runRoot, 'missing-node.exe') }, op()),
         (error) => error.code === 'UNSUPPORTED_RUNTIME');
       assert.equal(gate.counts.spawned, 0); assert.equal(gate.counts.prepared, 0);

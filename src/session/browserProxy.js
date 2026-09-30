@@ -3,8 +3,14 @@
 const { validateSessionMessage, validateVisibleTarget, createPortError } = require('../protocol/runtime');
 
 /** Extension-host implementation of the browser port; the shell owns the origin-checked handshake. */
-function createBrowserSessionProxy({ surfaceIdentity, postMessage, subscribeMessages, clock = Date, timers = globalThis }) {
+function createBrowserSessionProxy({ surfaceIdentity, expectedIdentity, postMessage, subscribeMessages, clock = Date, timers = globalThis }) {
   const identity = Object.freeze({ surfaceId: surfaceIdentity.surfaceId, surfaceEpoch: surfaceIdentity.surfaceEpoch });
+  const expected = Object.freeze({
+    runtimeVersion: expectedIdentity?.runtimeVersion, adapterId: expectedIdentity?.adapterId,
+  });
+  if (typeof expected.runtimeVersion !== 'string' || typeof expected.adapterId !== 'string') {
+    throw createPortError('INVALID_ARGUMENT', 'A target runtime identity is required for the browser handshake.');
+  }
   let target = Object.freeze({ ...identity, selectionGeneration: 0, state: 'unknown', reason: 'Browser handshake is pending' });
   let ready = false;
   let handshakeFailed = false;
@@ -68,7 +74,7 @@ function createBrowserSessionProxy({ surfaceIdentity, postMessage, subscribeMess
     if (!validateSessionMessage(message)) return;
     if (message.type === 'hello-ack') {
       if (handshakeFailed) return;
-      if (message.runtimeVersion !== '0.2.0-rc.1' || message.adapterId !== 'dsh-0.2.0-rc.1') return;
+      if (message.runtimeVersion !== expected.runtimeVersion || message.adapterId !== expected.adapterId) return;
       ready = true;
       timers.clearTimeout(handshakeTimer);
       for (const entry of requests.values()) send(entry);

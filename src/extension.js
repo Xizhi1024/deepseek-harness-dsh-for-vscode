@@ -108,6 +108,7 @@ const { createSessionFeedHub } = require('./session/feedHub');
 const { createSessionCoordinator } = require('./session/coordinator');
 const { createBrowserSessionProxy } = require('./session/browserProxy');
 const { validateSessionMessage, createPortError } = require('./protocol/runtime');
+const { runtimeDescriptor, SUPPORTED_VERSIONS } = require('./runtime/compatibility');
 const {
   HOME_MODES,
   bindRuntimeHome,
@@ -267,6 +268,7 @@ function handleTargetSessionMessage(message, webview) {
     entry.surfaceEpoch = message.surfaceEpoch;
     targetSurfaceEpoch = Math.max(targetSurfaceEpoch, message.surfaceEpoch);
     entry.proxy = createBrowserSessionProxy({ surfaceIdentity: message,
+      expectedIdentity: { runtimeVersion: targetLease.identity.runtimeVersion, adapterId: targetLease.identity.adapterId },
       postMessage: (value) => webview.postMessage(value),
       subscribeMessages: (listener) => { entry.listeners.add(listener); return () => entry.listeners.delete(listener); } });
     entry.unregister = targetCoordinator.registerSurface({ surfaceId: entry.surfaceId, surfaceEpoch: entry.surfaceEpoch,
@@ -1167,9 +1169,10 @@ async function connectAttempt(context) {
       }
       if (server === null) {
         // Validate selection before deriving a profile or changing the live adapter identity.
-        if (!['0.1.2-rc.1', '0.2.0-rc.1'].includes(resolvedRuntime?.dshVersion)) {
+        const descriptor = runtimeDescriptor(resolvedRuntime?.dshVersion);
+        if (!descriptor) {
           const actualVersion = resolvedRuntime?.dshVersion || 'unknown';
-          const detail = `Select exact DSH 0.1.2-rc.1 or 0.2.0-rc.1; the resolved version is unverified (${actualVersion}). Configure dsh.local.packageRoot to a supported installation.`;
+          const detail = `Select an exact supported DSH version (${SUPPORTED_VERSIONS.join(', ')}); the resolved version is unverified (${actualVersion}). Configure dsh.local.packageRoot to a supported installation.`;
           appendDiagnostic(`[runtime] ${detail}`);
           throw createPortError('UNSUPPORTED_RUNTIME', detail);
         }
@@ -1178,7 +1181,7 @@ async function connectAttempt(context) {
         }
         const effectiveProfile = deriveRuntimeProfileName(cfg.profile, resolvedRuntime.dshVersion);
         resolvedRuntime = bindRuntimeHome(resolvedRuntime, activeDshHome, effectiveProfile);
-        const selectingTarget = resolvedRuntime.dshVersion === '0.2.0-rc.1';
+        const selectingTarget = descriptor.line === 'target';
         const adapter = deriveRuntimeAdapter(resolvedRuntime.dshVersion);
         appendDiagnostic(
           `[runtime] DSH ${resolvedRuntime.dshVersion || 'unknown'}; adapter=${adapter.line}; `

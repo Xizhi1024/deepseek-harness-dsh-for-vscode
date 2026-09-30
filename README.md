@@ -17,7 +17,7 @@ The candidate preserves the 1.1.8 watcher and focus fixes, and adds authenticate
 | Item | Requirement |
 |---|---|
 | VS Code | ≥ 1.106, desktop; remote, virtual and untrusted workspaces are unsupported |
-| Target DSH | Exactly `0.2.0-rc.1`; install with `npm i -g @deepseek-ai/dsh@0.2.0-rc.1` |
+| Target DSH | Exactly `0.2.0-rc.1` or `0.2.0-rc.2` (exact adapters per version); install with `npm i -g @deepseek-ai/dsh@0.2.0-rc.2` |
 | Legacy DSH | Exactly `0.1.2-rc.1`, through the separate legacy adapter |
 | Node.js for the target child | `^22.19.0 \|\| >=24.0.0`; checks the selected executable, independently of VS Code's Node; override with `dsh.local.nodePath` |
 | Integration | `dsh-vscode-integration@0.10.0`, bundled with this candidate |
@@ -65,7 +65,7 @@ See `package.json` for all settings and **DSH: Diagnose** for runtime details.
 
 ### Profile and data scope
 
-For DSH `0.2.0-rc.1`, default profile `vscode` becomes `vscode-dsh020rc1`, separating plugin and patch configuration from legacy. **Profiles do not isolate home-level sessions or credentials**: processes using the same home still share those data. Use an isolated home for independent data. First-time scaffolding can inherit donor module configuration. Restart/stop affects only the extension-owned child.
+For target DSH runtimes, default profile `vscode` becomes `vscode-dsh020rc1` / `vscode-dsh020rc2` respectively, separating plugin and patch configuration from legacy. **Profiles do not isolate home-level sessions or credentials**: processes using the same home still share those data. Use an isolated home for independent data. First-time scaffolding can inherit donor module configuration. Restart/stop affects only the extension-owned child.
 
 ## License
 

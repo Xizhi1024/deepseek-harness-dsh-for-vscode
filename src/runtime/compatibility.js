@@ -2,11 +2,33 @@
 
 const { execFile } = require('node:child_process');
 
-const TARGET_VERSION = '0.2.0-rc.1';
+const TARGET_VERSION = '0.2.0-rc.2';
 const LEGACY_VERSION = '0.1.2-rc.1';
-const TARGET_ADAPTER = 'dsh-0.2.0-rc.1';
-const LEGACY_ADAPTER = 'legacy-0.1.2-rc.1';
 const NODE_RANGE = '^22.19.0 || >=24.0.0';
+
+/**
+ * Exact version descriptors: one entry per runtime this extension has a
+ * verified adapter for. `line` selects the launch path ('target' uses the
+ * runtime supervisor and facade; 'legacy' the manager path), `profileSuffix`
+ * separates target plugin copies so they never overwrite each other, and
+ * `adapterId` is the identity pair half reported by capabilities and the
+ * browser handshake. Unknown versions map to no descriptor and are rejected.
+ */
+const RUNTIME_DESCRIPTORS = Object.freeze({
+  '0.1.2-rc.1': Object.freeze({ adapterId: 'legacy-0.1.2-rc.1', line: 'legacy', profileSuffix: '' }),
+  '0.2.0-rc.1': Object.freeze({ adapterId: 'dsh-0.2.0-rc.1', line: 'target', profileSuffix: '-dsh020rc1' }),
+  '0.2.0-rc.2': Object.freeze({ adapterId: 'dsh-0.2.0-rc.2', line: 'target', profileSuffix: '-dsh020rc2' }),
+});
+
+const TARGET_VERSIONS = Object.freeze(Object.entries(RUNTIME_DESCRIPTORS)
+  .filter(([, descriptor]) => descriptor.line === 'target').map(([version]) => version));
+const SUPPORTED_VERSIONS = Object.freeze(Object.keys(RUNTIME_DESCRIPTORS));
+const TARGET_ADAPTERS = Object.freeze(TARGET_VERSIONS.map((version) => RUNTIME_DESCRIPTORS[version].adapterId));
+
+/** Descriptor for one exact version, or null when the version has no adapter. */
+function runtimeDescriptor(version) {
+  return Object.prototype.hasOwnProperty.call(RUNTIME_DESCRIPTORS, version) ? RUNTIME_DESCRIPTORS[version] : null;
+}
 
 function portError(code, message, retryable = false, effect = 'none') {
   return Object.assign(new Error(message), { code, retryable, effect });
@@ -14,9 +36,13 @@ function portError(code, message, retryable = false, effect = 'none') {
 
 /** Exact adapters are a selection policy, not a claim of completed E2E certification. */
 function runtimeCompatibility(version) {
-  if (version === TARGET_VERSION) return Object.freeze({ state: 'available', adapterId: TARGET_ADAPTER });
-  if (version === LEGACY_VERSION) return Object.freeze({ state: 'available', adapterId: LEGACY_ADAPTER });
+  const descriptor = runtimeDescriptor(version);
+  if (descriptor) return Object.freeze({ state: 'available', adapterId: descriptor.adapterId });
   return Object.freeze({ state: 'unverified', adapterId: null, reason: 'This exact DSH version has no verified adapter.' });
+}
+
+function isTargetRuntimeVersion(version) {
+  return runtimeDescriptor(version)?.line === 'target';
 }
 
 function supportsTargetNode(version) {
@@ -42,7 +68,7 @@ async function verifyNodeRuntime(executablePath, { execFileFn = execFile, signal
     });
   });
   if (!supportsTargetNode(version)) {
-    throw portError('UNSUPPORTED_RUNTIME', `DSH ${TARGET_VERSION} requires Node ${NODE_RANGE}.`);
+    throw portError('UNSUPPORTED_RUNTIME', `Target DSH runtimes require Node ${NODE_RANGE}.`);
   }
   return version;
 }
@@ -62,6 +88,8 @@ function assertCapabilityIdentity(report, identity, instanceId) {
 }
 
 module.exports = {
-  TARGET_VERSION, LEGACY_VERSION, TARGET_ADAPTER, LEGACY_ADAPTER, NODE_RANGE,
-  portError, runtimeCompatibility, supportsTargetNode, verifyNodeRuntime, assertCapabilityIdentity,
+  TARGET_VERSION, LEGACY_VERSION, TARGET_VERSIONS, SUPPORTED_VERSIONS, TARGET_ADAPTERS,
+  TARGET_ADAPTER: RUNTIME_DESCRIPTORS[TARGET_VERSION].adapterId, LEGACY_ADAPTER: RUNTIME_DESCRIPTORS[LEGACY_VERSION].adapterId,
+  RUNTIME_DESCRIPTORS, NODE_RANGE,
+  runtimeDescriptor, runtimeCompatibility, isTargetRuntimeVersion, portError, supportsTargetNode, verifyNodeRuntime, assertCapabilityIdentity,
 };

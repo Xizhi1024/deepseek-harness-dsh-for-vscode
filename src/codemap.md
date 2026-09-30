@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-The CommonJS extension host for 1.2.0 candidate: `extension.js` assembles exact runtime selection, shared session services, webview surfaces, commands and optional features. No npm runtime dependencies. Target DSH is exactly `0.2.0-rc.1`; legacy `0.1.2-rc.1` remains a separate path.
+The CommonJS extension host for 1.2.1 candidate: `extension.js` assembles exact runtime selection, shared session services, webview surfaces, commands and optional features. No npm runtime dependencies. Target DSH is exactly `0.2.0-rc.1` or `0.2.0-rc.2` (descriptor table in `runtime/compatibility.js`); legacy `0.1.2-rc.1` remains a separate path.
 
 ## Runtime modules
 
@@ -16,7 +16,7 @@ The CommonJS extension host for 1.2.0 candidate: `extension.js` assembles exact 
 | `serverManager.js` | Low-level process, port, health, ownership and registry operations |
 | `dshHome.js`, `profileScaffold.js`, `embedOverlay.js`, `dshIntegration.js`, `hmrGuard.js` | Home/profile selection, donor scaffolding, overlay, content-aware integration sync and HMR guard |
 
-Target profiles use `-dsh020rc1`; sessions/credentials remain shared for processes on the same home. Unknown external runtimes can be displayed browser-only and cannot receive session mutations.
+Target profiles use `-dsh020rc1`/`-dsh020rc2`; sessions/credentials remain shared for processes on the same home. Unknown external runtimes can be displayed browser-only and cannot receive session mutations.
 
 ## Session modules
 

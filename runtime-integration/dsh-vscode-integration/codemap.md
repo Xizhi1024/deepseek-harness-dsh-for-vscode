@@ -2,14 +2,14 @@
 
 ## Responsibility
 
-Integration **0.10.0**, bundled with extension **1.2.0 candidate**, supplies the DSH host plugin and embedded browser client. Host files are plain ESM with no npm dependencies. Browser files register flat chunks with the upstream module loader. Exact target: DSH `0.2.0-rc.1`; separate legacy adapter: `0.1.2-rc.1`.
+Integration **0.11.0**, bundled with extension **1.2.1 candidate**, supplies the DSH host plugin and embedded browser client. Host files are plain ESM with no npm dependencies. Browser files register flat chunks with the upstream module loader. Exact targets: DSH `0.2.0-rc.1` and `0.2.0-rc.2` (adapter factory shared in `adapters/dsh020.js`); separate legacy adapter: `0.1.2-rc.1`.
 
 Package entries remain `lib/index.js` and `lib/client.js`. The client descriptor injects the public session controller, session UI, layout, workspace and Conversation packages. `src/dshIntegration.js` synchronizes all declared files into the selected runtime profile before startup.
 
 ## Target host path
 
 1. `lib/index.js` selects the target branch from the owned launch environment and injects public `sessionController`, `workspaceController` and `webServer`.
-2. `lib/adapters/dsh020rc1.js` maps exact upstream public operations into workspace/session/prompt/cancel/follow capabilities. Source revision/index continuity is checked before text normalization; snapshots reconcile a newly opened stream.
+2. `lib/adapters/dsh020.js` (with per-version wrappers `dsh020rc1.js`/`dsh020rc2.js`) maps exact upstream public operations into workspace/session/prompt/cancel/follow capabilities. Source revision/index continuity is checked before text normalization; snapshots reconcile a newly opened stream.
 3. `lib/runtimeFacade.js` mounts authenticated `/api/vscode/v1/capabilities`, `/api/vscode/v1/rpc` and session-follow SSE. It validates payloads, bounds bodies/queues, and disposes iterators on disconnect. Long feeds are not terminated by the short RPC deadline.
 4. `contracts/runtime-v1.json`, `session-bridge-v1.json` and `validate.cjs` define and validate the normalized boundary. The extension host reuses this validator through `src/protocol/runtime.js`.
 5. `lib/editObserver.js` captures pre-execution edit/write metadata and before-text when available; it always delegates through `next()`. Confirmed attribution comes from durable tool evidence. The observer alone cannot certify completion.
@@ -21,7 +21,7 @@ The target branch does not mount `compatSessionRoutes.js` or patch private upstr
 | File | Responsibility |
 |---|---|
 | `lib/client.js` | Entry, embedded-mode gate, clipboard/link/theme behavior and conditional target/legacy setup |
-| `lib/client.dsh020rc1.js` | Exact public DSH browser-service adapter: observe/navigate target and capture/commit insertion into the main Conversation |
+| `lib/client.dsh020.js` | Exact public DSH browser-service adapter (target-line shared; identity injected by the loader): observe/navigate target and capture/commit insertion into the main Conversation |
 | `lib/client.sessionBridge.js` | Versioned browser request handling, target publication, cancellation, ticket bounds and disposal |
 
 The two helper chunks are flat siblings loaded with `require.async` through `window.__ModuleLoader__`. They are packaging/synchronization allowlist members; they are not nested browser ESM imports.
@@ -42,7 +42,7 @@ Target initialization leaves React-owned search/composer/message DOM intact and 
 
 Target private launch values include `DSH_VSCODE_API_TOKEN`, `DSH_VSCODE_RUNTIME_INSTANCE_ID` and `DSH_VSCODE_RUNTIME_VERSION`. Existing CH1, textDocumentBridge and watchdog variables remain separate. Tokens are transport-private and absent from public runtime identities.
 
-Target profiles add `-dsh020rc1`, separating plugin/patch configuration. Home-level sessions and credentials are still shared when processes use the same home. Only the extension-owned child is stopped by its lifecycle.
+Target profiles add `-dsh020rc1`/`-dsh020rc2`, separating plugin/patch configuration. Home-level sessions and credentials are still shared when processes use the same home. Only the extension-owned child is stopped by its lifecycle.
 
 ## Validation
 

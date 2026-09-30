@@ -1,0 +1,4448 @@
+{
+  "generated": "2026-09-30T06:20:44.025512+00:00",
+  "rc1_root": "D:\\Coding\\.codex-staging\\dsh-020rc1-runtime\\node_modules\\@deepseek-ai",
+  "rc2_root": "C:\\Users\\MSI\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\node_modules\\@deepseek-ai",
+  "packages": {
+    "dsh": {
+      "changed": [],
+      "added_rc2": [],
+      "removed_rc1": [
+        "LICENSE",
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/bin.js",
+        "lib/dump-config-BEDI-dNY.js",
+        "lib/dump-config-crgOY3tW.js",
+        "lib/dump-config-schema-DhhNOaro.js",
+        "lib/plugin-DkYIj96-.js",
+        "lib/profile-boot-BZ2ZjNWi.js",
+        "lib/profile-boot.js",
+        "lib/types/args.d.ts",
+        "lib/types/bin.d.ts",
+        "lib/types/dump-config-schema.d.ts",
+        "lib/types/dump-config.d.ts",
+        "lib/types/plugin.d.ts",
+        "lib/types/process-shutdown.d.ts",
+        "lib/types/profile-boot.d.ts",
+        "lib/types/startup-diagnostics.d.ts",
+        "package.json"
+      ],
+      "unchanged": 0
+    },
+    "dsh-acp": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 12
+    },
+    "dsh-acp-app": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-agent": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 24
+    },
+    "dsh-agent-default-model": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-agent-instructions": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-agent-loop": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 14
+    },
+    "dsh-agent-preset": {
+      "changed": [
+        "package.json",
+        "skills/cordis-composition-reference/references/packages.md"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 22
+    },
+    "dsh-agent-preset-registry": {
+      "changed": [
+        "lib/typert.host.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 27
+    },
+    "dsh-agent-tool-presentation": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-anonymous-user-id": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-api-account-controller": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-api-gateway": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/index.js",
+        "lib/types/index.d.ts",
+        "lib/types/index.js",
+        "lib/types/types.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 21
+    },
+    "dsh-api-job-controller": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 26
+    },
+    "dsh-api-remotes": {
+      "changed": [
+        "lib/client.js",
+        "lib/types/client/index.d.ts",
+        "lib/types/client/index.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-api-session-controller": {
+      "changed": [
+        "lib/typert.host.js",
+        "lib/typert.remote-client.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 76
+    },
+    "dsh-api-settings-controller": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 15
+    },
+    "dsh-api-terminal-controller": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/index.js",
+        "lib/typert.host.js",
+        "lib/types/shells.d.ts",
+        "lib/types/shells.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 27
+    },
+    "dsh-api-workspace-controller": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 30
+    },
+    "dsh-api-workspace-files": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 26
+    },
+    "dsh-app-boot": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 26
+    },
+    "dsh-atomic-write": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-attachment": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 17
+    },
+    "dsh-attachment-local": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 14
+    },
+    "dsh-authorization": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 12
+    },
+    "dsh-base": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-bash-local": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-bash-sandbox": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-brand": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-chunked-list": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-client-connection": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 22
+    },
+    "dsh-client-file-upload": {
+      "changed": [
+        "lib/typert.host.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 23
+    },
+    "dsh-client-hmr": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-client-locale": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 16
+    },
+    "dsh-client-modules": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 14
+    },
+    "dsh-client-product-analytics": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-client-resources": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 10
+    },
+    "dsh-client-shortcuts": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "lib/types/client/dom.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 15
+    },
+    "dsh-client-store": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-client-ui-agent-preset": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "lib/types/client/AgentPresetSection.d.ts",
+        "lib/types/client/locales.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-client-ui-approval": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-client-ui-attachment": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 16
+    },
+    "dsh-client-ui-brand-official": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-client-ui-chat": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "lib/types/client/chat/RunningWhaleTail.d.ts",
+        "lib/types/client/chat/TurnProcessNodeView.d.ts",
+        "lib/types/client/chat/message-chrome.d.ts",
+        "lib/types/client/locale.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 90
+    },
+    "dsh-client-ui-commands": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "lib/types/client/contract.d.ts",
+        "lib/types/client/index.d.ts",
+        "lib/types/client/popup.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [
+        "lib/types/client/option-groups.d.ts"
+      ],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-client-ui-conversation": {
+      "changed": [
+        "lib/client.js",
+        "lib/types/client/locales.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 74
+    },
+    "dsh-client-ui-cordis": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 21
+    },
+    "dsh-client-ui-deliverables": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 22
+    },
+    "dsh-client-ui-directory-picker-browse": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 10
+    },
+    "dsh-client-ui-directory-picker-native": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-client-ui-goal": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 14
+    },
+    "dsh-client-ui-input-trigger": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 18
+    },
+    "dsh-client-ui-jobs": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 10
+    },
+    "dsh-client-ui-layout": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 15
+    },
+    "dsh-client-ui-message-feedback": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 15
+    },
+    "dsh-client-ui-model-selection": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "lib/types/client/locales.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [
+        "lib/types/client/provider-order.d.ts"
+      ],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-client-ui-open-in-app": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "lib/types/client/OpenInAppAction.d.ts",
+        "lib/types/client/index.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-client-ui-permission-presets": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 14
+    },
+    "dsh-client-ui-plan": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "lib/types/client/PlanCard.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-client-ui-plugin-manager": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "lib/types/client/locales.d.ts",
+        "lib/types/client/manager-store.d.ts",
+        "lib/types/client/presentation.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 15
+    },
+    "dsh-client-ui-primitives": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/DisclosureRow.module.css",
+        "lib/index.js",
+        "lib/types/DisclosureRow.d.ts",
+        "lib/types/Input.d.ts",
+        "lib/types/index.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [
+        "lib/MenuGroup.module.css",
+        "lib/types/MenuGroup.d.ts"
+      ],
+      "removed_rc1": [],
+      "unchanged": 119
+    },
+    "dsh-client-ui-reference": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-client-ui-renderer": {
+      "changed": [
+        "lib/client.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 15
+    },
+    "dsh-client-ui-schedule": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 44
+    },
+    "dsh-client-ui-session": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-client-ui-settings": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 15
+    },
+    "dsh-client-ui-settings-account": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "lib/types/client/locales.d.ts",
+        "lib/types/client/locales/onboarding.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 38
+    },
+    "dsh-client-ui-settings-agent-loop": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-client-ui-settings-general": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 17
+    },
+    "dsh-client-ui-settings-models": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 29
+    },
+    "dsh-client-ui-settings-plugin-inventory": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 10
+    },
+    "dsh-client-ui-settings-plugins": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 10
+    },
+    "dsh-client-ui-settings-session-log": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-client-ui-settings-shell": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-client-ui-settings-subagent": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 15
+    },
+    "dsh-client-ui-settings-web-search": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-client-ui-shortcuts": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-client-ui-sidebar": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 8
+    },
+    "dsh-client-ui-sidebar-browser": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 28
+    },
+    "dsh-client-ui-sidebar-documentpreview": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 84
+    },
+    "dsh-client-ui-sidebar-files": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "lib/types/client/FilesBody.d.ts",
+        "lib/types/client/index.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-client-ui-sidebar-right": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "lib/types/client/index.d.ts",
+        "lib/types/client/service.d.ts",
+        "lib/types/client/shell/SidebarRight.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 24
+    },
+    "dsh-client-ui-sidebar-terminal": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 20
+    },
+    "dsh-client-ui-skill": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-client-ui-slots": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 8
+    },
+    "dsh-client-ui-subagent": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 12
+    },
+    "dsh-client-ui-theme": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "lib/index.js",
+        "lib/types/theme-settings.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 14
+    },
+    "dsh-client-ui-tool": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "lib/types/client/contract/slots.d.ts",
+        "lib/types/client/index.d.ts",
+        "lib/types/client/tool/components/ToolRow.d.ts",
+        "lib/types/client/tool/toolviews/ask-question-row.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [
+        "lib/types/client/tool/components/QuestionToolRow.d.ts"
+      ],
+      "removed_rc1": [],
+      "unchanged": 38
+    },
+    "dsh-client-ui-trajectory": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 36
+    },
+    "dsh-client-ui-user-questions": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "lib/types/client/contract/slots.d.ts",
+        "lib/types/client/draft-store.d.ts",
+        "lib/types/client/index.d.ts",
+        "lib/types/client/locales.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [
+        "lib/types/client/QuestionReplyView.d.ts",
+        "lib/types/client/question-reply.d.ts"
+      ],
+      "removed_rc1": [],
+      "unchanged": 5
+    },
+    "dsh-client-ui-workflow-run": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-client-ui-workspace": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/client.js",
+        "lib/types/client/shortcuts.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 20
+    },
+    "dsh-cmdline": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-command-compact": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-command-feedback": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-command-goal": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-commands": {
+      "changed": [
+        "lib/typert.host.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 17
+    },
+    "dsh-compaction": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 18
+    },
+    "dsh-compaction-basic": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 10
+    },
+    "dsh-compaction-image-offload": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-compaction-tool-result-pruner": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 8
+    },
+    "dsh-config-editor": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-cordis-client-runner": {
+      "changed": [
+        "lib/client.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 16
+    },
+    "dsh-cordis-host-runner": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/index.js",
+        "lib/typert.host.js",
+        "lib/typert.remote-client.js",
+        "lib/types/index.d.ts",
+        "lib/types/index.js",
+        "lib/types/inspect-registry.d.ts",
+        "lib/types/inspect-registry.js",
+        "lib/types/types.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 12
+    },
+    "dsh-credentials": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 12
+    },
+    "dsh-credentials-local": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-deepseek-account": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-deepseek-account-platform": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 15
+    },
+    "dsh-deepseek-llm-api-extensions": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-deque": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-experimental-agent-team": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 42
+    },
+    "dsh-experimental-agent-team-profile": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 10
+    },
+    "dsh-experimental-api-speech-to-text": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-experimental-auto-review": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 10
+    },
+    "dsh-experimental-client-ui-agent-team": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-experimental-client-ui-voice-input": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 17
+    },
+    "dsh-experimental-schedule-bundle": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 10
+    },
+    "dsh-experimental-speech-to-text": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-experimental-speech-to-text-sensevoice": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 17
+    },
+    "dsh-experimental-tool-agent-team": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 8
+    },
+    "dsh-experimental-voice-input-bundle": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 10
+    },
+    "dsh-file-reference": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-file-reference-local": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-fs": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-fs-local": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 8
+    },
+    "dsh-fs-observation-policy": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-fs-sandbox": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-goal": {
+      "changed": [
+        "lib/typert.host.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 23
+    },
+    "dsh-goal-round-driver": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-headless": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-hmr": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 5
+    },
+    "dsh-home-paths": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-hook-protocol": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 15
+    },
+    "dsh-hooks-claude-code": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-hooks-codex": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-host-directory-picker": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-host-directory-picker-auto": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 8
+    },
+    "dsh-host-directory-picker-browse": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-host-directory-picker-native": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-host-frontend-static": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-host-open-in-app": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 17
+    },
+    "dsh-host-plugin-inventory": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-host-product-telemetry-otel": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-host-webserver": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-http-proxy": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 8
+    },
+    "dsh-invariants": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-jobs": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 18
+    },
+    "dsh-jobs-local": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-launch-environment": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-lazy-require": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-llm": {
+      "changed": [
+        "lib/typert.host.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 37
+    },
+    "dsh-llm-deepseek": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 29
+    },
+    "dsh-llm-deepseek-account": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-llm-deepseek-api-key": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-llm-pi-ai": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/index.js",
+        "lib/types/catalog.d.ts",
+        "lib/types/replay.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-llm-retry": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 16
+    },
+    "dsh-mcp-client": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 10
+    },
+    "dsh-mcp-resources": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 8
+    },
+    "dsh-message-feedback": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-native-command": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 21
+    },
+    "dsh-office-to-pdf": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 21
+    },
+    "dsh-otel": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 10
+    },
+    "dsh-output-retention": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-package-manifest": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-permission-presets": {
+      "changed": [
+        "lib/typert.host.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 17
+    },
+    "dsh-persona": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-plan-mode": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 14
+    },
+    "dsh-plugin-manager": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 33
+    },
+    "dsh-plugin-package-inventory-deepseek": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-ptc-runtime": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-ptc-runtime-node": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 19
+    },
+    "dsh-pwsh-local": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-pwsh-sandbox": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-repeat-tool-reminder": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-sandbox": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-sandbox-local": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-sandbox-policy": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-sandbox-windows-acl": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "assets/diagnose-windows-sandbox-acl/SKILL.md",
+        "assets/diagnose-windows-sandbox-acl/scripts/diagnose-windows-sandbox-acl.ps1",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 15
+    },
+    "dsh-schedule": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/index.js",
+        "lib/types/domain.d.ts",
+        "lib/types/domain.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 26
+    },
+    "dsh-scope": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 10
+    },
+    "dsh-sdk-app": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-sdk-jsonrpc-server": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-sdk-minimal": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-sdk-protocol": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 8
+    },
+    "dsh-session": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 28
+    },
+    "dsh-session-checkpoint-policy": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-session-format": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-session-format-catalog": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 17
+    },
+    "dsh-session-format-v0-to-v1": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 15
+    },
+    "dsh-session-format-v1-to-v2": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-session-format-v2-to-v3": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-session-format-v3-to-v4": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 22
+    },
+    "dsh-session-log-deepseek": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 12
+    },
+    "dsh-session-log-export": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 14
+    },
+    "dsh-session-persistence": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 10
+    },
+    "dsh-session-persistence-jsonl": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 19
+    },
+    "dsh-session-projection": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-session-projection-cache": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-session-query": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 17
+    },
+    "dsh-session-query-sqlite": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 8
+    },
+    "dsh-session-reference": {
+      "changed": [
+        "lib/typert.host.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 22
+    },
+    "dsh-session-stats": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-session-telemetry": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-session-telemetry-otel": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-session-title": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 16
+    },
+    "dsh-session-title-first-prompt-llm": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-session-title-llm": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-session-turn-outline": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-settings": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-shell": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 8
+    },
+    "dsh-shell-env": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-skill": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-skill-badge": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 8
+    },
+    "dsh-skill-filesystem": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 18
+    },
+    "dsh-skill-office": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 10
+    },
+    "dsh-spill": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-spill-local": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 8
+    },
+    "dsh-spill-policy": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-storage": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-storage-domain": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 12
+    },
+    "dsh-storage-json": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 10
+    },
+    "dsh-subagent": {
+      "changed": [
+        "lib/typert.host.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 57
+    },
+    "dsh-subagent-fork-in-process": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-subagent-in-process-driver": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-subagent-spawn-in-process": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-subprocess": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-subprocess-local": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 25
+    },
+    "dsh-system-prompt": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 8
+    },
+    "dsh-terminal": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-terminal-bash": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-time-context": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 12
+    },
+    "dsh-timeout": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-tmux-context": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-token-meter": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 27
+    },
+    "dsh-tool-ask-user": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/index.js",
+        "lib/types/index.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [
+        "lib/types/timed.d.ts"
+      ],
+      "removed_rc1": [],
+      "unchanged": 1
+    },
+    "dsh-tool-bash": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/index.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 4
+    },
+    "dsh-tool-bash-persistent": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-tool-call-timeout-policy": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-tool-cordis": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/index.js",
+        "lib/types/api-catalog.js",
+        "lib/types/index.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-tool-fs": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 16
+    },
+    "dsh-tool-fs-search": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 11
+    },
+    "dsh-tool-goal": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 8
+    },
+    "dsh-tool-jobs": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-tool-present": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-tool-pwsh": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/index.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 4
+    },
+    "dsh-tool-pwsh-persistent": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/index.js",
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 2
+    },
+    "dsh-tool-ralph": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-tool-skill": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-tool-str-replace-editor": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-tool-subagent": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-tool-subagent-control": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-tool-todo": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 14
+    },
+    "dsh-tool-web": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-tool-workflow": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 14
+    },
+    "dsh-tool-workspace-dependencies": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-tools": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 26
+    },
+    "dsh-typert-loader": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-typert-protocol": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 15
+    },
+    "dsh-typert-registry": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 14
+    },
+    "dsh-user-approval": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 12
+    },
+    "dsh-user-questions": {
+      "changed": [
+        "README.i18n.yaml",
+        "README.md",
+        "README.zh.md",
+        "lib/index.js",
+        "lib/types/index.d.ts",
+        "lib/types/index.js",
+        "lib/types/types.d.ts",
+        "package.json"
+      ],
+      "added_rc2": [
+        "lib/typert.host.d.ts",
+        "lib/typert.host.js",
+        "lib/typert.remote-client.d.ts",
+        "lib/typert.remote-client.js",
+        "lib/types/projection.d.ts",
+        "lib/types/projection.js",
+        "lib/types/timed-wait.d.ts",
+        "lib/types/timed-wait.js"
+      ],
+      "removed_rc1": [],
+      "unchanged": 2
+    },
+    "dsh-util-code-language": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-util-crypto": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-util-time": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-util-values": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 6
+    },
+    "dsh-util-workspace-path": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-web": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 7
+    },
+    "dsh-web-app": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-web-fetch-http": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 9
+    },
+    "dsh-web-frontend": {
+      "changed": [
+        "dist/index.html",
+        "package.json"
+      ],
+      "added_rc2": [
+        "dist/assets/index-5SrrfWpU.js",
+        "dist/assets/index-BPHePDI_.css"
+      ],
+      "removed_rc1": [
+        "dist/assets/index-Cq6ljTv2.css",
+        "dist/assets/index-Dy0OhsZ5.js"
+      ],
+      "unchanged": 128
+    },
+    "dsh-web-search-deepseek": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 8
+    },
+    "dsh-webhook": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 16
+    },
+    "dsh-webhook-github": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 13
+    },
+    "dsh-win32-process": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 12
+    },
+    "dsh-workflow": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 14
+    },
+    "dsh-workflow-ptc": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 14
+    },
+    "dsh-workspace": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 18
+    },
+    "dsh-workspace-changes": {
+      "changed": [
+        "package.json"
+      ],
+      "added_rc2": [],
+      "removed_rc1": [],
+      "unchanged": 21
+    }
+  },
+  "summary": [
+    {
+      "package": "dsh",
+      "changed": 0,
+      "added_rc2": 0,
+      "removed_rc1": 20,
+      "unchanged": 0
+    },
+    {
+      "package": "dsh-acp",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 12
+    },
+    {
+      "package": "dsh-acp-app",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-agent",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 24
+    },
+    {
+      "package": "dsh-agent-default-model",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-agent-instructions",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-agent-loop",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 14
+    },
+    {
+      "package": "dsh-agent-preset",
+      "changed": 2,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 22
+    },
+    {
+      "package": "dsh-agent-preset-registry",
+      "changed": 2,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 27
+    },
+    {
+      "package": "dsh-agent-tool-presentation",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-anonymous-user-id",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-api-account-controller",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-api-gateway",
+      "changed": 8,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 21
+    },
+    {
+      "package": "dsh-api-job-controller",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 26
+    },
+    {
+      "package": "dsh-api-remotes",
+      "changed": 4,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-api-session-controller",
+      "changed": 3,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 76
+    },
+    {
+      "package": "dsh-api-settings-controller",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 15
+    },
+    {
+      "package": "dsh-api-terminal-controller",
+      "changed": 8,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 27
+    },
+    {
+      "package": "dsh-api-workspace-controller",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 30
+    },
+    {
+      "package": "dsh-api-workspace-files",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 26
+    },
+    {
+      "package": "dsh-app-boot",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 26
+    },
+    {
+      "package": "dsh-atomic-write",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-attachment",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 17
+    },
+    {
+      "package": "dsh-attachment-local",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 14
+    },
+    {
+      "package": "dsh-authorization",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 12
+    },
+    {
+      "package": "dsh-base",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-bash-local",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-bash-sandbox",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-brand",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-chunked-list",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-client-connection",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 22
+    },
+    {
+      "package": "dsh-client-file-upload",
+      "changed": 2,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 23
+    },
+    {
+      "package": "dsh-client-hmr",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-client-locale",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 16
+    },
+    {
+      "package": "dsh-client-modules",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 14
+    },
+    {
+      "package": "dsh-client-product-analytics",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-client-resources",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 10
+    },
+    {
+      "package": "dsh-client-shortcuts",
+      "changed": 6,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 15
+    },
+    {
+      "package": "dsh-client-store",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-client-ui-agent-preset",
+      "changed": 7,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-client-ui-approval",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-client-ui-attachment",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 16
+    },
+    {
+      "package": "dsh-client-ui-brand-official",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-client-ui-chat",
+      "changed": 9,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 90
+    },
+    {
+      "package": "dsh-client-ui-commands",
+      "changed": 8,
+      "added_rc2": 1,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-client-ui-conversation",
+      "changed": 3,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 74
+    },
+    {
+      "package": "dsh-client-ui-cordis",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 21
+    },
+    {
+      "package": "dsh-client-ui-deliverables",
+      "changed": 5,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 22
+    },
+    {
+      "package": "dsh-client-ui-directory-picker-browse",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 10
+    },
+    {
+      "package": "dsh-client-ui-directory-picker-native",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-client-ui-goal",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 14
+    },
+    {
+      "package": "dsh-client-ui-input-trigger",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 18
+    },
+    {
+      "package": "dsh-client-ui-jobs",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 10
+    },
+    {
+      "package": "dsh-client-ui-layout",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 15
+    },
+    {
+      "package": "dsh-client-ui-message-feedback",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 15
+    },
+    {
+      "package": "dsh-client-ui-model-selection",
+      "changed": 6,
+      "added_rc2": 1,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-client-ui-open-in-app",
+      "changed": 7,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-client-ui-permission-presets",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 14
+    },
+    {
+      "package": "dsh-client-ui-plan",
+      "changed": 6,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-client-ui-plugin-manager",
+      "changed": 8,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 15
+    },
+    {
+      "package": "dsh-client-ui-primitives",
+      "changed": 9,
+      "added_rc2": 2,
+      "removed_rc1": 0,
+      "unchanged": 119
+    },
+    {
+      "package": "dsh-client-ui-reference",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-client-ui-renderer",
+      "changed": 2,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 15
+    },
+    {
+      "package": "dsh-client-ui-schedule",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 44
+    },
+    {
+      "package": "dsh-client-ui-session",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-client-ui-settings",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 15
+    },
+    {
+      "package": "dsh-client-ui-settings-account",
+      "changed": 7,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 38
+    },
+    {
+      "package": "dsh-client-ui-settings-agent-loop",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-client-ui-settings-general",
+      "changed": 5,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 17
+    },
+    {
+      "package": "dsh-client-ui-settings-models",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 29
+    },
+    {
+      "package": "dsh-client-ui-settings-plugin-inventory",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 10
+    },
+    {
+      "package": "dsh-client-ui-settings-plugins",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 10
+    },
+    {
+      "package": "dsh-client-ui-settings-session-log",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-client-ui-settings-shell",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-client-ui-settings-subagent",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 15
+    },
+    {
+      "package": "dsh-client-ui-settings-web-search",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-client-ui-shortcuts",
+      "changed": 5,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-client-ui-sidebar",
+      "changed": 5,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 8
+    },
+    {
+      "package": "dsh-client-ui-sidebar-browser",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 28
+    },
+    {
+      "package": "dsh-client-ui-sidebar-documentpreview",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 84
+    },
+    {
+      "package": "dsh-client-ui-sidebar-files",
+      "changed": 7,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-client-ui-sidebar-right",
+      "changed": 8,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 24
+    },
+    {
+      "package": "dsh-client-ui-sidebar-terminal",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 20
+    },
+    {
+      "package": "dsh-client-ui-skill",
+      "changed": 5,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-client-ui-slots",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 8
+    },
+    {
+      "package": "dsh-client-ui-subagent",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 12
+    },
+    {
+      "package": "dsh-client-ui-theme",
+      "changed": 7,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 14
+    },
+    {
+      "package": "dsh-client-ui-tool",
+      "changed": 9,
+      "added_rc2": 1,
+      "removed_rc1": 0,
+      "unchanged": 38
+    },
+    {
+      "package": "dsh-client-ui-trajectory",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 36
+    },
+    {
+      "package": "dsh-client-ui-user-questions",
+      "changed": 9,
+      "added_rc2": 2,
+      "removed_rc1": 0,
+      "unchanged": 5
+    },
+    {
+      "package": "dsh-client-ui-workflow-run",
+      "changed": 5,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-client-ui-workspace",
+      "changed": 6,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 20
+    },
+    {
+      "package": "dsh-cmdline",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-command-compact",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-command-feedback",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-command-goal",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-commands",
+      "changed": 2,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 17
+    },
+    {
+      "package": "dsh-compaction",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 18
+    },
+    {
+      "package": "dsh-compaction-basic",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 10
+    },
+    {
+      "package": "dsh-compaction-image-offload",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-compaction-tool-result-pruner",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 8
+    },
+    {
+      "package": "dsh-config-editor",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-cordis-client-runner",
+      "changed": 2,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 16
+    },
+    {
+      "package": "dsh-cordis-host-runner",
+      "changed": 12,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 12
+    },
+    {
+      "package": "dsh-credentials",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 12
+    },
+    {
+      "package": "dsh-credentials-local",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-deepseek-account",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-deepseek-account-platform",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 15
+    },
+    {
+      "package": "dsh-deepseek-llm-api-extensions",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-deque",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-experimental-agent-team",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 42
+    },
+    {
+      "package": "dsh-experimental-agent-team-profile",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 10
+    },
+    {
+      "package": "dsh-experimental-api-speech-to-text",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-experimental-auto-review",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 10
+    },
+    {
+      "package": "dsh-experimental-client-ui-agent-team",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-experimental-client-ui-voice-input",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 17
+    },
+    {
+      "package": "dsh-experimental-schedule-bundle",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 10
+    },
+    {
+      "package": "dsh-experimental-speech-to-text",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-experimental-speech-to-text-sensevoice",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 17
+    },
+    {
+      "package": "dsh-experimental-tool-agent-team",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 8
+    },
+    {
+      "package": "dsh-experimental-voice-input-bundle",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 10
+    },
+    {
+      "package": "dsh-file-reference",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-file-reference-local",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-fs",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-fs-local",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 8
+    },
+    {
+      "package": "dsh-fs-observation-policy",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-fs-sandbox",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-goal",
+      "changed": 2,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 23
+    },
+    {
+      "package": "dsh-goal-round-driver",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-headless",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-hmr",
+      "changed": 4,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 5
+    },
+    {
+      "package": "dsh-home-paths",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-hook-protocol",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 15
+    },
+    {
+      "package": "dsh-hooks-claude-code",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-hooks-codex",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-host-directory-picker",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-host-directory-picker-auto",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 8
+    },
+    {
+      "package": "dsh-host-directory-picker-browse",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-host-directory-picker-native",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-host-frontend-static",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-host-open-in-app",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 17
+    },
+    {
+      "package": "dsh-host-plugin-inventory",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-host-product-telemetry-otel",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-host-webserver",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-http-proxy",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 8
+    },
+    {
+      "package": "dsh-invariants",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-jobs",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 18
+    },
+    {
+      "package": "dsh-jobs-local",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-launch-environment",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-lazy-require",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-llm",
+      "changed": 2,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 37
+    },
+    {
+      "package": "dsh-llm-deepseek",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 29
+    },
+    {
+      "package": "dsh-llm-deepseek-account",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-llm-deepseek-api-key",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-llm-pi-ai",
+      "changed": 7,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-llm-retry",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 16
+    },
+    {
+      "package": "dsh-mcp-client",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 10
+    },
+    {
+      "package": "dsh-mcp-resources",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 8
+    },
+    {
+      "package": "dsh-message-feedback",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-native-command",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 21
+    },
+    {
+      "package": "dsh-office-to-pdf",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 21
+    },
+    {
+      "package": "dsh-otel",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 10
+    },
+    {
+      "package": "dsh-output-retention",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-package-manifest",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-permission-presets",
+      "changed": 2,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 17
+    },
+    {
+      "package": "dsh-persona",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-plan-mode",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 14
+    },
+    {
+      "package": "dsh-plugin-manager",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 33
+    },
+    {
+      "package": "dsh-plugin-package-inventory-deepseek",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-ptc-runtime",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-ptc-runtime-node",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 19
+    },
+    {
+      "package": "dsh-pwsh-local",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-pwsh-sandbox",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-repeat-tool-reminder",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-sandbox",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-sandbox-local",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-sandbox-policy",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-sandbox-windows-acl",
+      "changed": 6,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 15
+    },
+    {
+      "package": "dsh-schedule",
+      "changed": 7,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 26
+    },
+    {
+      "package": "dsh-scope",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 10
+    },
+    {
+      "package": "dsh-sdk-app",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-sdk-jsonrpc-server",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-sdk-minimal",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-sdk-protocol",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 8
+    },
+    {
+      "package": "dsh-session",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 28
+    },
+    {
+      "package": "dsh-session-checkpoint-policy",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-session-format",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-session-format-catalog",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 17
+    },
+    {
+      "package": "dsh-session-format-v0-to-v1",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 15
+    },
+    {
+      "package": "dsh-session-format-v1-to-v2",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-session-format-v2-to-v3",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-session-format-v3-to-v4",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 22
+    },
+    {
+      "package": "dsh-session-log-deepseek",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 12
+    },
+    {
+      "package": "dsh-session-log-export",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 14
+    },
+    {
+      "package": "dsh-session-persistence",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 10
+    },
+    {
+      "package": "dsh-session-persistence-jsonl",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 19
+    },
+    {
+      "package": "dsh-session-projection",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-session-projection-cache",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-session-query",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 17
+    },
+    {
+      "package": "dsh-session-query-sqlite",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 8
+    },
+    {
+      "package": "dsh-session-reference",
+      "changed": 2,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 22
+    },
+    {
+      "package": "dsh-session-stats",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-session-telemetry",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-session-telemetry-otel",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-session-title",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 16
+    },
+    {
+      "package": "dsh-session-title-first-prompt-llm",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-session-title-llm",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-session-turn-outline",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-settings",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-shell",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 8
+    },
+    {
+      "package": "dsh-shell-env",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-skill",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-skill-badge",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 8
+    },
+    {
+      "package": "dsh-skill-filesystem",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 18
+    },
+    {
+      "package": "dsh-skill-office",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 10
+    },
+    {
+      "package": "dsh-spill",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-spill-local",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 8
+    },
+    {
+      "package": "dsh-spill-policy",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-storage",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-storage-domain",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 12
+    },
+    {
+      "package": "dsh-storage-json",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 10
+    },
+    {
+      "package": "dsh-subagent",
+      "changed": 2,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 57
+    },
+    {
+      "package": "dsh-subagent-fork-in-process",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-subagent-in-process-driver",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-subagent-spawn-in-process",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-subprocess",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-subprocess-local",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 25
+    },
+    {
+      "package": "dsh-system-prompt",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 8
+    },
+    {
+      "package": "dsh-terminal",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-terminal-bash",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-time-context",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 12
+    },
+    {
+      "package": "dsh-timeout",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-tmux-context",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-token-meter",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 27
+    },
+    {
+      "package": "dsh-tool-ask-user",
+      "changed": 6,
+      "added_rc2": 1,
+      "removed_rc1": 0,
+      "unchanged": 1
+    },
+    {
+      "package": "dsh-tool-bash",
+      "changed": 5,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 4
+    },
+    {
+      "package": "dsh-tool-bash-persistent",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-tool-call-timeout-policy",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-tool-cordis",
+      "changed": 7,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-tool-fs",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 16
+    },
+    {
+      "package": "dsh-tool-fs-search",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 11
+    },
+    {
+      "package": "dsh-tool-goal",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 8
+    },
+    {
+      "package": "dsh-tool-jobs",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-tool-present",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-tool-pwsh",
+      "changed": 5,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 4
+    },
+    {
+      "package": "dsh-tool-pwsh-persistent",
+      "changed": 5,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 2
+    },
+    {
+      "package": "dsh-tool-ralph",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-tool-skill",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-tool-str-replace-editor",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-tool-subagent",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-tool-subagent-control",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-tool-todo",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 14
+    },
+    {
+      "package": "dsh-tool-web",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-tool-workflow",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 14
+    },
+    {
+      "package": "dsh-tool-workspace-dependencies",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-tools",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 26
+    },
+    {
+      "package": "dsh-typert-loader",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-typert-protocol",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 15
+    },
+    {
+      "package": "dsh-typert-registry",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 14
+    },
+    {
+      "package": "dsh-user-approval",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 12
+    },
+    {
+      "package": "dsh-user-questions",
+      "changed": 8,
+      "added_rc2": 8,
+      "removed_rc1": 0,
+      "unchanged": 2
+    },
+    {
+      "package": "dsh-util-code-language",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-util-crypto",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-util-time",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-util-values",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 6
+    },
+    {
+      "package": "dsh-util-workspace-path",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-web",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 7
+    },
+    {
+      "package": "dsh-web-app",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-web-fetch-http",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 9
+    },
+    {
+      "package": "dsh-web-frontend",
+      "changed": 2,
+      "added_rc2": 2,
+      "removed_rc1": 2,
+      "unchanged": 128
+    },
+    {
+      "package": "dsh-web-search-deepseek",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 8
+    },
+    {
+      "package": "dsh-webhook",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 16
+    },
+    {
+      "package": "dsh-webhook-github",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 13
+    },
+    {
+      "package": "dsh-win32-process",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 12
+    },
+    {
+      "package": "dsh-workflow",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 14
+    },
+    {
+      "package": "dsh-workflow-ptc",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 14
+    },
+    {
+      "package": "dsh-workspace",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 18
+    },
+    {
+      "package": "dsh-workspace-changes",
+      "changed": 1,
+      "added_rc2": 0,
+      "removed_rc1": 0,
+      "unchanged": 21
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 "use strict";
 
-const { TARGET_VERSION, LEGACY_VERSION } = require('./runtime/compatibility');
-const EXACT_ADAPTER_VERSIONS = Object.freeze([LEGACY_VERSION, TARGET_VERSION]);
+const { LEGACY_VERSION, SUPPORTED_VERSIONS, runtimeDescriptor } = require('./runtime/compatibility');
+const EXACT_ADAPTER_VERSIONS = Object.freeze([...SUPPORTED_VERSIONS]);
 
 /**
  * DSH version compatibility flags (plan §4 single source of truth).
@@ -202,7 +202,8 @@ function deriveRuntimeIssues(dshVersion) {
  * @returns {{known: boolean, line: string, openPathService: string, sessionRoutes: string}}
  */
 function deriveRuntimeAdapter(dshVersion) {
-  if (!EXACT_ADAPTER_VERSIONS.includes(dshVersion)) {
+  const descriptor = runtimeDescriptor(dshVersion);
+  if (!descriptor) {
     return {
       known: false,
       line: "negotiate",
@@ -210,10 +211,10 @@ function deriveRuntimeAdapter(dshVersion) {
       sessionRoutes: "negotiate",
     };
   }
-  if (dshVersion === TARGET_VERSION) {
+  if (descriptor.line === "target") {
     return {
       known: true,
-      line: "dsh-0.2.0-rc.1",
+      line: descriptor.adapterId,
       openPathService: "sessionController",
       sessionRoutes: "vscode-facade-v1",
     };

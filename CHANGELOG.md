@@ -5,6 +5,25 @@ All notable changes to this project are documented here, following [Keep a Chang
 
 ## [Unreleased]
 
+## [1.2.1] - Candidate / 候选，未发布
+
+### Added / 新增
+
+- 精确适配 DSH `0.2.0-rc.2`（extension `1.2.1`，捆绑集成包 `0.11.0`）：版本描述表统一派生 adapterId、profile 后缀（`-dsh020rc2`）与启动路径；host adapter 共享工厂 + rc.1/rc.2 薄包装，capabilities 与浏览器 hello-ack 返回真实选定身份，rc.2 不冒充 rc.1。未知版本仍拒绝；rc.1 与 legacy 精确分支及回归全部保留。
+  Add the exact `0.2.0-rc.2` adapter (descriptor-table-driven identity, real rc.2 handshake identity, shared adapter factory with per-version wrappers) while keeping rc.1/legacy regressions.
+- 接口差异证据：rc.1 与 rc.2 官方包树逐文件对比（227/288 包仅版本号差异；扩展消费的全部边界代码不变，rc.2 新增 user-questions/Desktop 载体等非边界能力）。见 `evidence/dsh020rc2/`。
+- 真实 rc.2 运行时验证：contract probe（含本地确定性 provider 的流式/主动取消/read-write-edit 工具与 confirmed 观察）、CH1/Changes probe（before 原文、重放去重、Accept/Undo 真实文件效果）、10 次启停与借用隔离 lifecycle probe。
+- 协议 v1 以枚举方式扩展合法 adapterId（runtime-v1 与 session-bridge-v1 同步）；旧 1.2.0 集成与 rc.2 运行时混用会明确失败。
+
+### Fixed / 修复
+
+- 两个 extension 测试补上进程扫描注入（真实 PowerShell 扫描在慢机器上超过测试预算导致状态页用例偶发超时）。
+- probe 脚本在全局安装布局下从嵌套 node_modules 解析 dsh-llm；`--target` 参数显式声明探测的精确版本。
+
+### Validation status / 验证状态
+
+- rc.2 核心链路（运行时/facade/会话/工具/生命周期）真实通过；安装态 VSIX、浏览器 UI（IME/搜索/多窗口）与升级复现验收仍未完成，沿用 [HANDOFF-1.2.0-VALIDATION.md](HANDOFF-1.2.0-VALIDATION.md) 的阻塞项跟踪。rc.2 侧栏不渲染 user-questions 新功能 UI（已知限制）。
+
 ## [1.2.0] - Candidate / 候选，未发布
 
 ### Added / 新增
