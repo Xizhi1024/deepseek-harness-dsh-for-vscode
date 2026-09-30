@@ -51,7 +51,7 @@ function readVsix(file) {
   return { entries, sha256: sha256(bytes) };
 }
 
-function candidateManifest(vsixPath, extensionVersion = '1.2.0', integrationVersion = '0.10.0') {
+function candidateManifest(vsixPath, extensionVersion = '1.2.1', integrationVersion = '0.11.0') {
   const archive = readVsix(vsixPath);
   const manifest = JSON.parse(archive.entries.get('extension/package.json'));
   const integration = JSON.parse(archive.entries.get('extension/runtime-integration/dsh-vscode-integration/package.json'));

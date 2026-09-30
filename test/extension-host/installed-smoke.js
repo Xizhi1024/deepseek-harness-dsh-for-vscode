@@ -35,7 +35,7 @@ async function main(profileFile = process.argv[2] || process.env.DSH_INSTALLED_A
   for (const key of ['isolationRoot', 'vsixPath', 'vscodeExecutablePath']) assert.ok(path.isAbsolute(profile[key]), `${key} must be absolute`);
   const code = codePaths(profile.vscodeExecutablePath);
   assert.equal(code.version, profile.expectedVSCodeVersion, 'VS Code executable version mismatch');
-  const expected = candidateManifest(profile.vsixPath, profile.expectedExtensionVersion || '1.2.0', profile.expectedIntegrationVersion || '0.10.0');
+  const expected = candidateManifest(profile.vsixPath, profile.expectedExtensionVersion || '1.2.1', profile.expectedIntegrationVersion || '0.11.0');
   if (profile.expectedVsixSha256) assert.equal(expected.vsixSha256, profile.expectedVsixSha256, 'Candidate VSIX changed');
   fs.mkdirSync(profile.isolationRoot, { recursive: true });
   const runRoot = fs.mkdtempSync(path.join(profile.isolationRoot, `installed-${code.version}-`));
