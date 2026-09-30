@@ -42,6 +42,9 @@ thinking-effort-loaded.json
 KNOWN_ISSUES.md
 planning/**
 **/planning/**
+# Verification evidence is repo audit material, never package payload
+evidence/**
+**/evidence/**
 docs/**
 **/*_IMPL_NOTES.md
 **/*_QA_FINDINGS.md
