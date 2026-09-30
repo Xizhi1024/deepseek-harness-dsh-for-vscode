@@ -1,85 +1,71 @@
-# DeepSeek Harness(dsh) for VS Code
+# DeepSeek Harness (DSH) for VS Code
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-**A Cursor-like AI coding experience inside VS Code — powered by your own DeepSeek Harness (DSH) agent.**
+Embed the DSH web UI in the VS Code auxiliary sidebar, attach editor context, review recorded changes, and use your local DSH session through `@dsh`.
 
-Embeds the full DSH web UI in the VS Code auxiliary sidebar: every window automatically starts and owns a local `dsh web` service (cwd = current workspace), so your modules, skills, MCP servers, credentials and sessions all just work. On top of that it adds the IDE integration layer:
+## 1.2.0 candidate status
 
-- **Chat in the sidebar**: `Ctrl+Alt+B` opens it; copy/paste/context menu, file jumps and theme following are all native
-- **Context attachment**: right-click a file / selection / folder / Problems to append a compact link to the DSH draft — source text is never pasted, nothing is ever auto-sent
-- **DSH Changes review**: workspace edits pushed by DSH land in a dedicated tree with diff / accept / undo; every write needs explicit approval (on by default)
-- **@dsh chat participant**: type `@dsh` in the native VS Code chat to talk to your local DSH session with streaming replies — zero Copilot quota (on by default)
-- **Advanced, opt-in**: Ctrl+K / Ctrl+I inline edit, model routing into the VS Code LM picker, MCP consumption, terminal / UI bridges, FIM tab completion — every capability behind an explicit consent switch (FIM tab completion is a POC and was **not end-to-end verified** in this release, see the table note)
+This is a **1.2.0 candidate**, bundled with integration **0.10.0**. Release validation is incomplete; this candidate has not been published as a 1.2.0 Marketplace release. Installed-VSIX validation is in progress. Final evidence and remaining acceptance items belong in [HANDOFF-1.2.0-VALIDATION.md](HANDOFF-1.2.0-VALIDATION.md).
 
-## ⚠️ Compatibility
+Passed against the real DSH runtime and browser UI: 60 search cycles across three viewport widths, IME input, prompt/stream/cancel and read/write/edit tool paths, a 601-second steady-state run with reconnects, and ten start/stop cycles. Runtime prompt/tool probes use a deterministic local provider; these checks do not certify every remote provider or optional feature.
+
+The candidate preserves the 1.1.8 watcher and focus fixes, and adds authenticated runtime ports, shared bounded session feeds, confirmed edit attribution, and a browser bridge that separates session navigation from iframe rendering.
+
+## Compatibility
 
 | Item | Requirement |
 |---|---|
-| VS Code | ≥ 1.106, desktop only; remote / virtual / untrusted workspaces not supported |
-| DSH CLI | `npm i -g @deepseek-ai/dsh`, ≥ 0.1.0-rc.7 recommended (older runtimes auto-retry degraded, some features limited) |
-| Node.js | auto-detected; set `dsh.local.nodePath` for non-standard locations |
-| Windows + WSL | when the workspace lives in WSL, set the default terminal profile to a **Windows** shell (PowerShell/cmd) — a WSL default profile makes extension-host terminals and the terminal bridge unreliable; Diagnose warns when it detects a WSL default terminal |
+| VS Code | ≥ 1.106, desktop; remote, virtual and untrusted workspaces are unsupported |
+| Target DSH | Exactly `0.2.0-rc.1`; install with `npm i -g @deepseek-ai/dsh@0.2.0-rc.1` |
+| Legacy DSH | Exactly `0.1.2-rc.1`, through the separate legacy adapter |
+| Node.js for the target child | `^22.19.0 \|\| >=24.0.0`; checks the selected executable, independently of VS Code's Node; override with `dsh.local.nodePath` |
+| Integration | `dsh-vscode-integration@0.10.0`, bundled with this candidate |
 
-The extension reads the installed official DSH package version before launch. Versions before `0.1.2-rc.1` are expected to expose the legacy `apiProxy` host and native session REST routes; `0.1.2-rc.1+` is expected to expose `sessionController`, so the bundled integration restores the removed REST surface. The version selects the diagnostic expectation only: live capability negotiation claims whichever service actually exists, keeping forks and prereleases fail-open instead of blocking plugin activation.
+Other DSH versions are unverified and cannot use the managed integration. An external instance without a verified integration handshake is browser-only: session commands and mutations are unavailable, and the extension does not stop that process.
 
-Authenticated runtimes (`0.1.2-rc.1+`) protect the browser surface with a `SameSite=Strict` cookie that a normal browser tab can hold but a webview iframe cannot (third-party context). Since 1.1.6 the extension automatically embeds such children through a loopback forwarder owned by the extension host (HTTP, SSE and the Typert WebSocket all relayed host-side) — no configuration is needed, and the sidebar works the same on old and new runtimes.
+The target host uses the extension-owned authenticated `/api/vscode/v1` facade. Legacy REST routes belong to the legacy adapter. Authenticated owned children are embedded through a host-side loopback proxy that carries their startup cookie.
 
-## 🧪 Release status (1.1.7)
+## Usage and current limits
 
-**This update**: recording DSH changes never steals sidebar focus anymore (multi-window setups stopped auto-opening every sidebar at once), and a freshly scaffolded profile inherits the `web` profile's module config (dependencies, bundles, patch-layer disables). Full notes in CHANGELOG.md.
-
-**Verified this release**: sidebar embedding against a real `0.1.2-rc.1` child end to end (index, session create/list, SSE event stream, WebSocket remote channel and workspace list, all through the embed forwarder in a third-party-iframe context); per-window port behavior; full unit suite (776 tests).
-
-**Not verified / known gaps**:
-
-- A full conversation round-trip against a live model provider from a **dev-isolated DSH home** (`.vscode-test/f5/`): UI, workspace tree and model catalog were verified, but prompts require the provider key to be stored in that home (web Models page) or exported — the key vault is per-home.
-- **Add to DSH Thread** timed out once during live F5 testing; the entire message chain (extension → shell → iframe client → reply) was verified correct in a faithful third-party-iframe repro and the timeout did not reproduce. If it recurs, please open an [issue](https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/issues) with the exact sequence.
-- FIM tab completion remains a POC and was not end-to-end verified (unchanged, see the table note).
-
-**Roadmap**: the next major release restructures runtime boundary management — home/profile selection, runtime version negotiation, child ownership, port/instance discovery, startup URL/token, health checks and installed/dev coordination will derive from one runtime identity across prepare → spawn → authenticated readiness → teardown. Expect internal breaking changes with compatible user behavior.
-
-## 📦 Install
-
-- **Marketplace (recommended)**: search **DeepSeek Harness** (publisher Xizhi1024) in the Extensions view, or `code --install-extension Xizhi1024.dsh-vs-sidebar`
-- **VSIX**: download from [Releases](https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/releases) → `Extensions: Install from VSIX...`
-
-## 🚀 Usage
-
-1. Press `Ctrl+Alt+B` — the extension starts (or reuses) the local `dsh web` and loads the UI
-2. Select code → right-click **Add to DSH Thread**; the draft receives a compact `file:line` link, press Enter to send (Ctrl+Enter / Cmd+Enter inserts a line break)
-3. Type `@dsh` + your question in the VS Code chat — replies stream from your local DSH session
-4. Let DSH propose an edit through the bridge: it lands in the **DSH Changes** view for diff / accept / undo — nothing is written without approval
+1. Press `Ctrl+Alt+B` to connect the sidebar.
+2. **Add to DSH Thread** appends compact file/selection/folder/Problems links to the **main Conversation** draft without sending. Close DSH's internal right sidebar first: insertion explicitly refuses while it is expanded. Multi-composer acceptance A07 remains **partial**.
+3. Use `@dsh` in VS Code Chat. The target adapter shows generation progress and appends only committed assistant text, because VS Code cannot retract abandoned streamed text. The embedded DSH UI retains native streaming.
+4. Review DSH Changes with diff/accept/undo. Confirmed native tool edits are recorded after execution; this view is not a pre-execution approval gate for every DSH tool.
 
 ![Add selected VS Code ranges to a DSH conversation as compact links](media/add-to-dsh-thread-example-en.png)
 
-Common commands (palette, `DSH:` prefix): New / Switch Session · Open Session History · Restart / Stop Server · Open in Browser · New DSH Instance · Diagnose · Restart Cleanly · Set DSH FIM API Key.
+Non-text file/image prompt upload, FIM tab completion and the full optional-feature matrix are **not certified**. Draft link attachment is separate from uploading non-text prompt parts. Ctrl+K/Ctrl+I, LM routing, MCP consumption and terminal/UI bridges remain optional; enabling a setting does not certify target-runtime compatibility.
 
-## ⚙️ Configuration
+## Installation
+
+Existing published builds are available from the [Marketplace](https://marketplace.visualstudio.com/items?itemName=Xizhi1024.dsh-vs-sidebar) and [Releases](https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/releases). These links do not imply that the 1.2.0 candidate is published. Candidate testing uses a separately built VSIX and isolated VS Code user-data/extensions directories; this development work does not replace a daily installation.
+
+## Configuration
 
 | Key | Default | Description |
 |---|---|---|
-| `dsh.port` | 3080 | Port for the DSH web server |
-| `dsh.autoStart` | true | Start the service when VS Code opens |
-| `dsh.home.mode` | shared | shared = official ~/.dsh; isolated = extension-private home |
-| `dsh.profile` | vscode | Extension-owned profile, separate from a terminal `dsh web` (see note below) |
-| `dsh.executablePath` | (empty) | Explicit DSH executable / package dir / shim; takes precedence over discovery |
-| `dsh.closePolicy` | onVscodeExit | When to stop the owned server |
-| `dsh.features.changes-review` | true | DSH changes review (approval-gated writes) |
-| `dsh.features.chat-participant` | true | @dsh chat participant |
-| `dsh.features.ctrl-k` / `ctrl-i` | false | Inline edit commands (Ctrl+K / Ctrl+I) |
-| `dsh.features.lm-route` | false | Expose DSH models in the VS Code LM picker |
-| `dsh.features.mcp-consume` | false | Let DSH consume VS Code-side MCP servers |
-| `dsh.features.tab-completion` | false | FIM tab completion — needs `dsh.fim.baseUrl` + **DSH: Set FIM API Key**, then restart the DSH server. ⚠️ POC status: not end-to-end verified in this release (1.1.2) — the completion chain was never exercised against a real upstream; if it does not work once configured, please open an [issue](https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/issues) |
-| `dsh.fim.baseUrl` | (empty) | Upstream FIM endpoint (full URL of an OpenAI-compatible completions API) |
-| `dsh.keybindings.ctrlL` | false | Ctrl+L adds the selection to the thread |
-| `dsh.bridge.terminal` / `editorRead` / `ui` | false | Terminal / editor-read / UI surface bridges (consent switches) |
+| `dsh.port` | 3080 | Configured DSH web port |
+| `dsh.autoStart` | true | Start an owned service when VS Code opens |
+| `dsh.home.mode` | shared | `shared`: official `~/.dsh`; `isolated`: extension-private home |
+| `dsh.profile` | vscode | Base profile; the target adds `-dsh020rc1` |
+| `dsh.runtime.version` | empty | Optional exact version selection |
+| `dsh.executablePath` | empty | Explicit executable, package directory or shim |
+| `dsh.closePolicy` | onVscodeExit | Owned-service lifecycle policy |
+| `dsh.features.changes-review` | true | Changes review tree |
+| `dsh.features.chat-participant` | true | `@dsh` participant |
+| `dsh.features.ctrl-k` / `ctrl-i` | false | Optional inline edit commands |
+| `dsh.features.lm-route` / `mcp-consume` | false | Optional LM/MCP integration |
+| `dsh.features.tab-completion` | false | Uncertified FIM proof of concept |
+| `dsh.fim.baseUrl` | empty | Upstream FIM endpoint; key via **DSH: Set FIM API Key** |
+| `dsh.keybindings.ctrlL` | false | Attach selection with Ctrl+L |
+| `dsh.bridge.terminal` / `editorRead` / `ui` | false | Optional bridge consent switches |
 
-Full key list in `package.json`; run **DSH: Diagnose** for a health summary.
+See `package.json` for all settings and **DSH: Diagnose** for runtime details.
 
-### Dedicated profile
+### Profile and data scope
 
-The extension launches its DSH child on its own profile (`vscode` by default), fully separate from the `web` profile a terminal `dsh web` uses — separate plugin tree, separate cordis patch layer, separate server instance. When the profile directory does not exist yet, the extension scaffolds it once (manifest with the web app bundles, empty patch layer, pnpm settings). Clean-restart (**Restart-Clean**) only restarts the extension's own child and never touches a terminal `dsh web`. To share one profile again, set `"dsh.profile": "web"` and reload the window.
+For DSH `0.2.0-rc.1`, default profile `vscode` becomes `vscode-dsh020rc1`, separating plugin and patch configuration from legacy. **Profiles do not isolate home-level sessions or credentials**: processes using the same home still share those data. Use an isolated home for independent data. First-time scaffolding can inherit donor module configuration. Restart/stop affects only the extension-owned child.
 
 ## License
 

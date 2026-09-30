@@ -2,7 +2,19 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
 const { assertValidProfileName } = require('./managedRuntimeLaunch');
+const { TARGET_VERSION } = require('./runtime/compatibility');
+
+/** A target plugin copy must never overwrite a live legacy profile's copy. */
+function deriveRuntimeProfileName(configuredProfile, runtimeVersion) {
+  assertValidProfileName(configuredProfile);
+  if (runtimeVersion !== TARGET_VERSION) return configuredProfile;
+  const suffix = '-dsh020rc1';
+  if (configuredProfile.length + suffix.length <= 64) return `${configuredProfile}${suffix}`;
+  const hash = createHash('sha256').update(configuredProfile).digest('hex').slice(0, 8);
+  return `${configuredProfile.slice(0, 64 - suffix.length - hash.length - 1)}-${hash}${suffix}`;
+}
 
 // Profile names the DSH runtime initializes itself on first use
 // (PROFILE_TEMPLATES in dsh-app-boot: acp/web/headless/sdk). Scaffolding
@@ -169,6 +181,7 @@ function ensureProfileScaffold({ dshHome, profileName, donorProfileName = DEFAUL
 }
 
 module.exports = {
+  deriveRuntimeProfileName,
   ensureProfileScaffold,
   RUNTIME_TEMPLATE_PROFILES,
   SCAFFOLD_BUNDLES,

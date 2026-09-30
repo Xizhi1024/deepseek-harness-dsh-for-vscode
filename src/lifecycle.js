@@ -8,6 +8,7 @@ class LifecycleQueue {
     this._chain = Promise.resolve();
     this._onError = onError;
     this._pending = new Map();
+    this._latest = new Map();
   }
 
   /** @returns {boolean} true after shutdown begins. */
@@ -37,6 +38,25 @@ class LifecycleQueue {
     const pending = this.enqueue(key, operation).finally(() => this._pending.delete(key));
     this._pending.set(key, pending);
     return pending;
+  }
+
+  /** Coalesce event bursts, keeping at most one queued successor to running work. */
+  enqueueLatest(key, operation) {
+    if (!this._accepting) return Promise.resolve(undefined);
+    const queued = this._latest.get(key);
+    if (queued) {
+      queued.operation = operation;
+      return queued.promise;
+    }
+    const job = { operation, promise: null };
+    job.promise = this.enqueue(key, () => {
+      this._latest.delete(key);
+      return job.operation();
+    }).finally(() => {
+      if (this._latest.get(key) === job) this._latest.delete(key);
+    });
+    this._latest.set(key, job);
+    return job.promise;
   }
 
   /** Prevent queued-but-not-started and future operations from running. */

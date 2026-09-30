@@ -107,6 +107,8 @@ function createCtrlIEditCommand({
   ensureConnected,
   loc = defaultLoc,
   focusedComposerWebview = null,
+  useSessionBridge = () => false,
+  insertTargetAttachment = null,
 }) {
   if (!vscode || !vscode.window || typeof vscode.window.createQuickPick !== 'function') {
     throw new TypeError('createCtrlIEditCommand requires vscode.window.createQuickPick');
@@ -148,19 +150,26 @@ function createCtrlIEditCommand({
    * @returns {Promise<object[]|null>} Picked QuickPick items, or null when
    *   cancelled, hidden, or timed out.
    */
-  function pickWorkspaceFiles() {
+  function pickWorkspaceFiles(signal) {
     return new Promise((resolve, reject) => {
       let settled = false;
       let picker = null;
       let timer = null;
+      const onAbort = () => finish(null, Object.assign(new Error('Attachment cancelled'), { code: 'CANCELLED' }));
       const finish = (result, error) => {
         if (settled) return;
         settled = true;
         if (timer) clearTimeout(timer);
+        if (signal) signal.removeEventListener('abort', onAbort);
         if (picker && typeof picker.dispose === 'function') picker.dispose();
         if (error) reject(error);
         else resolve(result);
       };
+
+      if (signal) {
+        if (signal.aborted) { onAbort(); return; }
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
 
       Promise.resolve(vscode.workspace.findFiles('**/*', '**/node_modules/**', CTRLI_MAX_FILES)).then(
         (uris) => {
@@ -188,6 +197,24 @@ function createCtrlIEditCommand({
 
   return async function ctrlIEditCommand() {
     try {
+      if (useSessionBridge()) {
+        if (typeof insertTargetAttachment !== 'function') throw new Error('Browser attachment bridge is unavailable');
+        await insertTargetAttachment(async (signal) => {
+          const picked = await pickWorkspaceFiles(signal);
+          if (!picked || picked.length === 0 || signal.aborted) throw Object.assign(new Error('Attachment cancelled'), { code: 'CANCELLED' });
+          if (picked.length > CTRLI_MAX_PICKED_FILES) {
+            await vscode.window.showWarningMessage(loc('DSH: editing context supports up to {max} files', { max: String(CTRLI_MAX_PICKED_FILES) }));
+            throw Object.assign(new Error('Attachment cancelled'), { code: 'CANCELLED' });
+          }
+          const uris = picked.map((item) => item.uri);
+          const attachments = await editorContext.attachFiles(uris);
+          if (signal.aborted) throw Object.assign(new Error('Attachment cancelled'), { code: 'CANCELLED' });
+          const blocks = attachments.map((attachment, index) => formatFileAttachment(attachment, uris[index]));
+          return [loc('DSH: editing context ({count} files)', { count: String(attachments.length) }), ...blocks].join('\n');
+        });
+        await vscode.window.showInformationMessage(loc('DSH: editing context sent to the DSH conversation'));
+        return;
+      }
       const picked = await pickWorkspaceFiles();
       // Cancelled (Esc/hide) or timed out: fail closed, never send a draft and
       // never spam a message.
@@ -228,6 +255,7 @@ function createCtrlIEditCommand({
       await coordinator.request(targetWebview, text);
       await vscode.window.showInformationMessage(loc('DSH: editing context sent to the DSH conversation'));
     } catch (err) {
+      if (err && err.code === 'CANCELLED') return;
       await vscode.window.showErrorMessage(loc('DSH: editing context failed: {message}', {
         message: err && err.message ? err.message : String(err),
       }));

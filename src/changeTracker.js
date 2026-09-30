@@ -548,15 +548,33 @@ function createChangeTracker({
     const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : '';
     const size = Number.isFinite(payload.size) ? payload.size : 0;
     const truncated = Boolean(payload.truncated);
+    const observationId = typeof payload.observationId === 'string' && payload.observationId.length > 0
+      && payload.observationId.length <= 512 ? payload.observationId : null;
+    const sourceDurableSeq = typeof payload.sourceDurableSeq === 'string' && /^(0|[1-9][0-9]*)$/.test(payload.sourceDurableSeq)
+      ? payload.sourceDurableSeq : null;
+    const stableEvidence = observationId !== null && sessionId.length > 0 && sourceDurableSeq !== null;
     const atMs = entryAtMs({ at: now() });
     const entries = readJournal();
-    const duplicate = entries.find((candidate) => (
-      candidate.source === 'tool-intercept'
-      && candidate.path === filePath
-      && (candidate.sessionId || '') === sessionId
-      && Math.abs(entryAtMs(candidate) - atMs) <= TOOL_EDIT_MERGE_WINDOW_MS
-    ));
-    if (duplicate) return { ...duplicate, merged: true };
+    const duplicate = entries.find((candidate) => stableEvidence
+      ? candidate.source === 'tool-intercept' && candidate.observationId === observationId
+        && candidate.sourceDurableSeq === sourceDurableSeq && candidate.sessionId === sessionId
+      : candidate.source === 'tool-intercept' && !candidate.observationId
+        && candidate.path === filePath && (candidate.sessionId || '') === sessionId
+        && Math.abs(entryAtMs(candidate) - atMs) <= TOOL_EDIT_MERGE_WINDOW_MS);
+    const beforeText = typeof payload.beforeText === 'string' && Buffer.byteLength(payload.beforeText, 'utf8') <= MAX_EDIT_TEXT_BYTES
+      ? payload.beforeText : null;
+    const before = beforeText === null ? [] : [{
+      uri: typeof vscode.Uri?.file === 'function' ? vscode.Uri.file(filePath).toString() : require('node:url').pathToFileURL(filePath).href,
+      text: beforeText,
+    }];
+    if (duplicate) {
+      if (stableEvidence && (duplicate.path !== filePath || duplicate.tool !== tool)) throw invalidParams('Conflicting durable edit evidence');
+      if (stableEvidence && before.length && (!Array.isArray(duplicate.before) || !duplicate.before.length)) {
+        duplicate.before = before;
+        writeJournal(entries);
+      }
+      return { ...duplicate, merged: true };
+    }
     const entry = {
       id: nextId(),
       source: 'tool-intercept',
@@ -567,9 +585,11 @@ function createChangeTracker({
       at: now(),
       status: 'accepted',
       edits: [],
-      before: [],
+      before,
       size,
       truncated,
+      ...(stableEvidence ? { observationId, sourceDurableSeq,
+        toolCallId: typeof payload.toolCallId === 'string' ? payload.toolCallId : null } : {}),
     };
     entries.push(entry);
     writeJournal(entries);

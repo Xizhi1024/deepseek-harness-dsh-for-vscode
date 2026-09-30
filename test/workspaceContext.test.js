@@ -130,3 +130,31 @@ test('workspace context prefers the active editor root and falls back safely', (
   assert.strictEqual(empty.sameRoot(null, null), true);
   assert.strictEqual(empty.sameRoot(null, 'D:\\first'), false);
 });
+
+test('search and webview focus preserve the last active workspace until it is removed', () => {
+  const first = { uri: { fsPath: 'D:\\first' } };
+  const second = { uri: { fsPath: 'D:\\second' } };
+  const activeUri = { scheme: 'file', path: '/second/file.js' };
+  const host = createHost({ folders: [first, second], activeUri, activeFolder: second });
+  const context = createWorkspaceContext(host, { globalStorageUri: { fsPath: 'D:\\state' } });
+  assert.strictEqual(context.workspaceCwd(), second.uri.fsPath);
+
+  host.window.activeTextEditor = undefined;
+  for (let i = 0; i < 100; i += 1) {
+    assert.strictEqual(context.workspaceCwd(), second.uri.fsPath, 'focus changes must not switch the DSH session');
+  }
+  host.window.activeTextEditor = { document: { uri: { scheme: 'untitled' } } };
+  assert.strictEqual(context.workspaceCwd(), second.uri.fsPath);
+  host.workspace.getWorkspaceFolder = () => first;
+  assert.strictEqual(context.workspaceCwd(), first.uri.fsPath, 'a real editor root switch still takes effect');
+  host.workspace.getWorkspaceFolder = () => second;
+  assert.strictEqual(context.workspaceCwd(), second.uri.fsPath);
+
+  host.window.activeTextEditor = null;
+  host.workspace.workspaceFolders = [first];
+  assert.strictEqual(context.workspaceCwd(), first.uri.fsPath, 'a removed root must not survive in the cache');
+  host.workspace.workspaceFolders = [];
+  assert.strictEqual(context.workspaceCwd(), null);
+  host.workspace.workspaceFolders = [second, first];
+  assert.strictEqual(context.workspaceCwd(), second.uri.fsPath, 'an empty workspace clears the remembered root');
+});

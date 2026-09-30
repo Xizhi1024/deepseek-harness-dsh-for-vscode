@@ -8,13 +8,26 @@
 
 | 项 / Item | 值 / Value |
 |---|---|
-| 扩展版本 / Extension | 1.1.7 |
-| DSH runtime 下限 / floor | `0.1.0-rc.7`（--no-open 启动旗标要求；更早版本在健康探测前退出） |
-| 实测基线 / verified installs | `0.1.1-rc.2`（本地 npm 全局安装，2026-08-23） |
-| 上游核对基线 / verified upstream | master `49a606bc5b` = `0.1.2-alpha.5`（2026-09-02 fetch） |
-| 线协议兼容 / wire compat | `session.list` / `session.create` / `session.rename` / `session.prompt` / `GET /api/session.export` 信封、载荷、行键在 0.1.0-rc.7 .. 0.1.2-alpha.x 全程不变（2026-09-02 逐面核实） |
+| 扩展版本 / Extension | `1.2.0` candidate，未完成发布验收、未市场发布 |
+| 集成包 / Integration | `0.10.0` |
+| 目标 / Target | 精确 DSH `0.2.0-rc.1`，自有认证 facade + 公共 controller adapter |
+| 旧版 / Legacy | 精确 DSH `0.1.2-rc.1`，独立 legacy REST 适配路径 |
+| 上游基线 / Upstream | `4878cdabd87d4041bdaff61d04c966883b9fd07a`，精确 npm 包及公开接口证据 |
+| Node 子进程 / Child | `^22.19.0 \|\| >=24.0.0`，验证实际选定可执行文件 |
+| Profile / Home | 目标后缀 `-dsh020rc1`；同 home 的会话及凭据仍共享 |
+| 未验证版本 / Unverified | 不启动受管集成；未验证外部实例仅 browser-only，不调用会话写操作 |
+| 最终验收 / Evidence | [HANDOFF-1.2.0-VALIDATION.md](HANDOFF-1.2.0-VALIDATION.md)；安装态仍在验证 |
 
 ## 轮次记录 / Rounds
+
+### Round 2026-09-30 · 1.2.0 candidate
+
+- 完成 runtime/session 边界、共享验证器、版本门控、共享有界 SSE、浏览器 session bridge 与确认编辑投影；保留 1.1.8 修复。
+- 已通过真实浏览器 60 轮三种宽度搜索及 IME、真实 DSH 配可控 provider 的 prompt/cancel/tools、601 秒稳态重连和 10 次启停。安装态候选验证进行中，不能据此宣称完整发布。
+- A07 partial：附件支持主 Conversation，内部右侧栏展开时拒绝、收起可用；`@dsh` progress + committed 正文。非文本 file/image prompt 上传、FIM 与全面 optional 尚未认证。
+- 未发布到 Marketplace，未替换日常安装。后续记录以下最终验证交接为准。
+
+### Historical rounds / 历史记录（以下范围不是 1.2.0 支持承诺）
 
 - 扩展 1.1.6 → 1.1.7。三件事：①多窗口多实例侧栏抢焦点根治（`changeTree.reveal` 无条件 `dsh.changes.focus` + `onEntry` 全来源 reveal 联动 → 现全来源只静默 refresh，focus 命令仅兜底）；②`profileScaffold` 首建 profile 继承 donor（默认 `web`）的 dependencies/bundles/cordis.patch.yml，扩展自管的 `dsh-vscode-integration` 排除；③全库 codemap（根 Atlas + 14 目录级 + AGENTS.md + REFACTOR-PLAN.md），codemap 不进 VSIX。
 - **测试**：changeTree 23（+2 新例：reveal 成功不执行 focus、reveal 失败才兜底）；profileScaffold 7（+3 新例：继承/不重继承/坏 donor 容错）；全套件 744+37 通过（`extension.test.js` 子测试 37/37，进程退出僵死为既有问题、与本轮无关，已用基线 stash 对比确认）。
@@ -61,7 +74,9 @@
 - **修复**：① editObserver 恒 return next()（回归测试覆盖全部工具名与抛错路径）；② 发版门禁新增「打包树==git HEAD 逐文件 + sessionFollow 金丝雀」；③ junction 已恢复为仓库字节（editObserver 5823B 修复版在位）。
 - **运维事实**：rc.2 不支持 --patch（PATCH_OVERLAY_MIN=0.1.0 断言错误）——扩展子进程全部经 patch-drop 自愈启动，embed overlay 在 rc.2 上从不生效；双窗口（1.0.0 + F5 dev-host）争夺子进程/端口（3082 四次重生、3080 于 21:52 被抢占重生）。F5 测试期间建议禁用 1.0.0 扩展窗口。
 - 门禁：integration 101/101、editObserver 12/12、check:w0 全绿后提交。
-## 上游版本 → 扩展行为速查 / Runtime behavior matrix
+## 历史上游行为速查 / Historical runtime behavior matrix
+
+以下仅保存 2026-09-03 的旧版本调查结果，不代表当前适配器选择或支持范围；当前精确版本边界见页首。
 
 | DSH runtime | supported | sparseTitles | moduleHmrWindowCrash | 备注 |
 |---|---|---|---|---|

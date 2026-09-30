@@ -111,13 +111,14 @@ function readBeforeSnapshot(path, readFileSyncFn = readFileSync) {
  * @param {Function} [deps.readFileSyncFn] - test seam for the before-read.
  * @returns {{dispose: () => void}
  */
-function createEditObserver({ ctx, notify, log = () => {}, readFileSyncFn = readFileSync } = {}) {
+function createEditObserver({ ctx, notify, log = () => {}, readFileSyncFn = readFileSync, includeToolCallId = false } = {}) {
   if (!ctx || typeof ctx.on !== 'function') {
     throw new TypeError('createEditObserver requires a DSH ctx with ctx.on');
   }
   if (typeof notify !== 'function') {
     throw new TypeError('createEditObserver requires a notify function');
   }
+  const safeLog = (message) => { try { log(message); } catch { /* observation must always delegate */ } };
   const disposeListener = ctx.on('tools/pre-execute', (exec, next) => {
     try {
       if (exec && OBSERVED_TOOLS.has(exec.name)) {
@@ -132,14 +133,15 @@ function createEditObserver({ ctx, notify, log = () => {}, readFileSyncFn = read
               size: snapshot.size,
               truncated: snapshot.truncated,
               ...(snapshot.text === null ? {} : { beforeText: snapshot.text }),
+              ...(includeToolCallId && typeof exec.callId === 'string' ? { toolCallId: exec.callId } : {}),
             });
           }
         } else {
-          log('[dsh-vscode-integration] edit observer: no path in exec, skipping');
+          safeLog('[dsh-vscode-integration] edit observer: no path in exec, skipping');
         }
       }
     } catch (error) {
-      log('[dsh-vscode-integration] edit observer failed: ' + (error && error.message ? error.message : error));
+      safeLog('[dsh-vscode-integration] edit observer failed: ' + (error && error.message ? error.message : error));
     }
     // Observe-only: ALWAYS delegate. Returning a value (even undefined)
     // without calling next() short-circuits the cordis waterfall and makes

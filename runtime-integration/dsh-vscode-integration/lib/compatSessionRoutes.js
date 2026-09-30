@@ -139,7 +139,7 @@ export function installCompatWorkspaceRoutes(ctx) {
   const adapter = {
     async list(_payload, signal) {
       if (typeof controller.list === 'function') return controller.list({}, signal);
-      const stream = controller.follow(signal);
+      const stream = controller.follow(signal)[Symbol.asyncIterator]();
       try {
         const first = await stream.next();
         if (first.done || first.value?.type !== 'baseline') throw new Error('Workspace baseline unavailable');

@@ -1,11 +1,14 @@
 "use strict";
 
+const { TARGET_VERSION, LEGACY_VERSION } = require('./runtime/compatibility');
+const EXACT_ADAPTER_VERSIONS = Object.freeze([LEGACY_VERSION, TARGET_VERSION]);
+
 /**
  * DSH version compatibility flags (plan §4 single source of truth).
  *
  * The resolver reports the installed DSH version; these flags describe which
- * optional integration surfaces that version understands. Negotiation still
- * rules at runtime (bridge initialize.methods, URL params ignored silently);
+ * optional integration surfaces an exact adapter targets. Negotiation still
+ * rules at runtime (bridge initialize.methods, facade capability identity);
  * flags only inform diagnostics and documentation, never gate behavior
  * switches (D11 verdict).
  */
@@ -131,10 +134,10 @@ function compareDshVersions(left, right) {
  *
  * @param {string|null|undefined} dshVersion - Version reported by the runtime resolver (may be null when unknown).
  * @returns {{known: boolean, patchOverlay: boolean, themeParam: boolean, toolsV3: boolean}}
- *   All flags false with known=false when the version is missing or unparseable.
+ *   All flags false with known=false when no exact adapter is defined.
  */
 function deriveFeatureFlags(dshVersion) {
-  if (parseVersionParts(dshVersion) === null) {
+  if (!EXACT_ADAPTER_VERSIONS.includes(dshVersion)) {
     return { known: false, patchOverlay: false, themeParam: false, toolsV3: false };
   }
   const atLeast = (min) => compareVersions(dshVersion, min) >= 0;
@@ -167,13 +170,11 @@ function deriveFeatureFlags(dshVersion) {
  *
  * @param {string|null|undefined} dshVersion - Version reported by the runtime resolver (may be null when unknown).
  * @returns {{known: boolean, supported: boolean, exportDoublePrefix: boolean, sparseProjectionTitles: boolean, moduleHmrWindowCrash: boolean}}
- *   All false with known=false when the version is missing or unparseable
- *   (supported mirrors the parse result: an unparseable version is never
- *   reported as unsupported - negotiation and spawn self-heal own that
- *   decision).
+ *   All false with known=false when no exact adapter is defined. Supported
+ *   means an adapter exists, not that the current installation passed E2E.
  */
 function deriveRuntimeIssues(dshVersion) {
-  if (parseVersionParts(dshVersion) === null) {
+  if (!EXACT_ADAPTER_VERSIONS.includes(dshVersion)) {
     return {
       known: false,
       supported: false,
@@ -184,9 +185,9 @@ function deriveRuntimeIssues(dshVersion) {
   }
   return {
     known: true,
-    supported: compareDshVersions(dshVersion, SUPPORTED_DSH_MIN) >= 0,
-    // No released runtime fixes the double-prefix export naming yet.
-    exportDoublePrefix: true,
+    supported: true,
+    // This observation is evidence for the legacy release only.
+    exportDoublePrefix: dshVersion === LEGACY_VERSION,
     sparseProjectionTitles: compareVersions(dshVersion, PROJECTION_CACHE_MIN) < 0,
     moduleHmrWindowCrash: compareVersions(dshVersion, MODULE_HMR_OPTIN_MIN) < 0,
   };
@@ -201,8 +202,7 @@ function deriveRuntimeIssues(dshVersion) {
  * @returns {{known: boolean, line: string, openPathService: string, sessionRoutes: string}}
  */
 function deriveRuntimeAdapter(dshVersion) {
-  const comparison = compareDshVersions(dshVersion, SESSION_CONTROLLER_MIN);
-  if (comparison === null) {
+  if (!EXACT_ADAPTER_VERSIONS.includes(dshVersion)) {
     return {
       known: false,
       line: "negotiate",
@@ -210,12 +210,12 @@ function deriveRuntimeAdapter(dshVersion) {
       sessionRoutes: "negotiate",
     };
   }
-  if (comparison < 0) {
+  if (dshVersion === TARGET_VERSION) {
     return {
       known: true,
-      line: "legacy-apiproxy",
-      openPathService: "apiProxy",
-      sessionRoutes: "native",
+      line: "dsh-0.2.0-rc.1",
+      openPathService: "sessionController",
+      sessionRoutes: "vscode-facade-v1",
     };
   }
   return {
@@ -235,4 +235,5 @@ module.exports = {
   PROJECTION_CACHE_MIN,
   MODULE_HMR_OPTIN_MIN,
   SESSION_CONTROLLER_MIN,
+  EXACT_ADAPTER_VERSIONS,
 };

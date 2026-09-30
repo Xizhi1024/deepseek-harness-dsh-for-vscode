@@ -5,6 +5,45 @@ All notable changes to this project are documented here, following [Keep a Chang
 
 ## [Unreleased]
 
+## [1.2.0] - Candidate / 候选，未发布
+
+### Added / 新增
+
+- 精确适配 DSH `0.2.0-rc.1`，捆绑集成包 `0.10.0`；保留独立的 `0.1.2-rc.1` legacy 适配器。其他版本不推断兼容，未验证的外部实例仅供浏览。
+  Add the exact target adapter, authenticated `/api/vscode/v1` facade, runtime identity/supervisor and shared bounded session feeds; retain the separate exact legacy adapter.
+- 目标子进程要求 Node `^22.19.0 || >=24.0.0`。目标 profile 追加 `-dsh020rc1`，但同 home 的会话与凭据仍共享。
+  Separate target plugin configuration by profile suffix while preserving the configured home data scope.
+- 会话桥以 surface epoch 与 selection generation 校验导航和附件，避免过期响应写入其他会话；仅支持主 Conversation，DSH 内部右侧栏展开时明确拒绝附件。
+  Guard browser navigation and insertion with surface/selection identity. A07 remains partial because the expanded internal right sidebar cannot be safely targeted.
+
+### Fixed / 修复
+
+- 保留 1.1.8 的监听有界队列、焦点与搜索保护；重复连接不再覆盖已就绪 iframe，存活面板在重启后重绑新端点。
+- 基于已确认的工具事件持久去重编辑记录；存在可靠 tool call 关联时保留真实修改前快照用于 Undo。
+- `@dsh` 以进度显示临时生成状态，只追加已提交正文，避免 abandoned attempt 在不可撤回的 VS Code Chat 中残留或重复。
+  Keep native DSH streaming while committing only durable assistant text to the append-only VS Code response.
+
+### Validation status / 验证状态
+
+- 已通过真实运行时及浏览器验证：60 轮、三种宽度的搜索与 IME；可控本地 provider 的 prompt/cancel/read/write/edit；601 秒稳态及断流重连；10 次启停。
+- 安装态 VSIX 验证进行中；非文本 file/image prompt 上传、FIM 和完整可选功能矩阵尚未认证。本候选未发布到市场，也未替换用户日常安装。
+- 最终证据和验收范围见 [HANDOFF-1.2.0-VALIDATION.md](HANDOFF-1.2.0-VALIDATION.md)。
+
+## [1.1.8] - 2026-09-29
+
+### Fixed / 修复
+
+- 文件监听先过滤忽略目录，再计数和排队；限制突发事件缓存并串行处理，过载后使用 VS Code Git API 轮询。
+  Filter excluded paths before accounting, bound watcher queues, serialize change recording and use the real VS Code Git API for overload recovery.
+- 快速切换会话会取消旧历史回填与实时订阅，重复跟随同一会话复用已有任务，避免重复订阅与变更记录。
+  Cancel superseded history and SSE subscriptions; repeated follows share existing work, and cancelled history can be retried.
+- 多根工作区聚焦搜索、设置或 Webview 时保留当前目录，避免误切会话、重载侧栏；合并重复的工作区和配置事件。
+  Preserve the last active workspace when focus moves to search, settings or webviews, and coalesce lifecycle event bursts without losing the latest root.
+- 文件链接转换不再改写搜索、表单、编辑器及 React 管理的文本节点，避免破坏后续 UI 更新；DOM 观察器按批次限制扫描量。
+  Leave interactive and React-owned text intact during file-link conversion; bound DOM observer scanning per delivery.
+- 移除发布清单中的实验性终端 API 声明，消除稳定版 VS Code 每次加载的权限错误；终端桥保留既有降级行为。
+  Remove the proposed terminal API declaration that caused stable VS Code load errors; retain the terminal bridge's existing fallback.
+
 ## [1.1.7] - 2026-09-08
 
 ### Fixed / 修复（多实例侧栏抢焦点）

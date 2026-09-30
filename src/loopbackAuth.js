@@ -15,7 +15,10 @@ function assertLoopbackLaunchUrl(baseUrl) {
 /** Extract the session cookie pair from a launch-URL login response. */
 function cookieFromLoginResponse(login) {
   if (login.status === 303) {
-    if (login.headers.get('location') !== '/') throw new Error('Unexpected DSH authentication redirect');
+    // 0.2.0-rc.1 uses "./"; both forms resolve to the same root. Keep a
+    // narrow allow-list instead of following redirects or accepting a URL
+    // whose origin/path could broaden the launch-token trust boundary.
+    if (!['/', './'].includes(login.headers.get('location'))) throw new Error('Unexpected DSH authentication redirect');
     const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
     if (!cookie || /[\r\n]/.test(cookie)) throw new Error('DSH authentication cookie missing');
     return cookie;

@@ -30,12 +30,17 @@ function createWebviewMessageHandler({
   threadResult = undefined,
   handshakeError = undefined,
   sessionChanged = undefined,
+  sessionBridge = undefined,
 }) {
   if (typeof openBrowser !== 'function' || typeof retry !== 'function') {
     throw new TypeError('Webview message handlers must be functions');
   }
   return (message) => {
     if (!message || typeof message !== 'object') return false;
+    if (message.channel === 'dsh-vscode-session' && typeof sessionBridge === 'function') {
+      sessionBridge(message);
+      return true;
+    }
     if (message.type === 'openBrowser') {
       openBrowser();
       return true;

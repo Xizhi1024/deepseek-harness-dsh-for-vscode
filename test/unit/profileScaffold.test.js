@@ -1,5 +1,7 @@
 'use strict';
 
+const { deriveRuntimeProfileName } = require('../../src/profileScaffold');
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -15,6 +17,17 @@ const {
 function tmpHome() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-profile-scaffold-'));
 }
+
+test('target profiles have deterministic separate names while legacy names remain intact', () => {
+  assert.equal(deriveRuntimeProfileName('vscode', '0.2.0-rc.1'), 'vscode-dsh020rc1');
+  assert.equal(deriveRuntimeProfileName('personal', '0.1.2-rc.1'), 'personal');
+  const long = 'a'.repeat(64);
+  const first = deriveRuntimeProfileName(long, '0.2.0-rc.1');
+  assert.equal(first.length, 64);
+  assert.equal(first, deriveRuntimeProfileName(long, '0.2.0-rc.1'));
+  assert.notEqual(first, deriveRuntimeProfileName(`${'a'.repeat(63)}b`, '0.2.0-rc.1'));
+  assert.throws(() => deriveRuntimeProfileName('../web', '0.2.0-rc.1'));
+});
 
 test('ensureProfileScaffold writes manifest, patch layer, and pnpm settings', () => {
   const home = tmpHome();

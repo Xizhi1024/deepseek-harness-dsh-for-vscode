@@ -42,6 +42,8 @@ function createCtrlKEditCommand({
   ensureConnected,
   loc,
   focusedComposerWebview = null,
+  useSessionBridge = () => false,
+  insertTargetAttachment = null,
 }) {
   if (!vscode || !vscode.window) throw new TypeError('createCtrlKEditCommand requires vscode.window');
   if (!editorContext || typeof editorContext.attachActiveSelection !== 'function') {
@@ -72,6 +74,45 @@ function createCtrlKEditCommand({
     }
 
     const attachment = editorContext.attachActiveSelection();
+    if (useSessionBridge()) {
+      try {
+        if (typeof insertTargetAttachment !== 'function') throw new Error('Browser attachment bridge is unavailable');
+        await insertTargetAttachment(async (signal) => {
+          if (signal.aborted) throw Object.assign(new Error('Attachment cancelled'), { code: 'CANCELLED' });
+          // VS Code accepts the structural CancellationToken; tie the prompt to
+          // the captured surface lifetime without introducing a second owner.
+          const token = {
+            get isCancellationRequested() { return signal.aborted; },
+            onCancellationRequested(listener) {
+              const callback = () => listener();
+              signal.addEventListener('abort', callback);
+              return { dispose: () => signal.removeEventListener('abort', callback) };
+            },
+          };
+          let timer;
+          let onAbort;
+          let instruction;
+          try {
+            instruction = await Promise.race([
+              vscode.window.showInputBox({ prompt: loc('Ctrl+K instruction'), ignoreFocusOut: false }, token),
+              new Promise((resolve) => { timer = setTimeout(() => resolve(undefined), CTRLK_TIMEOUT_MS); if (timer.unref) timer.unref(); }),
+              new Promise((resolve) => { onAbort = () => resolve(undefined); signal.addEventListener('abort', onAbort, { once: true }); }),
+            ]);
+          } finally {
+            clearTimeout(timer);
+            if (onAbort) signal.removeEventListener('abort', onAbort);
+          }
+          if (signal.aborted || typeof instruction !== 'string' || instruction.trim().length === 0) throw Object.assign(new Error('Attachment cancelled'), { code: 'CANCELLED' });
+          const contextText = formatSelectionAttachment(attachment, attachment.document.uri);
+          return `指令:\n${instruction}\n\n上下文:\n${contextText}`;
+        });
+        await vscode.window.showInformationMessage(loc('Ctrl+K draft sent to the DSH conversation'));
+      } catch (error) {
+        if (error && error.code === 'CANCELLED') return;
+        throw error;
+      }
+      return;
+    }
     const instruction = await Promise.race([
       vscode.window.showInputBox({ prompt: loc('Ctrl+K instruction'), ignoreFocusOut: false }),
       new Promise((resolve) => {

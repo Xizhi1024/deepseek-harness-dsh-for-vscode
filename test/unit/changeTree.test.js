@@ -743,6 +743,28 @@ test('tool-intercept entry undo follows the external semantics (snapshot first)'
   tree.dispose();
 });
 
+test('durable tool undo and preview use the captured journal snapshot before Git or a stale snapshot file', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-tree-durable-undo-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const target = path.join(root, 'file.js');
+  fs.writeFileSync(target, 'after', 'utf8');
+  const stale = path.join(root, 'old-snapshot');
+  fs.writeFileSync(stale, 'wrong snapshot', 'utf8');
+  const vscode = fakeVscode();
+  const tracker = createChangeTracker({ storageUri: { fsPath: root }, vscode });
+  const entry = await tracker.recordToolEdit({ tool: 'edit', path: target, sessionId: 'session-1',
+    observationId: 'event-1', sourceDurableSeq: '10', toolCallId: 'call-1', beforeText: 'exact before' });
+  tracker.updateEntry(entry.id, { beforeSnapshotPath: stale });
+  let gitCalls = 0;
+  const tree = createChangeTree({ vscode, tracker, storageUri: { fsPath: root }, gitRestore: () => { gitCalls++; return true; } });
+  assert.equal((await tree.openDiff(tracker.get(entry.id))).diff, true);
+  const result = await tree.undo(tracker.get(entry.id));
+  assert.equal(result.method, 'snapshot-restore');
+  assert.equal(fs.readFileSync(target, 'utf8'), 'exact before');
+  assert.equal(gitCalls, 0);
+  tree.dispose();
+});
+
 test('relative tool-intercept entry resolves against injected bound-cwd roots (cross-window)', async (t) => {
   const instanceCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-instance-cwd-'));
   const windowRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-window-root-'));

@@ -81,6 +81,12 @@ function assertWorkspaceItem(item) {
  * @throws {DshSessionError} With the DSH_SESSION_API_* error codes.
  */
 async function listWorkspaces(baseUrl, options = {}) {
+  if (options.runtimeApi) {
+    const op = { requestId: require('node:crypto').randomUUID(), signal: options.signal || new AbortController().signal };
+    const [workspaces, sessions] = await Promise.all([options.runtimeApi.listWorkspaces(op), options.runtimeApi.listSessions(null, op)]);
+    return workspaces.map((workspace) => ({ workspaceId: workspace.id, path: workspace.rootPath, title: workspace.name,
+      sessionIds: sessions.filter((session) => session.workspaceId === workspace.id).map((session) => session.id) }));
+  }
   const fetchImpl = resolveFetchImpl(options);
   const parsed = assertLoopbackBaseUrl(baseUrl);
   const response = await postJson(
@@ -117,6 +123,12 @@ async function listWorkspaces(baseUrl, options = {}) {
  * @throws {DshSessionError} With the DSH_SESSION_API_* error codes.
  */
 async function createWorkspace(baseUrl, workspacePath, options = {}) {
+  if (options.runtimeApi) {
+    const op = { requestId: require('node:crypto').randomUUID(), signal: options.signal || new AbortController().signal };
+    const workspace = await options.runtimeApi.ensureWorkspace(workspacePath, op);
+    const sessions = await options.runtimeApi.listSessions(workspace.id, op);
+    return { workspace: { workspaceId: workspace.id, path: workspace.rootPath, title: workspace.name, sessionIds: sessions.map((item) => item.id) }, created: null };
+  }
   const fetchImpl = resolveFetchImpl(options);
   const parsed = assertLoopbackBaseUrl(baseUrl);
   const response = await postJson(

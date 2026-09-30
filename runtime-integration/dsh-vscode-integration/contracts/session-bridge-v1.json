@@ -1,0 +1,824 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "session-bridge-v1.json",
+  "$defs": {
+    "VisibleTarget": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "surfaceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "surfaceEpoch": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "selectionGeneration": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "state": {
+              "const": "known"
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          "required": [
+            "surfaceId",
+            "surfaceEpoch",
+            "selectionGeneration",
+            "state",
+            "sessionId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "surfaceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "surfaceEpoch": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "selectionGeneration": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "state": {
+              "const": "none"
+            }
+          },
+          "required": [
+            "surfaceId",
+            "surfaceEpoch",
+            "selectionGeneration",
+            "state"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "surfaceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "surfaceEpoch": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "selectionGeneration": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "state": {
+              "const": "unknown"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "surfaceId",
+            "surfaceEpoch",
+            "selectionGeneration",
+            "state",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "InsertionTicket": {
+      "type": "object",
+      "properties": {
+        "surfaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "surfaceEpoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "ticketId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "selectionGeneration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sessionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "expiresAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "surfaceId",
+        "surfaceEpoch",
+        "ticketId",
+        "selectionGeneration",
+        "sessionId",
+        "expiresAt"
+      ],
+      "additionalProperties": false
+    },
+    "PortError": {
+      "$ref": "runtime-v1.json#/$defs/PortError"
+    },
+    "Capability": {
+      "$ref": "runtime-v1.json#/$defs/Capability"
+    },
+    "HelloInit": {
+      "type": "object",
+      "properties": {
+        "channel": {
+          "const": "dsh-vscode-session"
+        },
+        "version": {
+          "const": 1
+        },
+        "surfaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "surfaceEpoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "type": {
+          "const": "hello-init"
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        }
+      },
+      "required": [
+        "channel",
+        "version",
+        "surfaceId",
+        "surfaceEpoch",
+        "type",
+        "nonce"
+      ],
+      "additionalProperties": false
+    },
+    "HelloAck": {
+      "type": "object",
+      "properties": {
+        "channel": {
+          "const": "dsh-vscode-session"
+        },
+        "version": {
+          "const": 1
+        },
+        "surfaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "surfaceEpoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "type": {
+          "const": "hello-ack"
+        },
+        "runtimeVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "adapterId": {
+          "const": "dsh-0.2.0-rc.1"
+        },
+        "capabilities": {
+          "type": "object",
+          "properties": {
+            "navigation": {
+              "$ref": "#/$defs/Capability"
+            },
+            "targetObservation": {
+              "$ref": "#/$defs/Capability"
+            },
+            "insertion": {
+              "$ref": "#/$defs/Capability"
+            },
+            "theme": {
+              "$ref": "#/$defs/Capability"
+            },
+            "clipboard": {
+              "$ref": "#/$defs/Capability"
+            }
+          },
+          "required": [
+            "navigation",
+            "targetObservation",
+            "insertion",
+            "theme",
+            "clipboard"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "channel",
+        "version",
+        "surfaceId",
+        "surfaceEpoch",
+        "type",
+        "runtimeVersion",
+        "adapterId",
+        "capabilities"
+      ],
+      "additionalProperties": false
+    },
+    "TargetChanged": {
+      "type": "object",
+      "properties": {
+        "channel": {
+          "const": "dsh-vscode-session"
+        },
+        "version": {
+          "const": 1
+        },
+        "surfaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "surfaceEpoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "type": {
+          "const": "targetChanged"
+        },
+        "target": {
+          "$ref": "#/$defs/VisibleTarget"
+        }
+      },
+      "required": [
+        "channel",
+        "version",
+        "surfaceId",
+        "surfaceEpoch",
+        "type",
+        "target"
+      ],
+      "additionalProperties": false
+    },
+    "Request": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "channel": {
+              "const": "dsh-vscode-session"
+            },
+            "version": {
+              "const": 1
+            },
+            "surfaceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "surfaceEpoch": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "const": "request"
+            },
+            "requestId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,100}$"
+            },
+            "method": {
+              "const": "target.get"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "channel",
+            "version",
+            "surfaceId",
+            "surfaceEpoch",
+            "type",
+            "requestId",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "channel": {
+              "const": "dsh-vscode-session"
+            },
+            "version": {
+              "const": 1
+            },
+            "surfaceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "surfaceEpoch": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "const": "request"
+            },
+            "requestId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,100}$"
+            },
+            "method": {
+              "const": "session.navigate"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "sessionId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "required": [
+                "sessionId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "channel",
+            "version",
+            "surfaceId",
+            "surfaceEpoch",
+            "type",
+            "requestId",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "channel": {
+              "const": "dsh-vscode-session"
+            },
+            "version": {
+              "const": 1
+            },
+            "surfaceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "surfaceEpoch": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "const": "request"
+            },
+            "requestId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,100}$"
+            },
+            "method": {
+              "const": "insertion.capture"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "expected": {
+                  "$ref": "#/$defs/VisibleTarget"
+                }
+              },
+              "required": [
+                "expected"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "channel",
+            "version",
+            "surfaceId",
+            "surfaceEpoch",
+            "type",
+            "requestId",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "channel": {
+              "const": "dsh-vscode-session"
+            },
+            "version": {
+              "const": 1
+            },
+            "surfaceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "surfaceEpoch": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "const": "request"
+            },
+            "requestId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,100}$"
+            },
+            "method": {
+              "const": "insertion.commit"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "ticketId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 1048576
+                }
+              },
+              "required": [
+                "ticketId",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "channel",
+            "version",
+            "surfaceId",
+            "surfaceEpoch",
+            "type",
+            "requestId",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "channel": {
+              "const": "dsh-vscode-session"
+            },
+            "version": {
+              "const": 1
+            },
+            "surfaceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "surfaceEpoch": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "const": "request"
+            },
+            "requestId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,100}$"
+            },
+            "method": {
+              "const": "insertion.cancel"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "ticketId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "required": [
+                "ticketId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "channel",
+            "version",
+            "surfaceId",
+            "surfaceEpoch",
+            "type",
+            "requestId",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "channel": {
+              "const": "dsh-vscode-session"
+            },
+            "version": {
+              "const": 1
+            },
+            "surfaceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "surfaceEpoch": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "const": "request"
+            },
+            "requestId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,100}$"
+            },
+            "method": {
+              "const": "request.cancel"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "targetRequestId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9._:-]{1,100}$"
+                }
+              },
+              "required": [
+                "targetRequestId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "channel",
+            "version",
+            "surfaceId",
+            "surfaceEpoch",
+            "type",
+            "requestId",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ResultError": {
+      "type": "object",
+      "properties": {
+        "channel": {
+          "const": "dsh-vscode-session"
+        },
+        "version": {
+          "const": 1
+        },
+        "surfaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "surfaceEpoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "type": {
+          "const": "result"
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,100}$"
+        },
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "$ref": "#/$defs/PortError"
+        }
+      },
+      "required": [
+        "channel",
+        "version",
+        "surfaceId",
+        "surfaceEpoch",
+        "type",
+        "requestId",
+        "ok",
+        "error"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "envelope": {
+    "channel": {
+      "const": "dsh-vscode-session"
+    },
+    "version": {
+      "const": 1
+    },
+    "surfaceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "surfaceEpoch": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "methods": {
+    "target.get": {
+      "params": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "value": {
+        "$ref": "#/$defs/VisibleTarget"
+      }
+    },
+    "session.navigate": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "additionalProperties": false
+      },
+      "value": {
+        "$ref": "#/$defs/VisibleTarget"
+      }
+    },
+    "insertion.capture": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "expected": {
+            "$ref": "#/$defs/VisibleTarget"
+          }
+        },
+        "required": [
+          "expected"
+        ],
+        "additionalProperties": false
+      },
+      "value": {
+        "$ref": "#/$defs/InsertionTicket"
+      }
+    },
+    "insertion.commit": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "ticketId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "text": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 1048576
+          }
+        },
+        "required": [
+          "ticketId",
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "value": {
+        "type": "object",
+        "properties": {
+          "inserted": {
+            "const": true
+          }
+        },
+        "required": [
+          "inserted"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "insertion.cancel": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "ticketId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "ticketId"
+        ],
+        "additionalProperties": false
+      },
+      "value": {
+        "type": "null"
+      }
+    },
+    "request.cancel": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "targetRequestId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._:-]{1,100}$"
+          }
+        },
+        "required": [
+          "targetRequestId"
+        ],
+        "additionalProperties": false
+      },
+      "value": {
+        "type": "null"
+      }
+    }
+  }
+}

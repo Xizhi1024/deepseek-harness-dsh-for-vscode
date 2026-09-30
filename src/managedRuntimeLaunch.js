@@ -112,6 +112,10 @@ function normalizeResolvedRuntime(input, platform = process.platform) {
     }
     return path.resolve(value);
   });
+  if (input.packageRoot !== undefined && (typeof input.packageRoot !== 'string'
+      || !path.isAbsolute(input.packageRoot) || input.packageRoot.includes('\0'))) {
+    throw new Error('Managed DSH packageRoot must be absolute');
+  }
   return Object.freeze({
     executablePath: path.resolve(executablePath),
     dshHome: path.resolve(dshHome),
@@ -120,6 +124,7 @@ function normalizeResolvedRuntime(input, platform = process.platform) {
     dshVersion: typeof input.dshVersion === 'string' && input.dshVersion.length > 0 ? input.dshVersion : null,
     entrypointArgs: Object.freeze(normalizedArgs),
     ...(input.payloadRoot === undefined ? {} : { payloadRoot: path.resolve(input.payloadRoot) }),
+    ...(input.packageRoot === undefined ? {} : { packageRoot: path.resolve(input.packageRoot) }),
   });
 }
 

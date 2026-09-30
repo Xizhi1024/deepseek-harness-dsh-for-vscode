@@ -279,8 +279,8 @@ test('activation registers the public host surface through injected dependencies
     DSH_VSCODE_OPEN_TOKEN: 'test-only', // allow-secret-scan
     DSH_VSCODE_BRIDGE_TOKEN: 'versioned-test', // allow-secret-scan
   });
-  assert.ok(path.isAbsolute(managerOptions.embedPatchPath), 'embed overlay path must be absolute');
-  assert.strictEqual(path.basename(managerOptions.embedPatchPath), 'vscode-embed.overlay.yml');
+  assert.strictEqual(managerOptions.embedPatchPath, null,
+    'activation without runtime selection must not sync or overwrite a profile');
   assert.strictEqual(typeof versionedBridgeOptions.handlers['vscode/editor/getContext'], 'function');
   assert.strictEqual(typeof versionedBridgeOptions.handlers['vscode/editor/open'], 'function');
   assert.strictEqual(typeof versionedBridgeOptions.handlers['vscode/editor/openDiff'], 'function');
@@ -407,7 +407,7 @@ test('autoStart resolves the configured runtime before spawn and hands it to Ser
     globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-autostart-${process.pid}`) },
     subscriptions: [],
   };
-  const runtime = { executablePath: 'D:\\runtime\\dsh.exe' };
+  const runtime = { executablePath: 'D:\\runtime\\dsh.exe', dshVersion: '0.1.2-rc.1' };
   let ensureRuntimeOptions = null;
   let ensureRuntimeCalls = 0;
   let setResolvedRuntimeArgs = [];
@@ -483,6 +483,84 @@ test('autoStart resolves the configured runtime before spawn and hands it to Ser
   assert.strictEqual(ensureRuntimeOptions.signal.aborted, true, 'deactivate must abort in-flight provisioning');
 });
 
+for (const version of [undefined, null, 'unknown', '0.2.0-rc.2']) {
+  test(`autoStart rejects unverified version ${String(version)} before profile preparation or spawn`, async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-unverified-owned-'));
+    t.after(async () => { await deactivate(); fs.rmSync(root, { recursive: true, force: true }); });
+    const fake = createFakeVscode({ autoStart: true, 'features.changes-review': false, 'features.chat-participant': false });
+    const context = { globalStorageUri: { fsPath: root }, subscriptions: [] };
+    let resolvedAssignments = 0;
+    let ensureCalls = 0;
+    let preparationCalls = 0;
+    await activateWithDependencies(context, {
+      vscode: fake.api,
+      async startTextDocumentBridge() { return { env: {}, async close() {} }; },
+      async startVersionedBridge() { return { env: {}, async close() {} }; },
+      createServerManager() {
+        return { cancelPending() {}, hasOwnedChild() { return false; }, async stop() {},
+          setResolvedRuntime() { resolvedAssignments++; }, setEmbedPatchPath() { preparationCalls++; },
+          async ensureServer() { ensureCalls++; throw new Error('Unverified runtime must not start'); } };
+      },
+      async ensureManagedRuntime() { return version === undefined ? {} : { dshVersion: version }; },
+    });
+    const view = { webview: { html: '', onDidReceiveMessage() { return disposable(); } }, onDidDispose() { return disposable(); } };
+    fake.registrations.webview.provider.resolveWebviewView(view);
+    await waitFor(() => view.webview.html.includes('resolved version is unverified'));
+    assert.ok(view.webview.html.includes(`(${version || 'unknown'})`), 'show the detected version in the failure page');
+    assert.ok(view.webview.html.includes('dsh.local.packageRoot'), 'show the runtime selection setting');
+    assert.equal(ensureCalls, 0);
+    assert.equal(resolvedAssignments, 0, 'the manager identity is not changed');
+    assert.equal(preparationCalls, 0, 'no integration overlay is prepared');
+    assert.equal(fs.existsSync(path.join(root, '.dsh', 'profiles')), false, 'no profile/integration files are written');
+  });
+}
+
+test('failed target selection preserves legacy ownership for stop and deactivate', async () => {
+  for (const action of ['stop', 'deactivate']) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-legacy-selection-'));
+    try {
+      const packageRoot = path.join(root, 'runtime');
+      fs.mkdirSync(packageRoot);
+      fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.0-rc.1' }));
+      const fake = createFakeVscode({ autoStart: true, 'features.changes-review': false, 'features.chat-participant': false });
+      const context = { globalStorageUri: { fsPath: path.join(root, 'storage') }, subscriptions: [] };
+      let selectedVersion = '0.1.2-rc.1';
+      let owned = false;
+      let stopCalls = 0;
+      const manager = { cancelPending() {}, setResolvedRuntime() {},
+        hasOwnedChild() { return owned; }, async stop() { stopCalls++; owned = false; },
+        async ensureServer() {
+          owned = true;
+          return { url: 'http://127.0.0.1:3080', host: '127.0.0.1', port: 3080, pid: 4242, owned: true };
+        } };
+      await activateWithDependencies(context, {
+        vscode: fake.api,
+        async startTextDocumentBridge() { return { env: {}, async close() {} }; },
+        async startVersionedBridge() { return { env: {}, async close() {} }; },
+        createServerManager() { return manager; },
+        async ensureManagedRuntime() { return { executablePath: process.execPath,
+          entrypointArgs: [path.join(packageRoot, 'bin.js')], packageRoot, dshVersion: selectedVersion }; },
+      });
+      let receive;
+      const view = { webview: { html: '', onDidReceiveMessage(handler) { receive = handler; return disposable(); } },
+        onDidDispose() { return disposable(); } };
+      fake.registrations.webview.provider.resolveWebviewView(view);
+      await waitFor(() => view.webview.html.includes('<iframe'));
+      selectedVersion = '0.2.0-rc.1';
+      receive({ type: 'retry' });
+      await waitFor(() => view.webview.html.includes('owned by another runtime lifecycle'));
+      assert.equal(stopCalls, 0, 'failed target acquisition leaves the legacy child running');
+      if (action === 'stop') await fake.commands.get('dsh.stopServer')();
+      else await deactivate();
+      assert.equal(stopCalls, 1, `${action} still stops the child through the legacy manager`);
+      assert.equal(owned, false);
+    } finally {
+      await deactivate();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
 test('owned autoStart instance binds through workspaceBinding and iframe carries dsh_session', async () => {
   const fake = createFakeVscode({ autoStart: true });
   fake.api.workspace.workspaceFolders = [
@@ -538,7 +616,7 @@ test('owned autoStart instance binds through workspaceBinding and iframe carries
     },
     createServerManager() { return manager; },
     createWorkspaceBinding() { return fakeBinding; },
-    async ensureManagedRuntime() { return {}; },
+    async ensureManagedRuntime() { return { dshVersion: '0.1.2-rc.1' }; },
   });
 
   let viewHtml = '';
@@ -563,7 +641,7 @@ test('owned autoStart instance binds through workspaceBinding and iframe carries
   await deactivate();
 });
 
-test('reused external instance binds through workspaceBinding and iframe carries dsh_session', async () => {
+test('verified legacy external instance binds through workspaceBinding and iframe carries dsh_session', async () => {
   const fake = createFakeVscode();
   fake.api.workspace.workspaceFolders = [
     { uri: { fsPath: 'D:\\workspace' }, name: 'workspace', index: 0 },
@@ -603,6 +681,7 @@ test('reused external instance binds through workspaceBinding and iframe carries
         port: options.port,
         pid: null,
         owned: false,
+        resolvedRuntime: { dshVersion: '0.1.2-rc.1' },
       });
     },
   };
@@ -641,6 +720,125 @@ test('reused external instance binds through workspaceBinding and iframe carries
   assert.ok(viewHtml.includes('iframe'), 'reused connect should render the DSH iframe');
 
   await deactivate();
+});
+
+test('unverified external runtime stays browser-only and session commands perform no writes', async (t) => {
+  t.after(() => deactivate());
+  const fake = createFakeVscode({ 'features.changes-review': false, 'features.chat-participant': false });
+  fake.api.workspace.workspaceFolders = [{ uri: { fsPath: path.join(os.tmpdir(), 'unverified-workspace') }, name: 'workspace', index: 0 }];
+  const context = { globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-unverified-external-${process.pid}`) }, subscriptions: [] };
+  let bindingCalls = 0;
+  let apiCalls = 0;
+  let stopCalls = 0;
+  t.mock.method(globalThis, 'fetch', async () => { apiCalls++; throw new Error('Unverified runtime must not receive session API requests'); });
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    async startTextDocumentBridge() { return { env: {}, async close() {} }; },
+    async startVersionedBridge() { return { env: {}, async close() {} }; },
+    createServerManager() {
+      return { cancelPending() {}, hasOwnedChild() { return false; }, async stop() { stopCalls++; },
+        async ensureServer() { return { url: 'http://127.0.0.1:3080', host: '127.0.0.1', port: 3080, owned: false, pid: null }; } };
+    },
+    createWorkspaceBinding() {
+      return { async resolve() { bindingCalls++; return 'must-not-bind'; }, state: () => ({ state: 'unbound' }), dispose() {} };
+    },
+  });
+  const view = { webview: { html: '', onDidReceiveMessage() { return disposable(); } }, onDidDispose() { return disposable(); } };
+  fake.registrations.webview.provider.resolveWebviewView(view);
+  await waitFor(() => view.webview.html.includes('<iframe'));
+  const readyHtml = view.webview.html;
+  await fake.commands.get('dsh.newSession')();
+  await fake.commands.get('dsh.switchSession')();
+  assert.equal(bindingCalls, 0, 'no workspace/session auto-binding without a verified integration');
+  assert.equal(apiCalls, 0, 'session commands fail before sending any legacy or target API request');
+  assert.equal(stopCalls, 0, 'the external process remains untouched');
+  assert.equal(view.webview.html, readyHtml, 'browser-only viewing remains available');
+  assert.equal(fake.errorMessages.length, 2, 'both commands explain the unavailable integration');
+  assert.ok(fake.errorMessages.every((message) => message.includes('verified integration handshake')));
+});
+
+test('repeated target connection preserves the existing iframe and surface epoch', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-target-reconnect-'));
+  t.after(async () => { await deactivate(); fs.rmSync(root, { recursive: true, force: true }); });
+  const packageRoot = path.join(root, 'runtime');
+  fs.mkdirSync(packageRoot);
+  fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.0-rc.1' }));
+  const fake = createFakeVscode({ autoStart: true, 'features.changes-review': false, 'features.chat-participant': false });
+  const workspaceRoot = path.join(root, 'workspace');
+  fake.api.workspace.workspaceFolders = [{ uri: { fsPath: workspaceRoot }, name: 'workspace', index: 0 }];
+  const context = { globalStorageUri: { fsPath: path.join(root, 'storage') }, subscriptions: [] };
+  const spawnEnv = {};
+  let owned = false;
+  let resolvedVersion = '0.2.0-rc.1';
+  let stopCalls = 0;
+  let ensureCalls = 0;
+  let capabilityCalls = 0;
+  const manager = {
+    cancelPending() {}, setResolvedRuntime() {}, setEmbedPatchPath() {},
+    setSpawnEnv(value) { Object.assign(spawnEnv, value); },
+    hasOwnedChild() { return owned; }, async stop() { owned = false; stopCalls++; },
+    async ensureServer() {
+      ensureCalls++; owned = true;
+      return { url: 'http://127.0.0.1:3080', host: '127.0.0.1', port: 3080, pid: 4242, owned: true };
+    },
+  };
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    assert.equal(init.headers.Authorization, `Bearer ${spawnEnv.DSH_VSCODE_API_TOKEN}`);
+    if (new URL(url).pathname === '/api/vscode/v1/capabilities') {
+      capabilityCalls++;
+      return Response.json({ protocolVersion: 1, runtimeInstanceId: spawnEnv.DSH_VSCODE_RUNTIME_INSTANCE_ID,
+        runtimeVersion: '0.2.0-rc.1', integrationVersion: require('../runtime-integration/dsh-vscode-integration/package.json').version,
+        adapterId: 'dsh-0.2.0-rc.1', reconnectMode: 'snapshot-reconcile',
+        features: Object.fromEntries(['workspaces', 'sessions', 'prompt', 'follow', 'cancelSession', 'toolObservation', 'lmRoute', 'fim']
+          .map((name) => [name, { state: 'available' }])) });
+    }
+    assert.equal(new URL(url).pathname, '/api/vscode/v1/rpc');
+    const request = JSON.parse(init.body);
+    assert.equal(request.method, 'workspace.ensure', 'connecting must not create a session');
+    return Response.json({ protocolVersion: 1, requestId: request.requestId, ok: true,
+      value: { id: 'workspace-1', rootPath: request.params.rootPath, name: null } });
+  });
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    async startTextDocumentBridge() { return { env: {}, async close() {} }; },
+    async startVersionedBridge() { return { env: {}, async close() {} }; },
+    createServerManager() { return manager; },
+    async ensureManagedRuntime() {
+      return { executablePath: process.execPath, entrypointArgs: [path.join(packageRoot, 'bin.js')], packageRoot, dshVersion: resolvedVersion };
+    },
+  });
+  let receive;
+  const writes = [];
+  const view = { webview: {
+    onDidReceiveMessage(handler) { receive = handler; return disposable(); },
+    get html() { return writes.at(-1); }, set html(value) { writes.push(value); },
+  }, onDidDispose() { return disposable(); } };
+  fake.registrations.webview.provider.resolveWebviewView(view);
+  await waitFor(() => view.webview.html.includes('<iframe'));
+  await new Promise((resolve) => setImmediate(resolve));
+  const readyHtml = view.webview.html;
+  const readyWrites = writes.length;
+  const priorCapabilities = capabilityCalls;
+  assert.ok(readyHtml.includes('dsh-vscode-session'), 'the target session bridge is enabled');
+  receive({ type: 'retry' });
+  await waitFor(() => capabilityCalls > priorCapabilities);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(ensureCalls, 1, 'a ready target is health-checked without spawning again');
+  assert.equal(writes.length, readyWrites, 'a repeated ensure must not replace the iframe with Connecting or another frame');
+  assert.equal(view.webview.html, readyHtml, 'the shell surface identity and search state remain intact');
+
+  const liveInstanceId = spawnEnv.DSH_VSCODE_RUNTIME_INSTANCE_ID;
+  resolvedVersion = null;
+  receive({ type: 'retry' });
+  await waitFor(() => view.webview.html.includes('resolved version is unverified'));
+  assert.equal(ensureCalls, 1, 'an invalid selection cannot spawn a legacy replacement');
+  assert.equal(stopCalls, 0, 'an invalid selection cannot release the ready target child');
+  assert.equal(spawnEnv.DSH_VSCODE_RUNTIME_INSTANCE_ID, liveInstanceId, 'the live lease retains its identity');
+  assert.equal(fs.existsSync(path.join(context.globalStorageUri.fsPath, '.dsh', 'profiles', 'vscode')), false,
+    'an invalid selection cannot prepare the legacy profile');
+  await deactivate();
+  assert.equal(stopCalls, 1);
+  assert.equal(spawnEnv.DSH_VSCODE_RUNTIME_INSTANCE_ID, undefined, 'shutdown still disposes the target supervisor and clears its credentials');
 });
 
 test('workspace rebind resolves through binding without stopping the owned child', async () => {
@@ -706,7 +904,7 @@ test('workspace rebind resolves through binding without stopping the owned child
     },
     createServerManager() { return manager; },
     createWorkspaceBinding() { return fakeBinding; },
-    async ensureManagedRuntime() { return {}; },
+    async ensureManagedRuntime() { return { dshVersion: '0.1.2-rc.1' }; },
   });
 
   let viewHtml = '';
@@ -737,6 +935,109 @@ test('workspace rebind resolves through binding without stopping the owned child
   assert.strictEqual(ensureServerCalls, ensureServerCallsBeforeRebind, 'workspace switch must not re-ensure/reconnect');
 
   await deactivate();
+});
+
+test('multi-root search and webview focus preserve the iframe until a real workspace switch', async (t) => {
+  t.after(() => deactivate());
+  const fake = createFakeVscode({ 'features.changes-review': false, 'features.chat-participant': false });
+  const roots = [
+    { uri: { fsPath: 'D:\\a' }, name: 'a', index: 0 },
+    { uri: { fsPath: 'D:\\b' }, name: 'b', index: 1 },
+  ];
+  fake.api.workspace.workspaceFolders = roots;
+  fake.api.workspace.getWorkspaceFolder = (uri) => uri.scheme === 'file'
+    ? roots.find((folder) => uri.fsPath.startsWith(`${folder.uri.fsPath}\\`))
+    : undefined;
+  const editor = (scheme, fsPath) => ({
+    document: { uri: { scheme, fsPath, toString: () => `${scheme}:${fsPath}` } },
+  });
+  fake.api.window.activeTextEditor = editor('file', 'D:\\b\\src\\index.js');
+  let activeEditorChanged;
+  fake.api.window.onDidChangeActiveTextEditor = (callback) => {
+    activeEditorChanged = callback;
+    return disposable();
+  };
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-focus-search-${process.pid}`) },
+    subscriptions: [],
+  };
+  const bindingCalls = [];
+  let bindingState;
+  const fakeBinding = {
+    async resolve(_server, cwd) {
+      bindingCalls.push(cwd);
+      const sessionId = cwd === 'D:\\b' ? 'sid-b' : 'sid-a';
+      bindingState = { state: 'bound', cwd, sessionId, workspaceId: cwd, owned: false, error: null, at: 0 };
+      return sessionId;
+    },
+    state() { return bindingState; },
+    dispose() {},
+  };
+  let ensureServerCalls = 0;
+  const manager = {
+    ensureServer(options) {
+      ensureServerCalls += 1;
+      return Promise.resolve({
+        url: `http://${options.host}:${options.port}`, host: options.host, port: options.port,
+        pid: null, owned: false,
+        resolvedRuntime: { dshVersion: '0.1.2-rc.1' },
+      });
+    },
+    hasOwnedChild() { return false; },
+    cancelPending() {},
+    async stop() {},
+  };
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    async startTextDocumentBridge() { return { env: {}, async close() {} }; },
+    async startVersionedBridge() { return { env: {}, async close() {} }; },
+    createServerManager() { return manager; },
+    createWorkspaceBinding() { return fakeBinding; },
+  });
+  let viewHtml = '';
+  let htmlWrites = 0;
+  const view = {
+    webview: {
+      options: null,
+      onDidReceiveMessage() { return disposable(); },
+      set html(value) { viewHtml = value; htmlWrites += 1; },
+      get html() { return viewHtml; },
+    },
+    onDidDispose() { return disposable(); },
+  };
+  fake.registrations.webview.provider.resolveWebviewView(view);
+  await waitFor(() => viewHtml.includes('dsh_session=sid-b'));
+  const connectedHtml = viewHtml;
+  const connectedWrites = htmlWrites;
+  const connectedBindings = bindingCalls.length;
+  const connectedEnsures = ensureServerCalls;
+  assert.ok(bindingCalls.every((cwd) => cwd === 'D:\\b'), 'initial binding follows the second root');
+
+  for (const [label, focusedEditor] of [
+    ['sidebar search focus', undefined],
+    ['search results editor', editor('search-editor', 'Search Results')],
+    ['custom webview editor', editor('vscode-webview', 'dsh-instance')],
+    ['file outside the workspace', editor('file', 'D:\\outside\\notes.md')],
+  ]) {
+    fake.api.window.activeTextEditor = focusedEditor;
+    activeEditorChanged(focusedEditor);
+    // Let the serialized lifecycle work finish before asserting a no-op.
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.strictEqual(htmlWrites, connectedWrites, `${label} must not reload the iframe and clear its search state`);
+    assert.strictEqual(viewHtml, connectedHtml);
+    assert.strictEqual(bindingCalls.length, connectedBindings, `${label} must not resolve the first root`);
+  }
+
+  // A real file switch followed immediately by webview focus is one event
+  // burst: preserve the observed root even before the queued rebind starts.
+  fake.api.window.activeTextEditor = editor('file', 'D:\\a\\src\\index.js');
+  activeEditorChanged(fake.api.window.activeTextEditor);
+  fake.api.window.activeTextEditor = undefined;
+  activeEditorChanged(undefined);
+  await waitFor(() => viewHtml.includes('dsh_session=sid-a'));
+  assert.deepStrictEqual(bindingCalls.slice(connectedBindings), ['D:\\a']);
+  assert.ok(htmlWrites > connectedWrites, 'a real workspace switch must render the new session');
+  assert.strictEqual(ensureServerCalls, connectedEnsures, 'focus changes reuse the existing server');
 });
 
 test('binding API failure renders error status page and does not keep the old iframe session', async () => {
@@ -813,7 +1114,7 @@ test('binding API failure renders error status page and does not keep the old if
     },
     createServerManager() { return manager; },
     createWorkspaceBinding() { return fakeBinding; },
-    async ensureManagedRuntime() { return {}; },
+    async ensureManagedRuntime() { return { dshVersion: '0.1.2-rc.1' }; },
   });
 
   let viewHtml = '';

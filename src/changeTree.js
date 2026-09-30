@@ -513,6 +513,16 @@ function createChangeTree({
           ? vscode.Uri.parse(targetUriString)
           : null);
       if (target) {
+        const captured = (Array.isArray(entry.before) ? entry.before : []).find((snapshot) =>
+          snapshot && snapshot.uri === target.toString() && typeof snapshot.text === 'string');
+        if (captured) {
+          const beforeUri = makePreviewUri(entry, path.basename(resolvedFsPath || entry.path || 'change'), 'before');
+          previewDocuments.set(beforeUri.toString(), captured.text);
+          const exists = resolvedFsPath && fs.existsSync(resolvedFsPath);
+          await vscode.commands.executeCommand(exists ? 'vscode.diff' : 'vscode.open', beforeUri,
+            ...(exists ? [target, entry.label || entry.id, { preview: false, preserveFocus: false }] : [{ preview: false }]));
+          return { opened: true, diff: Boolean(exists), ...(exists ? {} : { deleted: true }) };
+        }
         // A deleted (or moved) target must never reach vscode.open — VS Code
         // answers with "cannot open the editor because the file was not found"
         // (live bug report 2026-09-04). Prefer the recorded snapshot when one
@@ -747,6 +757,20 @@ function createChangeTree({
       return announceUndoResult({ undone: true, method: 'discard', changeId });
     }
     const targetPath = entryTargetFsPath(entry);
+    const targetUri = targetPath ? vscode.Uri.file(targetPath).toString() : null;
+    const captured = (Array.isArray(entry.before) ? entry.before : []).find((snapshot) =>
+      snapshot && snapshot.uri === targetUri && typeof snapshot.text === 'string');
+    if (captured && targetPath) {
+      try {
+        fs.writeFileSync(targetPath, captured.text, 'utf8');
+        tracker.updateStatus(changeId, 'undone');
+        refresh();
+        return announceUndoResult({ undone: true, method: 'snapshot-restore', changeId });
+      } catch {
+        await vscode.window.showErrorMessage(loc('Cannot restore the recorded before snapshot'));
+        return { undone: false, reason: 'snapshot-restore-failed', changeId };
+      }
+    }
     if (entry.beforeSnapshotPath && targetPath) {
       try {
         const text = fs.readFileSync(entry.beforeSnapshotPath, 'utf8');

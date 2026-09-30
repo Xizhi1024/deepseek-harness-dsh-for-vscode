@@ -29,6 +29,7 @@ const DEFAULT_DEBOUNCE_MS = 500;
 const DEFAULT_RATE_LIMIT_PER_SECOND = 20;
 const DEFAULT_RATE_SUSTAIN_MS = 5000;
 const DEFAULT_POLL_INTERVAL_MS = 60_000;
+const MAX_PENDING_CHANGES = 256;
 const DEDUP_MTIME_TOLERANCE_MS = 1000;
 const MAX_SNAPSHOT_BYTES = 1024 * 1024;
 const GIT_EXTENSION_ID = 'vscode.git';
@@ -195,6 +196,7 @@ function createChangeWatcher({
   let watcher = null;
   let pending = new Map(); // uri.toString() -> { uri, fsPath }
   let pendingTimer = null;
+  let flushing = null;
   let pollTimer = null;
   let eventTimes = [];
   let overloadSince = null;
@@ -206,19 +208,22 @@ function createChangeWatcher({
     for (const folder of folders) {
       const root = folder && folder.uri && typeof folder.uri.fsPath === 'string' ? folder.uri.fsPath : null;
       if (!root) continue;
-      if (fsPath === root || fsPath.startsWith(root + path.sep) || fsPath.startsWith(root + '/')) {
-        return toPosix(fsPath.slice(root.length + 1));
+      const relative = path.relative(root, fsPath);
+      if (relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative)) {
+        return toPosix(relative);
       }
     }
     return null;
   }
 
   function isIgnored(fsPath) {
-    const normalized = toPosix(fsPath);
+    const normalized = toPosix(path.resolve(fsPath));
     if (/(^|\/)\.git(\/|$)/.test(normalized)) return true;
     if (storageRoot) {
-      const root = toPosix(storageRoot);
-      if (normalized === root || normalized.startsWith(root + '/')) return true;
+      const root = toPosix(path.resolve(storageRoot));
+      const candidate = process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+      const ignoredRoot = process.platform === 'win32' ? root.toLowerCase() : root;
+      if (candidate === ignoredRoot || candidate.startsWith(ignoredRoot + '/')) return true;
     }
     const relative = workspaceRelative(fsPath);
     if (relative === null) return true; // outside every workspace folder
@@ -233,10 +238,12 @@ function createChangeWatcher({
 
   function noteEvent() {
     const at = nowMs();
+    // Only the newest limit+1 timestamps are needed to detect a hot second.
+    // Keeping every event over five seconds made a burst quadratic to scan
+    // and unbounded in memory before the sustained-rate breaker could trip.
     eventTimes.push(at);
-    eventTimes = eventTimes.filter((time) => at - time <= DEFAULT_RATE_SUSTAIN_MS);
-    const lastSecond = eventTimes.filter((time) => at - time < 1000).length;
-    if (lastSecond > DEFAULT_RATE_LIMIT_PER_SECOND) {
+    if (eventTimes.length > DEFAULT_RATE_LIMIT_PER_SECOND + 1) eventTimes.shift();
+    if (eventTimes.length > DEFAULT_RATE_LIMIT_PER_SECOND && at - eventTimes[0] < 1000) {
       if (overloadSince === null) {
         overloadSince = at;
       } else if (at - overloadSince >= DEFAULT_RATE_SUSTAIN_MS) {
@@ -253,6 +260,7 @@ function createChangeWatcher({
     mode = 'git-polling';
     onDiagnostic('change watcher: event rate breaker tripped; degrading to git status polling');
     detachWatcher();
+    eventTimes = [];
     pending.clear();
     if (pendingTimer !== null) {
       cancel(pendingTimer);
@@ -278,9 +286,15 @@ function createChangeWatcher({
 
   function handleEvent(uri) {
     if (disposed || mode !== 'watching') return;
+    const fsPath = uri && typeof uri.fsPath === 'string' ? uri.fsPath : String(uri);
+    // Excluded paths must not fill the queue or trip the rate breaker.
+    if (isIgnored(fsPath)) return;
     noteEvent();
     if (disposed || mode !== 'watching') return; // the breaker may have tripped above
-    const fsPath = uri && typeof uri.fsPath === 'string' ? uri.fsPath : String(uri);
+    if (!pending.has(String(uri)) && pending.size >= MAX_PENDING_CHANGES) {
+      tripBreaker();
+      return;
+    }
     pending.set(String(uri), { uri, fsPath });
     if (pendingTimer === null) {
       pendingTimer = schedule(() => {
@@ -297,6 +311,7 @@ function createChangeWatcher({
     let size = 0;
     try {
       const stats = statSync(fsPath);
+      if (typeof stats.isFile === 'function' && !stats.isFile()) return;
       mtimeMs = typeof stats.mtimeMs === 'number' ? stats.mtimeMs : mtimeMs;
       size = typeof stats.size === 'number' ? stats.size : 0;
     } catch {
@@ -342,17 +357,29 @@ function createChangeWatcher({
     }
   }
 
-  async function flush() {
-    const batch = [...pending.values()];
-    pending = new Map();
-    for (const change of batch) {
-      if (disposed) return;
-      try {
-        await processChange(change);
-      } catch (error) {
-        onDiagnostic(`change watcher: processing ${change.fsPath} failed: ${error && error.message ? error.message : error}`);
-      }
+  function flush() {
+    if (flushing) return flushing;
+    if (pendingTimer !== null) {
+      cancel(pendingTimer);
+      pendingTimer = null;
     }
+    // A slow journal must not allow overlapping flushes to record the same
+    // file before either write is visible to attribution deduplication.
+    flushing = (async () => {
+      while (!disposed && mode === 'watching' && pending.size > 0) {
+        const batch = [...pending.values()];
+        pending = new Map();
+        for (const change of batch) {
+          if (disposed || mode !== 'watching') return;
+          try {
+            await processChange(change);
+          } catch (error) {
+            onDiagnostic(`change watcher: processing ${change.fsPath} failed: ${error && error.message ? error.message : error}`);
+          }
+        }
+      }
+    })().finally(() => { flushing = null; });
+    return flushing;
   }
 
   /**
@@ -368,17 +395,22 @@ function createChangeWatcher({
       && vscode.extensions.getExtension(GIT_EXTENSION_ID);
     if (!extension) return 0;
     const exported = extension.isActive ? extension.exports : await extension.activate();
-    const api = exported && typeof exported.getBuiltInGitApi === 'function'
-      ? await exported.getBuiltInGitApi()
-      : exported;
-    if (!api || typeof api.getRepositories !== 'function') return 0;
-    const repositories = await api.getRepositories();
+    const api = exported && typeof exported.getAPI === 'function'
+      ? exported.getAPI(1)
+      : (exported && typeof exported.getBuiltInGitApi === 'function'
+        ? await exported.getBuiltInGitApi()
+        : exported);
+    if (!api || disposed) return 0;
+    const repositories = Array.isArray(api.repositories)
+      ? api.repositories
+      : (typeof api.getRepositories === 'function' ? await api.getRepositories() : []);
     let recorded = 0;
     for (const repository of Array.isArray(repositories) ? repositories : []) {
       const changes = repository && repository.state && Array.isArray(repository.state.workingTreeChanges)
         ? repository.state.workingTreeChanges
         : [];
       for (const change of changes) {
+        if (disposed) return recorded;
         if (!change || !change.uri) continue;
         const fsPath = typeof change.uri.fsPath === 'string' ? change.uri.fsPath : String(change.uri);
         const alreadyTracked = tracker.list().some((entry) => entryMatchesPath(entry, String(change.uri), fsPath));

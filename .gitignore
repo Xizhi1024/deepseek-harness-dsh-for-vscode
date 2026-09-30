@@ -31,3 +31,9 @@ docs/
 # ---- Local orchestration / 本地编排工作区 ----
 # Worktree lanes and deepwork progress files live here; never committed.
 .slim/
+
+# ---- rc.2 adaptation scratch (M0 isolation) ----
+/.dsh-accept-test/
+/.dsh-repair/
+/.vscode/
+/thinking-effort-loaded.json

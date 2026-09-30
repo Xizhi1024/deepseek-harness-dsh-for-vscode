@@ -5,7 +5,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const { packageRootsFromShim } = require('./shimResolver');
-const { nodeCandidates, detectDshVersionNear } = require('./localRuntimeResolver');
+const { nodeCandidates, detectDshPackageNear } = require('./localRuntimeResolver');
 const { MANAGED_PROFILE } = require('./managedRuntimeLaunch');
 
 /** Valid dsh.launch.method values. 'auto' = managed first, then command. */
@@ -67,6 +67,7 @@ async function resolveCommandRuntime({
   const hit = await lookupOnPath(command, { platform, env, execFn: deps.execFn });
   if (!hit) return null;
   const resolvedHome = path.resolve(dshHome);
+  const packageInfo = await detectDshPackageNear(hit, { readFile: deps.readFile, realpath: deps.realpath });
 
   if (platform !== 'win32') {
     try {
@@ -85,10 +86,8 @@ async function resolveCommandRuntime({
       // A9: recover the official package version from the npm layout around
       // the hit so compat flags (theme-follow / toolsV3) and Diagnose see a
       // real version instead of "unknown".
-      dshVersion: await detectDshVersionNear(hit, {
-        readFile: deps.readFile,
-        realpath: deps.realpath,
-      }),
+      dshVersion: packageInfo?.dshVersion || null,
+      ...(packageInfo ? { packageRoot: packageInfo.packageRoot } : {}),
     });
   }
 
@@ -103,10 +102,8 @@ async function resolveCommandRuntime({
       profileHome: path.join(resolvedHome, 'profiles', profileName),
       profileName,
       source: 'command-path',
-      dshVersion: await detectDshVersionNear(hit, {
-        readFile: deps.readFile,
-        realpath: deps.realpath,
-      }),
+      dshVersion: packageInfo?.dshVersion || null,
+      ...(packageInfo ? { packageRoot: packageInfo.packageRoot } : {}),
     });
   }
   if (!(lower.endsWith('.cmd') || lower.endsWith('.bat') || lower.endsWith('.ps1'))) {
@@ -135,6 +132,7 @@ async function resolveCommandRuntime({
     if (!nodeExe) return null;
     return Object.freeze({
       executablePath: nodeExe,
+      packageRoot: root,
       entrypointArgs: Object.freeze([entry]),
       dshHome: resolvedHome,
       profileHome: path.join(resolvedHome, 'profiles', profileName),

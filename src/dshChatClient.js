@@ -240,7 +240,11 @@ function createDshChatClient({
   fetchImpl = globalThis.fetch,
   baseUrlProvider,
   ensureConnected,
+  runtimeApiProvider,
+  feedHubProvider,
+  runtimeInstanceIdProvider,
 } = {}) {
+  const targetStreams = new Set();
   if (typeof baseUrlProvider !== "function") {
     throw new TypeError("baseUrlProvider must be a function");
   }
@@ -315,6 +319,20 @@ function createDshChatClient({
       throw new TypeError("mode must be 'queue' or 'steer'");
     }
     const wireContent = toWireContent(content);
+    if (typeof runtimeApiProvider === 'function') {
+      if (ensureConnected) await ensureConnected();
+      const api = await runtimeApiProvider();
+      if (api) {
+        const requestId = require('node:crypto').randomUUID();
+        const parts = wireContent.map((part) => {
+          if (part.type === 'text' && typeof part.text === 'string') return { kind: 'text', text: part.text };
+          throw new DshSessionError('DSH_SESSION_API_INVALID_REQUEST', 'This prompt attachment format has no verified runtime mapping');
+        });
+        for (const stream of targetStreams) if (stream.sessionId === sessionId && stream.signal === signal) stream.requestId = requestId;
+        await api.submitPrompt({ sessionId, content: parts, mode, clientRequestId: requestId }, { requestId, signal: signal || new AbortController().signal });
+        return Object.freeze({ accepted: true, sessionId });
+      }
+    }
     const resolvedFetch = resolveFetchImpl({ fetchImpl });
     const baseUrl = await resolveBaseUrl();
     const parsed = assertLoopbackBaseUrl(baseUrl);
@@ -391,7 +409,75 @@ function createDshChatClient({
    * @param {AbortSignal} [args.signal] - Caller abort signal.
    * @returns {Promise<{reason: string}>} Terminal reason (also passed to onDone).
    */
-  async function streamSession({ sessionId, onText, onDone, onReady, onEvent, signal } = {}) {
+  async function streamSession({ sessionId, onText, onDone, onReady, onEvent, onProgress, signal } = {}) {
+    if (typeof runtimeApiProvider === 'function') {
+      if (ensureConnected) await ensureConnected();
+      const api = await runtimeApiProvider();
+      if (api) {
+        const hub = feedHubProvider?.();
+        const instanceId = runtimeInstanceIdProvider?.();
+        if (!hub || !instanceId) throw new DshSessionError('DSH_SESSION_API_UNAVAILABLE', 'Runtime session feed is not ready');
+        return new Promise((resolve) => {
+          const stream = { sessionId, signal, requestId: null, active: false };
+          targetStreams.add(stream);
+          let subscription;
+          let finished = false;
+          let ready = false;
+          const committed = new Set();
+          const finish = (reason) => {
+            if (finished) return;
+            finished = true;
+            targetStreams.delete(stream);
+            subscription?.release();
+            signal?.removeEventListener('abort', abort);
+            try { onDone?.({ reason }); } catch { /* isolated callback */ }
+            resolve({ reason });
+          };
+          const abort = () => finish('aborted');
+          const deliverCommitted = (record) => {
+            if (record.kind !== 'assistant' || committed.has(record.id)) return;
+            committed.add(record.id);
+            onText(record.content.filter((part) => part.kind === 'text').map((part) => part.text).join(''));
+          };
+          const reconcile = (state) => {
+            if (!stream.requestId) return;
+            let ownPrompt = false;
+            for (const record of state.records) {
+              if (record.kind === 'user' && record.clientRequestId) ownPrompt = record.clientRequestId === stream.requestId;
+              if (ownPrompt) deliverCommitted(record);
+            }
+          };
+          subscription = hub.subscribe({ instanceId, sessionId }, {
+            onBaseline(baseline) {
+              try {
+                if (!ready) { ready = true; onReady?.(); }
+                else reconcile(baseline.state);
+              } catch { finish('consumer-error'); }
+            },
+            onUpdate(update) {
+              try {
+                onEvent?.(update, sessionId);
+                if (update.kind === 'turn-state' && stream.requestId && update.clientRequestId === stream.requestId) {
+                  if (update.state === 'running') stream.active = true;
+                  if (['completed', 'cancelled', 'failed'].includes(update.state)) finish(update.state === 'completed' ? 'turn-end' : update.state);
+                }
+                if (stream.active && update.kind === 'assistant-chunk' && update.channel === 'answer') {
+                  // VS Code markdown is append-only. Transient attempts may be
+                  // abandoned, so show their activity as progress, not durable text.
+                  onProgress?.(update.text);
+                }
+                if (stream.active && update.kind === 'durable') for (const change of update.changes) {
+                  if (change.op === 'upsert') deliverCommitted(change.record);
+                }
+              } catch { finish('consumer-error'); }
+            },
+            onError: () => finish('stream-error'),
+          });
+          if (finished) subscription.release();
+          if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort, { once: true });
+        });
+      }
+    }
     if (typeof sessionId !== "string" || sessionId.length === 0) {
       throw new TypeError("sessionId must be a non-empty string");
     }

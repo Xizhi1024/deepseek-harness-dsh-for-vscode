@@ -24,13 +24,13 @@ test('INTEGRATION_FILES covers every runtime plugin lib file (missing-file crash
   // plugin crashed the DSH server at startup with exit 1. This test fails the
   // build the moment a new lib/*.js exists without its manifest entry.
   const pluginRoot = path.resolve(__dirname, '..', 'runtime-integration', 'dsh-vscode-integration');
-  const onDisk = fs.readdirSync(path.join(pluginRoot, 'lib'), { recursive: false })
-    .filter((name) => name.endsWith('.js'))
-    .map((name) => 'lib/' + name)
-    .sort();
-  const listed = [...INTEGRATION_FILES].filter((relative) => relative.startsWith('lib/')).sort();
+  const onDisk = ['lib', 'contracts'].flatMap((folder) =>
+    fs.readdirSync(path.join(pluginRoot, folder), { recursive: true })
+      .filter((name) => /\.(?:js|cjs|json)$/.test(name))
+      .map((name) => folder + '/' + name.split(path.sep).join('/'))).sort();
+  const listed = [...INTEGRATION_FILES].filter((relative) => relative.startsWith('lib/') || relative.startsWith('contracts/')).sort();
   assert.deepStrictEqual(listed, onDisk,
-    'every runtime-integration/dsh-vscode-integration/lib/*.js must appear in INTEGRATION_FILES');
+    'all nested runtime modules and canonical contracts must appear in INTEGRATION_FILES');
 });
 
 test('DSH integration installs its fixed package files inside the selected home', (t) => {

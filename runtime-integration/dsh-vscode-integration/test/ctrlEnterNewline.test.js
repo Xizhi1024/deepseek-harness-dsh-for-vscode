@@ -152,6 +152,18 @@ function applyClient(shim) {
   return client;
 }
 
+test('0.2 contenteditable chord is normalized to Shift-only for the native editor', () => {
+  const shim = createShim();
+  shim.window.location.search += '&dsh_runtime=0.2.0-rc.1';
+  applyClient(shim);
+  const event = press(shim, keydown({ target: shim.composer.editor, metaKey: true }));
+  assert.equal(event.shiftKey, true);
+  assert.equal(event.ctrlKey, false);
+  assert.equal(event.metaKey, false);
+  assert.equal(event.defaultPrevented, false);
+  assert.equal(shim.execCalls.length, 0);
+});
+
 for (const editorKind of ['contenteditable', 'textarea']) {
   test(`[${editorKind}] Ctrl+Enter on the focused composer with a draft never submits`, () => {
     const shim = createShim({ execInsertSucceeds: true, editorKind });

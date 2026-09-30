@@ -100,7 +100,14 @@ const {
   diagnosticSnapshot,
 } = require("./providerDetector");
 const { writeCleanOverlay, writeEmbedOverlay } = require("./embedOverlay");
-const { ensureProfileScaffold } = require("./profileScaffold");
+const { ensureProfileScaffold, deriveRuntimeProfileName } = require("./profileScaffold");
+const { createRuntimeIdentityFromResolved, identityToResolvedRuntime } = require('./runtime/identity');
+const { createRuntimeSupervisor } = require('./runtime/supervisor');
+const { createDshRuntimeClient } = require('./runtime/client');
+const { createSessionFeedHub } = require('./session/feedHub');
+const { createSessionCoordinator } = require('./session/coordinator');
+const { createBrowserSessionProxy } = require('./session/browserProxy');
+const { validateSessionMessage, createPortError } = require('./protocol/runtime');
 const {
   HOME_MODES,
   bindRuntimeHome,
@@ -140,6 +147,7 @@ let viewGeneration = 0; // invalidates delayed connects for disposed/replaced vi
  */
 function followEditProjection(sessionId) {
   try {
+    if (browserOnly) { editEventProjector?.unfollow(); return; }
     if (sessionId) {
       editEventProjector?.followSession(sessionId);
     } else {
@@ -209,6 +217,152 @@ let ownerWindowId = null; // stable window identity (vscode.env.windowId or deri
 let heartbeatFilePath = null; // per-window heartbeat path injected via DSH_VSCODE_HEARTBEAT_PATH
 let heartbeatTimer = null; // 10s heartbeat writer
 let ownerStartTs = null; // extension-host process start timestamp (PID-reuse guard)
+let targetSelected = false;
+let browserOnly = false;
+let targetSupervisor = null;
+let targetLease = null;
+let targetRunningServer = null;
+let targetFeedHub = null;
+let targetCoordinator = null;
+let targetWorkspace = null;
+const targetSurfaces = new Map(); // webview -> shell-owned identity + host proxy
+let targetSurfaceEpoch = 0;
+
+function targetOperation(signal) {
+  return { requestId: crypto.randomUUID(), signal: signal || runtimeAbort.signal };
+}
+
+function runtimeApiProvider() {
+  if (browserOnly) throw createPortError('CAPABILITY_UNAVAILABLE', 'The external runtime has no verified integration handshake');
+  if (targetSelected && !targetLease) throw createPortError('NOT_READY', 'DSH integration is not ready');
+  return targetLease?.api || null;
+}
+
+function releaseTargetSurface(webview) {
+  const entry = targetSurfaces.get(webview);
+  if (!entry) return;
+  targetSurfaces.delete(webview);
+  entry.unobserve?.();
+  entry.unregister?.();
+  entry.listeners?.clear();
+}
+
+function targetFrameOptions(webview, surfaceId) {
+  if (!targetLease || !webview) return {};
+  releaseTargetSurface(webview);
+  const surfaceIdentity = { surfaceId, surfaceEpoch: ++targetSurfaceEpoch };
+  targetSurfaces.set(webview, { ...surfaceIdentity, minimumEpoch: surfaceIdentity.surfaceEpoch,
+    instanceId: targetLease.instanceId, listeners: new Set() });
+  return { runtimeVersion: targetLease.identity.runtimeVersion, surfaceIdentity };
+}
+
+function handleTargetSessionMessage(message, webview) {
+  const entry = targetSurfaces.get(webview);
+  if (!entry || !targetLease || entry.instanceId !== targetLease.instanceId
+    || message.surfaceId !== entry.surfaceId) return;
+  if (message.type === 'hello-init') {
+    if (!validateSessionMessage(message) || message.surfaceEpoch < entry.minimumEpoch
+      || (entry.proxy && message.surfaceEpoch <= entry.surfaceEpoch)) return;
+    entry.unobserve?.(); entry.unregister?.(); entry.listeners.clear();
+    entry.surfaceEpoch = message.surfaceEpoch;
+    targetSurfaceEpoch = Math.max(targetSurfaceEpoch, message.surfaceEpoch);
+    entry.proxy = createBrowserSessionProxy({ surfaceIdentity: message,
+      postMessage: (value) => webview.postMessage(value),
+      subscribeMessages: (listener) => { entry.listeners.add(listener); return () => entry.listeners.delete(listener); } });
+    entry.unregister = targetCoordinator.registerSurface({ surfaceId: entry.surfaceId, surfaceEpoch: entry.surfaceEpoch,
+      lease: targetLease, browser: entry.proxy });
+    entry.unobserve = entry.proxy.observeTarget((target) => {
+      if (entry.surfaceId !== 'sidebar') {
+        const instance = instancePanels.get(Number(entry.surfaceId.replace('panel-', '')));
+        if (instance && target.state === 'known') instance.sessionId = target.sessionId;
+        return;
+      }
+      currentSessionId = target.state === 'known' ? target.sessionId : null;
+      changeTree?.setActiveSession?.(currentSessionId);
+      followEditProjection(currentSessionId);
+    });
+    if (boundCwd) targetCoordinator.bindWorkspace(entry.surfaceId, boundCwd, targetOperation()).catch((error) => {
+      appendDiagnostic(`[session] workspace binding: ${error.code || 'INTERNAL'}`);
+    });
+    return;
+  }
+  if (message.surfaceEpoch !== entry.surfaceEpoch) return;
+  // The proxy validates response values using their outstanding method; do not
+  // validate successful results without that method-specific context here.
+  for (const listener of entry.listeners) listener(message);
+}
+
+async function insertTargetAttachment(prepare) {
+  let webview = focusedComposerWebview();
+  if (!webview) {
+    await vscode.commands.executeCommand('workbench.view.extension.' + CONTAINER_ID);
+    await vscode.commands.executeCommand(VIEW_ID + '.focus');
+    webview = (await waitForResolvedView())?.webview;
+  }
+  const entry = targetSurfaces.get(webview);
+  if (!entry?.proxy || !targetCoordinator) throw createPortError('NOT_READY', 'The DSH conversation is not ready');
+  return targetCoordinator.insertAttachment(entry.surfaceId, prepare, targetOperation());
+}
+
+async function releaseTargetSessionServices() {
+  editEventProjector?.unfollow();
+  for (const webview of Array.from(targetSurfaces.keys())) releaseTargetSurface(webview);
+  await targetCoordinator?.dispose();
+  await targetFeedHub?.dispose();
+  targetCoordinator = null; targetFeedHub = null; targetWorkspace = null;
+  targetLease = null; targetRunningServer = null;
+}
+
+function installTargetSessionServices(lease) {
+  targetLease = lease;
+  targetFeedHub = createSessionFeedHub({
+    createRequestId: () => crypto.randomUUID(),
+    openFeed: (key, op) => {
+      if (!targetLease || key.instanceId !== targetLease.instanceId) throw createPortError('NOT_READY', 'Runtime instance changed');
+      return targetLease.api.openFeed(key.sessionId, op);
+    },
+  });
+  targetCoordinator = createSessionCoordinator({ createRequestId: () => crypto.randomUUID(),
+    logger: (event) => appendDiagnostic(`[session] ${event.code}`) });
+}
+
+async function resolveTargetPromptSession() {
+  if (!targetLease) throw createPortError('NOT_READY', 'DSH integration is not ready');
+  const cwd = hostContext.workspaceCwd();
+  if (!cwd) throw createPortError('NOT_READY', 'Open a workspace before sending a prompt');
+  const op = targetOperation();
+  const workspace = await targetLease.api.ensureWorkspace(cwd, op);
+  const target = currentView && targetSurfaces.get(currentView.webview)?.proxy?.getTarget();
+  if (target?.state === 'known') {
+    const sessions = await targetLease.api.listSessions(workspace.id, op);
+    if (sessions.some((session) => session.id === target.sessionId)) return target.sessionId;
+  }
+  // Called only by an explicit send/API action, never by focus reconciliation.
+  return (await targetLease.api.createSession(workspace.id, op)).id;
+}
+
+async function navigateSidebarSession(context, sessionId) {
+  if (targetSelected) {
+    await vscode.commands.executeCommand('workbench.view.extension.' + CONTAINER_ID);
+    await vscode.commands.executeCommand(VIEW_ID + '.focus');
+    const deadline = Date.now() + 5000;
+    let entry;
+    while (targetLease && Date.now() < deadline) {
+      entry = currentView && targetSurfaces.get(currentView.webview);
+      if (entry?.proxy) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    if (!entry?.proxy || !targetCoordinator) throw createPortError('NOT_READY', 'The DSH conversation is not ready');
+    if (!boundCwd) throw createPortError('NOT_READY', 'Open a workspace before navigating');
+    await targetCoordinator.bindWorkspace(entry.surfaceId, boundCwd, targetOperation());
+    await targetCoordinator.navigate(entry.surfaceId, sessionId, targetOperation());
+    return;
+  }
+  currentSessionId = sessionId;
+  workspaceBinding?.setActiveSession?.(sessionId);
+  followEditProjection(currentSessionId);
+  renderFrame(context);
+}
 
 function storageUriFor(context) {
   return activeGlobalStorageUri || context.globalStorageUri;
@@ -276,43 +430,49 @@ async function openInstancePanel({
   const baseUrl = server.url;
   let sessionId = null;
   try {
-    sessionId = await createSessionFn(baseUrl, { cwd: boundCwd });
+    sessionId = await createSessionFn(baseUrl, { cwd: boundCwd, runtimeApi: runtimeApiProvider() });
   } catch (error) {
     panel.dispose();
     throw error;
   }
   // Panels share the sidebar's child and its embed proxy; the direct URL is
   // the fallback for tokenless/reused servers and before the first bind.
-  const externalUrl = needsEmbedProxy(server) && embedProxy
-    ? await externalize(embedProxy.url)
-    : await externalize(server.url);
   const sessionValue = sessionIdFromValue(sessionId);
-  const paint = () => {
+  const instance = { panel, server, sessionId: sessionValue, disposed: false, paint: null };
+  const paint = async (nextServer = currentServer || instance.server) => {
+    if (instance.disposed || !nextServer) return;
+    instance.server = nextServer;
+    const externalUrl = nextServer === currentServer && currentExternalUrl
+      ? currentExternalUrl : await externalize(nextServer.url);
+    if (instance.disposed) return;
     panel.webview.html = framePage({
+      ...targetFrameOptions(panel.webview, `panel-${id}`),
       url: externalUrl,
-      browserUrl: safeHttpUrl(server.url),
+      browserUrl: safeHttpUrl(nextServer.url),
       lang: facade.env.language,
       failText: loc("Failed to load: DSH service unreachable"),
       openBrowserLabel: loc("Open in browser"),
       retryLabel: loc("Retry"),
-      sessionId: sessionValue,
+      sessionId: instance.sessionId,
       theme: currentDshTheme,
     });
   };
-  paint();
+  instance.paint = paint;
+  await paint(server);
   panel.webview.onDidReceiveMessage(createWebviewMessageHandler({
     openBrowser: () => {
-      const candidate = safeHttpUrl(server.url);
+      const candidate = safeHttpUrl(instance.server.url);
       if (candidate && candidate !== "about:blank") {
         facade.env.openExternal(vscode.Uri.parse(candidate));
       }
     },
-    retry: () => paint(),
+    retry: () => paint().catch((error) => appendDiagnostic(`[instance] repaint: ${error.code || 'INTERNAL'}`)),
     interaction: (message) => {
       handleWebviewInteraction(message, panel.webview);
     },
     threadResult: (message) => threadAttachmentCoordinator?.handleResult(message),
-    sessionChanged: (sessionId) => handleSessionChangedFromWeb(sessionId),
+    sessionBridge: (message) => handleTargetSessionMessage(message, panel.webview),
+    sessionChanged: (sessionId) => { if (!targetSelected) handleSessionChangedFromWeb(sessionId); },
     handshakeError: (message) => {
       const detail = message && message.error ? message.error : loc("Webview 桥版本不匹配");
       setStatusBar("$(error) " + loc("Webview 桥版本不匹配"), detail);
@@ -322,12 +482,14 @@ async function openInstancePanel({
     if (event.webviewPanel.active) lastFocusedInstanceId = id;
   });
   panel.onDidDispose(() => {
+    instance.disposed = true;
+    releaseTargetSurface(panel.webview);
     instancePanels.delete(id);
     if (lastFocusedInstanceId === id) lastFocusedInstanceId = null;
     // The shared child keeps serving the sidebar; nothing to stop here.
     appendDiagnostic("[instance] " + title + " closed (session " + (sessionValue || "none") + " released)");
   });
-  instancePanels.set(id, { panel, server });
+  instancePanels.set(id, instance);
   lastFocusedInstanceId = id;
 }
 
@@ -414,17 +576,17 @@ function notifyDiagnosticsChanged(event) {
   }
 }
 
-function prepareDshHome(config, context) {
+function prepareDshHome(config, context, { effectiveProfile = config.profile, donorProfileName, home } = {}) {
   const resolved = resolveDshHome({
     mode: config.homeMode,
     configuredPath: config.homePath,
     globalStoragePath: storageUriFor(context).fsPath,
   });
-  activeDshHome = resolved.path;
+  activeDshHome = home || resolved.path;
   const integration = installDshIntegration(
     activeDshHome,
     context.extensionPath || path.resolve(__dirname, '..'),
-    { profileName: config.profile }
+    { profileName: effectiveProfile }
   );
   if (integration.versionChanged || (Array.isArray(integration.foreignRemoved) && integration.foreignRemoved.length > 0)) {
     // Multi-version coexistence: another extension version (installed release
@@ -434,7 +596,7 @@ function prepareDshHome(config, context) {
     appendDiagnostic(`[integration] package directory re-owned by this extension version; swept ${integration.foreignRemoved.length} foreign file(s)`);
   }
   try {
-    const scaffold = ensureProfileScaffold({ dshHome: activeDshHome, profileName: config.profile });
+    const scaffold = ensureProfileScaffold({ dshHome: activeDshHome, profileName: effectiveProfile, donorProfileName });
     if (scaffold.created.length > 0) {
       appendDiagnostic(`[profile] scaffolded "${config.profile}" (${scaffold.created.join(', ')})`);
     }
@@ -444,7 +606,7 @@ function prepareDshHome(config, context) {
     console.error('dsh-vs-sidebar: profile scaffold failed:', scaffoldError && scaffoldError.message ? scaffoldError.message : scaffoldError);
   }
   const info = {
-    ...resolved,
+    ...resolved, path: activeDshHome, effectiveProfile,
     integrationNodeModulesPath: integration.nodeModulesPath,
   };
   activeDshHomeInfo = info;
@@ -726,8 +888,9 @@ function setStatusBar(text, tooltip) {
 }
 
 /** Push an HTML page into the sidebar webview, if one is open. */
-function render(page) {
+function render(page, { preserveSurface = false } = {}) {
   if (currentView) {
+    if (!preserveSurface) releaseTargetSurface(currentView.webview);
     currentView.webview.html = page;
   }
 }
@@ -743,7 +906,9 @@ function renderFrame(context) {
   // change (bind / new / switch), so this is the single setActiveSession
   // anchor; the tree tolerates being absent (L0) via optional chaining.
   try { changeTree?.setActiveSession?.(currentSessionId); } catch (_) { /* advisory */ }
+  if (targetLease && currentView && targetSurfaces.has(currentView.webview)) return;
   render(framePage({
+    ...targetFrameOptions(currentView?.webview, 'sidebar'),
     url: currentExternalUrl,
     browserUrl: currentBrowserUrl || currentExternalUrl,
     lang: vscode.env.language,
@@ -752,7 +917,7 @@ function renderFrame(context) {
     retryLabel: loc("Retry"),
     sessionId: currentSessionId,
     theme: currentDshTheme,
-  }));
+  }), { preserveSurface: true });
 }
 
 /**
@@ -764,7 +929,10 @@ function renderFrame(context) {
  */
 async function stopOwnedServer() {
   if (!manager || !manager.hasOwnedChild()) return false;
-  await manager.stop();
+  if (targetSelected) {
+    await releaseTargetSessionServices();
+    await targetSupervisor.stop(targetOperation());
+  } else await manager.stop();
   return true;
 }
 
@@ -789,6 +957,12 @@ async function stopOwnedServer() {
  * its URL for the webview and update the status bar / iframe.
  */
 async function bindServer(context, server, cwd) {
+  browserOnly = !server.owned && !targetLease && server.resolvedRuntime?.dshVersion !== '0.1.2-rc.1';
+  if (targetLease && currentServer === server && currentExternalUrl && currentView
+    && targetSurfaces.has(currentView.webview)) {
+    if (!hostContext.sameRoot(cwd, boundCwd)) await rebindToWorkspace(context);
+    return;
+  }
   currentServer = server;
   boundCwd = cwd;
   const url = await externalize(server.url);
@@ -803,12 +977,15 @@ async function bindServer(context, server, cwd) {
       embedProxy = createWebEmbedProxy({ log: (message) => appendDiagnostic(`[embed] ${message}`) });
       const proxyUrl = await embedProxy.start(server.url);
       currentExternalUrl = await externalize(proxyUrl);
-      appendDiagnostic(`[embed] iframe served via loopback proxy ${proxyUrl} -> ${server.url}`);
+      appendDiagnostic(`[embed] iframe served via loopback proxy ${proxyUrl} -> ${new URL(server.url).origin}`);
     } catch (error) {
       embedProxy = null;
       appendDiagnostic(`[embed] proxy unavailable (${error && error.message}); iframe uses the direct URL`);
     }
   }
+  // Surviving panels share the newly bound server/proxy and receive fresh
+  // surface epochs. Their observed session is preserved across restarts.
+  for (const instance of instancePanels.values()) await instance.paint(server);
   const mode = loc(server.owned ? "managed" : "reused");
   // A6/U9: when the port-conflict fallback moved the server off the
   // configured port, the tooltip says which port is actually in use.
@@ -826,6 +1003,17 @@ async function bindServer(context, server, cwd) {
       bindTooltip
   );
 
+  if (browserOnly || (targetSelected && !targetLease)) {
+    currentSessionId = null;
+    followEditProjection(null);
+    renderFrame(context);
+    return;
+  }
+  if (targetLease) {
+    targetWorkspace = cwd ? await targetLease.api.ensureWorkspace(cwd, targetOperation()) : null;
+    renderFrame(context);
+    return;
+  }
   let sessionId = null;
   if (cwd) {
     // SM-2: bind through the DSH workspace registry. This works for both
@@ -863,7 +1051,9 @@ async function connectAttempt(context) {
     pendingCleanRestart = false;
 
     const cfg = hostContext.config();
-    prepareDshHome(cfg, context);
+    activeDshHomeInfo = resolveDshHome({ mode: cfg.homeMode, configuredPath: cfg.homePath,
+      globalStoragePath: storageUriFor(context).fsPath });
+    activeDshHome = activeDshHomeInfo.path;
     if (typeof manager.setExtraArgs === 'function') {
       try {
         manager.setExtraArgs(cfg.extraArgs);
@@ -873,8 +1063,10 @@ async function connectAttempt(context) {
       }
     }
     const cwd = hostContext.workspaceCwd();
+    const preserveLiveTarget = Boolean(targetLease && currentView
+      && targetSurfaces.has(currentView.webview) && manager.hasOwnedChild());
     setStatusBar("$(radio-tower) " + loc("DSH: connecting…"));
-    render(statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail: "", lang: vscode.env.language }));
+    if (!preserveLiveTarget) render(statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail: "", lang: vscode.env.language }));
 
     let server = null;
     // autoStart uses the locally installed official DSH package by default and
@@ -884,7 +1076,7 @@ async function connectAttempt(context) {
     // instance is already serving the configured endpoint, adopt that
     // instance as a reused external server instead of stranding the sidebar.
     if (cfg.autoStart) {
-      render(statusPage({
+      if (!preserveLiveTarget) render(statusPage({
         title: loc("Connecting to DeepSeek Harness…"),
         detail: loc("Resolving official DSH runtime…"),
         lang: vscode.env.language,
@@ -944,6 +1136,7 @@ async function connectAttempt(context) {
           }
         }
       } catch (runtimeError) {
+        if (cfg.runtimeVersion || hasExplicitRuntimeConfig || launchMethod === 'command') throw runtimeError;
         let adopted = typeof manager.adoptRunningDsh === 'function'
           ? await manager.adoptRunningDsh(cfg.host, cfg.port).catch(() => null)
           : null;
@@ -973,13 +1166,47 @@ async function connectAttempt(context) {
         server = adopted;
       }
       if (server === null) {
-        resolvedRuntime = bindRuntimeHome(resolvedRuntime, activeDshHome, cfg.profile);
+        // Validate selection before deriving a profile or changing the live adapter identity.
+        if (!['0.1.2-rc.1', '0.2.0-rc.1'].includes(resolvedRuntime?.dshVersion)) {
+          const actualVersion = resolvedRuntime?.dshVersion || 'unknown';
+          const detail = `Select exact DSH 0.1.2-rc.1 or 0.2.0-rc.1; the resolved version is unverified (${actualVersion}). Configure dsh.local.packageRoot to a supported installation.`;
+          appendDiagnostic(`[runtime] ${detail}`);
+          throw createPortError('UNSUPPORTED_RUNTIME', detail);
+        }
+        if (cfg.runtimeVersion && cfg.runtimeVersion !== resolvedRuntime.dshVersion) {
+          throw createPortError('UNSUPPORTED_RUNTIME', 'Resolved DSH version differs from dsh.runtime.version');
+        }
+        const effectiveProfile = deriveRuntimeProfileName(cfg.profile, resolvedRuntime.dshVersion);
+        resolvedRuntime = bindRuntimeHome(resolvedRuntime, activeDshHome, effectiveProfile);
+        const selectingTarget = resolvedRuntime.dshVersion === '0.2.0-rc.1';
         const adapter = deriveRuntimeAdapter(resolvedRuntime.dshVersion);
         appendDiagnostic(
           `[runtime] DSH ${resolvedRuntime.dshVersion || 'unknown'}; adapter=${adapter.line}; `
-          + `openPath=${adapter.openPathService}; sessionRoutes=${adapter.sessionRoutes}; live service negotiation authoritative`
+          + `openPath=${adapter.openPathService}; sessionRoutes=${adapter.sessionRoutes}; exact version selected`
         );
-        manager.setResolvedRuntime(resolvedRuntime);
+        if (selectingTarget) {
+          const identity = await createRuntimeIdentityFromResolved(resolvedRuntime, {
+            integrationVersion: require('../runtime-integration/dsh-vscode-integration/package.json').version,
+            source: launchMethod === 'command' ? 'command' : (cfg.runtimeManifestUrl ? 'managed' : 'local') });
+          const previousInstance = targetLease?.instanceId;
+          const lease = await targetSupervisor.ensure(identity, targetOperation());
+          targetSelected = true;
+          if (previousInstance !== lease.instanceId) {
+            const running = targetRunningServer;
+            await releaseTargetSessionServices();
+            targetRunningServer = running;
+            installTargetSessionServices(lease);
+          }
+          server = targetRunningServer;
+        } else {
+          if (targetLease) {
+            await releaseTargetSessionServices();
+            await targetSupervisor.stop(targetOperation());
+          }
+          targetSelected = false;
+          prepareDshHome(cfg, context);
+          manager.setResolvedRuntime(resolvedRuntime);
+        }
       }
     }
 
@@ -1069,7 +1296,7 @@ async function restartCleanNow(context) {
   const cfg = hostContext.config();
   let overlayPath;
   try {
-    overlayPath = writeCleanOverlay(activeDshHome, cfg.profile || "vscode");
+    overlayPath = writeCleanOverlay(activeDshHome, activeDshHomeInfo?.effectiveProfile || cfg.profile || "vscode");
   } catch (err) {
     vscode.window.showErrorMessage(loc("Clean restart failed: {message}", {
       message: err && err.message ? err.message : String(err),
@@ -1112,10 +1339,8 @@ async function restartNormalNow(context) {
  * another folder in a multi-root workspace — so the embedded DSH instance
  * always matches the workspace the user is looking at.
  *
- * Stops a server this extension spawned for the OLD root (reused instances
- * are never touched), resets the view to a "connecting" state and re-runs
- * the whole probe/reuse/spawn flow for the new cwd. No-ops when the root did
- * not effectively change.
+ * Reuses the current server and resolves a session for the new root. No-ops
+ * when the root did not effectively change.
  */
 async function rebindToWorkspace(context) {
   const cwd = hostContext.workspaceCwd();
@@ -1125,6 +1350,17 @@ async function rebindToWorkspace(context) {
   // never leak the previous workspace's content into the new DSH instance.
   editorContext?.clearAttachments();
   boundCwd = cwd;
+  if (browserOnly || (targetSelected && !targetLease)) {
+    currentSessionId = null;
+    followEditProjection(null);
+    return;
+  }
+  if (targetLease && currentServer && manager.hasOwnedChild()) {
+    targetWorkspace = cwd ? await targetLease.api.ensureWorkspace(cwd, targetOperation()) : null;
+    const entry = currentView && targetSurfaces.get(currentView.webview);
+    if (entry?.proxy && cwd) await targetCoordinator.bindWorkspace(entry.surfaceId, cwd, targetOperation());
+    return;
+  }
   render(statusPage({
     title: loc("Connecting to DeepSeek Harness…"),
     detail: loc("Workspace changed — rebinding to the new workspace…"),
@@ -1163,11 +1399,11 @@ async function rebindToWorkspace(context) {
 }
 
 /**
- * Queue a workspace-driven rebind. Chained so rapid workspace switches are
- * processed one after another instead of racing each other.
+ * Coalesce workspace events while retaining one follow-up for changes that
+ * arrive during a running rebind.
  */
 function scheduleRebind(context) {
-  return lifecycle.enqueue("workspace rebind", () => rebindToWorkspace(context));
+  return lifecycle.enqueueLatest("workspace rebind", () => rebindToWorkspace(context));
 }
 
 /**
@@ -1187,7 +1423,7 @@ function scheduleRebind(context) {
  * inputs take effect; they never touch a reused external instance.
  */
 function scheduleConfigReconcile(context) {
-  return lifecycle.enqueue("config reconcile", async () => {
+  return lifecycle.enqueueLatest("config reconcile", async () => {
     const prev = lastConfig || hostContext.config();
     const next = hostContext.config();
       // Record the incoming snapshot regardless, so rapid toggles coalesce
@@ -1419,6 +1655,8 @@ async function setupCoreServer({ context, services }) {
   discoverRunningDshWebPorts = injectedDependencies.discoverDshWebPorts
     || ((options) => defaultDiscoverDshWebPorts(options));
   ensureWorkspaceSessionFn = injectedDependencies.ensureWorkspaceSession || ((baseUrl, cwd, options) => {
+    if (browserOnly) throw createPortError('CAPABILITY_UNAVAILABLE', 'The external runtime has no verified integration handshake');
+    if (targetSelected) return resolveTargetPromptSession();
     const server = currentServer || { url: baseUrl, owned: true };
     return workspaceBinding.resolve(server, cwd);
   });
@@ -1429,14 +1667,15 @@ async function setupCoreServer({ context, services }) {
   // session.rename is issued per session per extension lifetime.
   sessionTitleFn = (injectedDependencies.createSessionTitler || createSessionTitler)((sessionId, title) => renameSession(
     currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
-    { sessionId, title }
+    { sessionId, title, runtimeApi: runtimeApiProvider() }
   ));
-  try {
-    prepareDshHome(hostContext.config(), context);
-  } catch (err) {
-    console.error('dsh-vs-sidebar: could not write embed overlay; starting without --patch:', err);
-    embedPatchPath = null;
-  }
+  // Do not sync an integration package before the exact runtime is selected.
+  activeDshHomeInfo = resolveDshHome({ mode: initialConfig.homeMode, configuredPath: initialConfig.homePath,
+    globalStoragePath: storageUriFor(context).fsPath });
+  activeDshHome = activeDshHomeInfo.path;
+  embedPatchPath = null;
+  targetSelected = false;
+  browserOnly = false;
   services.bridgeEnv = {};
   const createServerManager = injectedDependencies.createServerManager
     || ((options) => new ServerManager(options));
@@ -1537,6 +1776,31 @@ async function setupCoreServer({ context, services }) {
     },
   });
   services.manager = manager;
+  const ownedManagerPort = {};
+  for (const method of ['setResolvedRuntime', 'setEmbedPatchPath', 'setSpawnEnv', 'hasOwnedChild', 'stop', 'cancelPending', 'detach']) {
+    ownedManagerPort[method] = (...args) => manager[method]?.(...args);
+  }
+  ownedManagerPort.ensureServer = async (options) => {
+    targetRunningServer = await manager.ensureServer(options);
+    return targetRunningServer;
+  };
+  targetSupervisor = createRuntimeSupervisor({
+    serverManager: ownedManagerPort,
+    resolver: async (identity) => {
+      const cfg = hostContext.config();
+      return { runtime: identityToResolvedRuntime(identity), closePolicy: cfg.closePolicy,
+        serverOptions: { host: cfg.host, port: cfg.port, autoStart: cfg.autoStart,
+          cwd: hostContext.workspaceCwd(), registryFile: hostContext.registryFilePath() } };
+    },
+    prepareIntegration: async (identity) => {
+      const cfg = hostContext.config();
+      prepareDshHome(cfg, context, { effectiveProfile: identity.profile, donorProfileName: cfg.profile, home: identity.home });
+      return { embedPatchPath };
+    },
+    createClient: createDshRuntimeClient,
+    getClosePolicy: () => hostContext.config().closePolicy,
+    logger: (event) => appendDiagnostic(`[runtime] ${event.state}`),
+  });
   // C1 watchdog: hand the owned DSH child the keys it needs — the heartbeat
   // path, this window's identity, and the D6 switch-off when closePolicy is
   // `never` — so the DSH-host check loop keeps this window's server alive and
@@ -1560,10 +1824,13 @@ async function setupCoreServer({ context, services }) {
     ServerManager.cleanupStaleRegistry(hostContext.registryFilePath());
   } catch (_) { /* best effort */ }
   context.subscriptions.push(
-    vscode.workspace.onDidChangeWorkspaceFolders(() => scheduleRebind(context)),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => scheduleRebind(context).catch(() => {})),
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       notifyActiveEditorChanged(editor);
-      scheduleRebind(context);
+      // Capture the root before a queued lifecycle operation runs: focus may
+      // already have moved from this editor into search or a webview by then.
+      hostContext.workspaceCwd();
+      scheduleRebind(context).catch(() => {});
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
       // A2/U2: injection-class settings only take effect after the DSH
@@ -1590,7 +1857,7 @@ async function setupCoreServer({ context, services }) {
         || e.affectsConfiguration("dsh.home.path")
         || e.affectsConfiguration("dsh.profile")
       ) {
-        scheduleConfigReconcile(context);
+        scheduleConfigReconcile(context).catch(() => {});
       }
     })
   );
@@ -1708,12 +1975,12 @@ async function setupCoreSidebar({ context, services }) {
       } catch { roots = []; }
       if (typeof boundCwd === 'string' && boundCwd.length > 0) roots.unshift(boundCwd);
       const entry = await rawChangeTracker.recordToolEdit(normalizeToolEditPath(payload, roots));
-      if (entry && entry.merged !== true) {
+      if (entry) {
         // True before snapshot (2026-09-04): the pre-execute observer now
         // sends the before TEXT; persist it exactly like watcher snapshots so
         // openDiff shows a real before/after diff and undo restores the true
         // pre-change state.
-        if (typeof payload.beforeText === 'string'
+        if (!entry.beforeSnapshotPath && typeof payload.beforeText === 'string'
           && Buffer.byteLength(payload.beforeText, 'utf8') <= 1024 * 1024) {
           try {
             const snapshotDir = path.join(storageUriFor(context).fsPath, 'changes', 'snapshots');
@@ -1742,6 +2009,7 @@ async function setupCoreSidebar({ context, services }) {
   // notifications. Every projector failure only logs via appendDiagnostic.
   try {
     editEventProjector = createEditEventProjector({
+      feedHubProvider: () => targetFeedHub, runtimeInstanceIdProvider: () => targetLease?.instanceId,
       recordToolEdit: (payload) => changeTracker?.recordToolEdit?.(payload),
       log: (line) => appendDiagnostic(line),
       baseUrl: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
@@ -1803,7 +2071,14 @@ async function setupCoreSidebar({ context, services }) {
     : injectedDependencies.v3Handlers;
   versionedBridge = await versionedBridgeStarter({
     // C1/C2 contract: route vscode/dshEditObserved notifications into the journal.
-    onDshEditObserved: (payload) => changeTracker?.recordToolEdit?.(payload),
+    onDshEditObserved: (payload) => {
+      if (!targetSelected) return changeTracker?.recordToolEdit?.(payload);
+      if (!targetLease) return;
+      editEventProjector?.observe?.({ observationId: crypto.randomUUID(), runtimeInstanceId: targetLease.instanceId,
+        sessionId: payload.sessionId || null, path: payload.path, tool: payload.tool,
+        phase: 'pre-execute', origin: 'tool-observer', toolCallId: payload.toolCallId || null, sourceDurableSeq: null,
+        beforeText: typeof payload.beforeText === 'string' ? payload.beforeText : null });
+    },
     handlers: injectedDependencies.vscodeBridgeHandlers === undefined
       ? { ...editorContext.handlers, ...extensionBridgeHandlers, ...v3Handlers }
       : injectedDependencies.vscodeBridgeHandlers,
@@ -1870,13 +2145,15 @@ async function setupCoreSidebar({ context, services }) {
             handleWebviewInteraction(message, view.webview);
           },
           threadResult: (message) => threadAttachmentCoordinator?.handleResult(message),
-          sessionChanged: (sessionId) => handleSessionChangedFromWeb(sessionId),
+          sessionBridge: (message) => handleTargetSessionMessage(message, view.webview),
+          sessionChanged: (sessionId) => { if (!targetSelected) handleSessionChangedFromWeb(sessionId); },
           handshakeError: (message) => {
             const detail = message && message.error ? message.error : loc("Webview 桥版本不匹配");
             setStatusBar("$(error) " + loc("Webview 桥版本不匹配"), detail);
           },
         }));
         view.onDidDispose(() => {
+          releaseTargetSurface(view.webview);
           if (currentView !== view) return;
           currentView = null;
           viewGeneration += 1; // cancel a delayed connect tied to this view
@@ -2096,6 +2373,7 @@ function buildExportsFace(context) {
     isEnabled: () => vscode.workspace.getConfiguration('dsh').get('features.exports', false),
     titleSession: sessionTitleFn || undefined,
     chatClient: createDshChatClient({
+      runtimeApiProvider, feedHubProvider: () => targetFeedHub, runtimeInstanceIdProvider: () => targetLease?.instanceId,
       baseUrlProvider: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
       ensureConnected,
     }),
@@ -2110,7 +2388,7 @@ function buildExportsFace(context) {
     },
     listSessionsFn: ({ signal }) => listSessions(
       currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
-      { signal }
+      { signal, runtimeApi: runtimeApiProvider() }
     ),
     getBaseUrl: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
     editorContext,
@@ -2146,6 +2424,7 @@ async function setupChatParticipant({ context, services }) {
     return Boolean(currentServer);
   };
   const chatClient = createDshChatClient({
+      runtimeApiProvider, feedHubProvider: () => targetFeedHub, runtimeInstanceIdProvider: () => targetLease?.instanceId,
     baseUrlProvider: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
     ensureConnected,
   });
@@ -2164,7 +2443,7 @@ async function setupChatParticipant({ context, services }) {
     isEnabled: () => vscode.workspace.getConfiguration('dsh').get('features.chat-participant', false),
     listSessionsFn: ({ signal }) => listSessions(
       currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
-      { signal }
+      { signal, runtimeApi: runtimeApiProvider() }
     ),
     loc,
   });
@@ -2553,7 +2832,8 @@ function registerFeatureCommands(context, featureOk) {
         if (!currentServer) await scheduleConnect(context);
         if (!currentServer) throw new Error(loc("DSH: unavailable"));
         const text = formatSelectionAttachment(attachment, attachment.document.uri);
-        await threadAttachmentCoordinator.request(targetWebview, text);
+        if (targetSelected || browserOnly) await insertTargetAttachment(async () => text);
+        else await threadAttachmentCoordinator.request(targetWebview, text);
         vscode.window.showInformationMessage(loc("Selection added to the DSH conversation"));
       } catch (err) {
         vscode.window.showErrorMessage(loc("Add to DSH conversation failed: {message}", {
@@ -2569,6 +2849,7 @@ function registerFeatureCommands(context, featureOk) {
         vscode,
         editorContext,
         coordinator: threadAttachmentCoordinator,
+        useSessionBridge: () => targetSelected || browserOnly, insertTargetAttachment,
         formatFileAttachment,
         waitForResolvedView,
         ensureConnected: async () => {
@@ -2582,6 +2863,7 @@ function registerFeatureCommands(context, featureOk) {
       vscode,
       editorContext,
       coordinator: threadAttachmentCoordinator,
+      useSessionBridge: () => targetSelected || browserOnly, insertTargetAttachment,
       formatFolderAttachment,
       waitForResolvedView,
       ensureConnected: async () => {
@@ -2612,18 +2894,14 @@ function registerFeatureCommands(context, featureOk) {
         // Session API calls must use the raw loopback URL, never the
         // externalized (port-forwarded) client URL.
         const baseUrl = currentServer.url;
-        const items = await listSessions(baseUrl, { signal: controller.signal });
-        const reused = reuseBlankSession(items, boundCwd);
+        const items = await listSessions(baseUrl, { signal: controller.signal, runtimeApi: runtimeApiProvider() });
+        const reused = targetSelected ? null : reuseBlankSession(items, boundCwd);
         const sessionId = reused || await createSession(baseUrl, {
           cwd: boundCwd,
+          runtimeApi: runtimeApiProvider(),
           signal: controller.signal,
         });
-        currentSessionId = sessionIdFromValue(sessionId);
-        // B2: an explicit New Session must move the cached binding too,
-        // otherwise @dsh prompts keep targeting the previous session.
-        workspaceBinding?.setActiveSession?.(sessionId);
-        followEditProjection(currentSessionId);
-        renderFrame(context);
+        await navigateSidebarSession(context, sessionIdFromValue(sessionId));
         // A4/U5: a successful session switch must also reveal the sidebar —
         // it may still be collapsed, and the toast alone hides the result.
         vscode.commands.executeCommand("dsh.focusSidebar").catch(() => {});
@@ -2650,7 +2928,7 @@ function registerFeatureCommands(context, featureOk) {
         const timer = setTimeout(() => controller.abort(), 6000);
         let items;
         try {
-          items = await listSessions(baseUrl, { signal: controller.signal });
+          items = await listSessions(baseUrl, { signal: controller.signal, runtimeApi: runtimeApiProvider() });
         } finally {
           clearTimeout(timer);
         }
@@ -2663,12 +2941,7 @@ function registerFeatureCommands(context, featureOk) {
           placeholder: loc("Switch Session"),
         });
         if (selected && selected.sessionId) {
-          currentSessionId = sessionIdFromValue(selected.sessionId);
-          // B2: the sidebar switch must move the cached binding so @dsh
-          // prompts follow the session the user is looking at.
-          workspaceBinding?.setActiveSession?.(selected.sessionId);
-          followEditProjection(currentSessionId);
-          renderFrame(context);
+          await navigateSidebarSession(context, sessionIdFromValue(selected.sessionId));
           vscode.commands.executeCommand("dsh.focusSidebar").catch(() => {});
           vscode.window.showInformationMessage(loc("Session switched: {sessionId}", {
             sessionId: selected.sessionId,
@@ -2693,7 +2966,7 @@ function registerFeatureCommands(context, featureOk) {
             const timer = setTimeout(() => controller.abort(), 6000);
             let items;
             try {
-              items = await listSessions(baseUrl, { signal: controller.signal });
+              items = await listSessions(baseUrl, { signal: controller.signal, runtimeApi: runtimeApiProvider() });
             } finally {
               clearTimeout(timer);
             }
@@ -2706,8 +2979,7 @@ function registerFeatureCommands(context, featureOk) {
               placeholder: loc("Open Session History"),
             });
             if (selected && selected.sessionId) {
-              currentSessionId = sessionIdFromValue(selected.sessionId);
-              renderFrame(context);
+              await navigateSidebarSession(context, sessionIdFromValue(selected.sessionId));
               vscode.window.showInformationMessage(loc("Session switched: {sessionId}", {
                 sessionId: selected.sessionId,
               }));
@@ -2854,6 +3126,7 @@ function registerFeatureCommands(context, featureOk) {
         vscode,
         editorContext,
         coordinator: threadAttachmentCoordinator,
+        useSessionBridge: () => targetSelected || browserOnly, insertTargetAttachment,
         formatFileAttachment,
         waitForResolvedView,
         ensureConnected: async () => {
@@ -2872,6 +3145,7 @@ function registerFeatureCommands(context, featureOk) {
         vscode,
         editorContext,
         coordinator: threadAttachmentCoordinator,
+        useSessionBridge: () => targetSelected || browserOnly, insertTargetAttachment,
         formatSelectionAttachment,
         waitForResolvedView,
         ensureConnected: async () => {
@@ -3094,6 +3368,12 @@ async function deactivate() {
   viewGeneration += 1;
   try {
     if (!manager) return undefined;
+    if (targetSelected) {
+      await releaseTargetSessionServices();
+      await targetSupervisor.dispose();
+      await lifecycle.wait();
+      return undefined;
+    }
     if (normalizeClosePolicy(hostContext.config().closePolicy) === CLOSE_POLICIES.NEVER) {
       await lifecycle.wait();
       return undefined;
@@ -3121,6 +3401,9 @@ async function deactivate() {
         console.error('dsh-vs-sidebar: feature registry dispose failed:', err);
       }
     }
+    await releaseTargetSessionServices();
+    if (targetSelected) await targetSupervisor?.dispose();
+    targetSupervisor = null; targetSelected = false; browserOnly = false;
     currentView = null;
     currentServer = null;
     currentExternalUrl = null;

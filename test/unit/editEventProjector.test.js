@@ -356,3 +356,121 @@ test('followSession ignores empty session ids and a null base url only logs', as
   assert.equal(logs.length > 0, true);
   projector.unfollow();
 });
+
+test('repeated follow requests share the pending export and active subscription', async (t) => {
+  let completeExport;
+  let exportCalls = 0;
+  const muxSignals = [];
+  const projector = createEditEventProjector({
+    recordToolEdit: () => {},
+    baseUrl: BASE_URL,
+    fetchImpl: async (url, init) => {
+      if (String(url).startsWith(EXPORT_URL)) {
+        exportCalls += 1;
+        return new Promise((resolve) => { completeExport = resolve; });
+      }
+      muxSignals.push(init.signal);
+      return hangingSse();
+    },
+  });
+  t.after(() => projector.dispose());
+  const first = projector.followSession('s1');
+  const second = projector.followSession('s1');
+  assert.equal(first, second);
+  assert.equal(exportCalls, 1);
+  completeExport(exportZipResponse([]));
+  await first;
+  await flushMicrotasks();
+  await projector.followSession('s1');
+  await flushMicrotasks();
+  assert.equal(muxSignals.length, 1);
+  assert.equal(muxSignals[0].aborted, false);
+});
+
+test('a superseded backfill cannot project stale edits or start an orphan subscription', async (t) => {
+  let completeOldExport;
+  let oldExportSignal;
+  let oldExports = 0;
+  const recorded = [];
+  const muxSignals = [];
+  const projector = createEditEventProjector({
+    recordToolEdit: (payload) => recorded.push(payload),
+    baseUrl: BASE_URL,
+    fetchImpl: async (url, init) => {
+      if (String(url).startsWith(EXPORT_URL)) {
+        if (new URL(url).searchParams.get('sessionId') === 'old') {
+          oldExports += 1;
+          if (oldExports > 1) return exportZipResponse([toolCallEvent('edit', 'D:/history.ts', 2)]);
+          oldExportSignal = init.signal;
+          return new Promise((resolve) => { completeOldExport = resolve; });
+        }
+        return exportZipResponse([]);
+      }
+      muxSignals.push(init.signal);
+      return hangingSse();
+    },
+  });
+  t.after(() => projector.dispose());
+  const oldFollow = projector.followSession('old');
+  await projector.followSession('new');
+  await flushMicrotasks();
+  assert.equal(oldExportSignal.aborted, true);
+  assert.equal(muxSignals.length, 1);
+  completeOldExport(exportZipResponse([toolCallEvent('edit', 'D:/stale.ts', 1)]));
+  await oldFollow;
+  await flushMicrotasks();
+  assert.equal(recorded.length, 0);
+  assert.equal(muxSignals.length, 1, 'old export must not start another SSE stream');
+  assert.equal(muxSignals[0].aborted, false);
+  await projector.followSession('old');
+  await flushMicrotasks();
+  assert.equal(oldExports, 2, 'revisiting a cancelled backfill must retry its history');
+  assert.deepEqual(recorded, [{ tool: 'edit', path: 'D:/history.ts', sessionId: 'old' }]);
+  assert.equal(muxSignals.length, 2);
+  assert.equal(muxSignals[0].aborted, true);
+  projector.unfollow();
+  assert.equal(muxSignals[1].aborted, true);
+});
+
+test('disposing during export prevents later subscriptions and further follow calls', async () => {
+  let completeExport;
+  let exportSignal;
+  let requests = 0;
+  const projector = createEditEventProjector({
+    recordToolEdit: () => assert.fail('disposed projector must not record edits'),
+    baseUrl: BASE_URL,
+    fetchImpl: async (_url, init) => {
+      requests += 1;
+      exportSignal = init.signal;
+      return new Promise((resolve) => { completeExport = resolve; });
+    },
+  });
+  const pending = projector.followSession('s1');
+  projector.dispose();
+  assert.equal(exportSignal.aborted, true);
+  completeExport(exportZipResponse([toolCallEvent('edit', 'D:/stale.ts', 1)]));
+  await pending;
+  await projector.followSession('s2');
+  await flushMicrotasks();
+  assert.equal(requests, 1);
+});
+
+test('a subscription setup failure permits following the same session once the server is ready', async (t) => {
+  let baseUrl = null;
+  const muxSignals = [];
+  const { fetchImpl } = makeFetch({
+    muxResponse: (_url, init) => { muxSignals.push(init.signal); return hangingSse(); },
+  });
+  const projector = createEditEventProjector({
+    recordToolEdit: () => {},
+    baseUrl: () => baseUrl,
+    fetchImpl,
+  });
+  t.after(() => projector.dispose());
+  await projector.followSession('s1');
+  await flushMicrotasks();
+  baseUrl = BASE_URL;
+  await projector.followSession('s1');
+  await flushMicrotasks();
+  assert.equal(muxSignals.length, 1);
+});

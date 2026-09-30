@@ -54,3 +54,46 @@ test('shutdown skips queued and future work but waits for running work', async (
   await Promise.all([running, queued, queue.wait()]);
   assert.deepStrictEqual(events, ['running']);
 });
+
+test('latest work coalesces bursts and preserves a single successor during execution', async () => {
+  const queue = new LifecycleQueue();
+  const events = [];
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let pending;
+  for (let i = 0; i < 10000; i += 1) {
+    const next = queue.enqueueLatest('rebind', async () => {
+      events.push(i);
+      await gate;
+    });
+    if (pending) assert.strictEqual(next, pending);
+    pending = next;
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepStrictEqual(events, [9999]);
+  const ordinary = queue.enqueue('command', () => events.push('command'));
+  let successor;
+  for (let i = 10000; i < 20000; i += 1) {
+    const next = queue.enqueueLatest('rebind', () => events.push(i));
+    if (successor) assert.strictEqual(next, successor);
+    successor = next;
+  }
+  assert.notStrictEqual(successor, pending);
+  release();
+  await Promise.all([pending, ordinary, successor]);
+  assert.deepStrictEqual(events, [9999, 'command', 19999]);
+});
+
+test('latest work recovers after failure and skips queued successors during shutdown', async () => {
+  const errors = [];
+  const queue = new LifecycleQueue({ onError: (label) => errors.push(label) });
+  await assert.rejects(queue.enqueueLatest('rebind', () => { throw new Error('failed'); }), /failed/);
+  let completed = 0;
+  await queue.enqueueLatest('rebind', () => completed++);
+  const skipped = queue.enqueueLatest('rebind', () => completed++);
+  queue.stopAccepting();
+  await skipped;
+  await queue.enqueueLatest('rebind', () => completed++);
+  assert.strictEqual(completed, 1);
+  assert.deepStrictEqual(errors, ['rebind']);
+});

@@ -231,6 +231,9 @@ function createChatParticipantModule({
           onText,
           onDone,
           onReady,
+          onProgress: () => {
+            if (typeof response.progress === 'function') response.progress(loc('DSH is generating a response…'));
+          },
           signal: controller.signal,
         });
       } catch (err) {

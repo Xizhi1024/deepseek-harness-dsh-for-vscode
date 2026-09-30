@@ -1,0 +1,35 @@
+flowchart TB
+  subgraph EXT["VS Code extension host"]
+    ROOT["Composition root"]
+    LIFE["RuntimeSupervisor"]
+    COORD["SessionCoordinator"]
+    HUB["SessionFeedHub"]
+    CLIENT["DshRuntimePort client"]
+    CH1["Existing CH1 v1-v3"]
+    SHELL["Webview shell"]
+    ROOT -.-> LIFE
+    ROOT -.-> COORD
+    ROOT -.-> HUB
+    COORD --> CLIENT
+    HUB --> CLIENT
+    COORD --> SHELL
+  end
+  subgraph DSH["Exact DSH 0.2.0-rc.1 process"]
+    FACADE["Owned HTTP facade v1"]
+    ADAPTER["Target host adapter"]
+    SERVICES["Public DSH services"]
+    TOOLS["Tool bridge"]
+    FACADE --> ADAPTER
+    ADAPTER --> SERVICES
+  end
+  subgraph UI["Embedded DSH browser surface"]
+    BRIDGE["Session message bridge v1"]
+    BROWSER["BrowserSessionPort adapter"]
+    UIAPI["Public UI services"]
+    BRIDGE --> BROWSER
+    BROWSER --> UIAPI
+  end
+  LIFE -.-> FACADE
+  CLIENT -->|"Authenticated RPC and SSE"| FACADE
+  TOOLS -->|"IDE tool calls"| CH1
+  SHELL -->|"Validated postMessage"| BRIDGE

@@ -1,0 +1,34 @@
+flowchart TB
+  SETTINGS["VS Code 设置<br/>profile 总开关 · 插件子开关 · features"]
+
+  subgraph HOST["VS Code Extension Host · 每窗口一份"]
+    PROFILE["ProfileManager<br/>依赖解析 · 不可变 generation · 回退"]
+    RUNTIME["RuntimeSupervisor<br/>单个托管进程 · 排空后切换"]
+    EDITOR["编辑器服务<br/>上下文 · 文档事务 · 终端 · 凭据"]
+    SESSION["会话与任务协调<br/>共享订阅 · 草稿 · 恢复"]
+  end
+
+  subgraph DSH["DSH · 专用 vscode profile"]
+    BRIDGE["dsh-vscode-integration<br/>版本适配 · 认证 facade · 消息桥"]
+    IDE["dsh-vscode-ide（拟新增）<br/>附件 · 任务 · 编辑 · 检索 · 补全"]
+    PUBLIC["DSH 公开服务<br/>会话 · Agent · 工具 · 模型"]
+    UI["可选 UI 插件<br/>布局 · composer · 工具与变更卡片"]
+    NATIVE["原生 DSH UI<br/>关闭 UI 子开关时使用"]
+  end
+
+  SETTINGS --> PROFILE
+  PROFILE -->|准备和锁定插件| RUNTIME
+  RUNTIME -->|启动或停止自有实例| BRIDGE
+  EDITOR <-->|授权与文档操作| BRIDGE
+  SESSION <-->|统一契约| BRIDGE
+  BRIDGE <--> IDE
+  BRIDGE --> PUBLIC
+  IDE --> PUBLIC
+  UI <--> IDE
+  UI --> PUBLIC
+  NATIVE --> PUBLIC
+  PROFILE -.->|按开关编译注入清单| IDE
+  IDE -.->|公开 UI 注册与卸载| UI
+
+  classDef proposed fill:#e8f0fe,stroke:#3b65a5,color:#142f50
+  class PROFILE,IDE,UI proposed

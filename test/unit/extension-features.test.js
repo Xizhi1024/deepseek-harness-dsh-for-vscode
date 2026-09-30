@@ -245,7 +245,7 @@ test('A2/U2: injection-class setting changes prompt "Restart now?" and restart o
   await deactivate();
 });
 
-test('A4/U5: successful new/switch session commands reveal the sidebar', async (t) => {
+test('A4/U5: successful legacy new/switch session commands reveal the sidebar', async (t) => {
   const http = require('node:http');
   const sessions = [{ sessionId: 'sess-a', updatedAt: 1 }];
   const apiServer = http.createServer((req, res) => {
@@ -288,7 +288,9 @@ test('A4/U5: successful new/switch session commands reveal the sidebar', async (
     };
     return picker;
   };
-  const handle = { url: `http://127.0.0.1:${port}`, host: '127.0.0.1', port, pid: 4242, owned: false };
+  // This fixture serves the verified legacy REST surface, not an unknown external runtime.
+  const handle = { url: `http://127.0.0.1:${port}`, host: '127.0.0.1', port, pid: 4242, owned: false,
+    resolvedRuntime: { dshVersion: '0.1.2-rc.1' } };
   const context = {
     globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-a4-session-reveal-${process.pid}`) },
     subscriptions: [],

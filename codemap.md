@@ -1,52 +1,54 @@
-# Repository Atlas: dsh-vs-sidebar (DeepSeek Harness for VS Code)
+# Repository Atlas: DeepSeek Harness for VS Code
 
-## Project Responsibility
+## Scope and status
 
-A zero-npm-dependency, plain CommonJS VS Code extension (desktop-only, VS Code ≥ 1.106) that embeds the full DSH web UI in the auxiliary sidebar. Every window starts and owns a local `dsh web` child process (cwd = current workspace, dedicated profile), and the extension adds the IDE integration layer on top: webview embedding with loopback authentication, context/thread attachments, the DSH Changes review tree (approval-gated writes), the `@dsh` chat participant, LM routing, MCP consumption, terminal/editor/UI bridges, and FIM tab completion (POC) — advanced features behind explicit consent switches.
+Plain CommonJS extension host, zero npm dependencies, VS Code desktop ≥ 1.106. Extension **1.2.0 candidate** bundles **dsh-vscode-integration 0.10.0**. Runtime selection is exact: target DSH `0.2.0-rc.1`, legacy `0.1.2-rc.1`; unknown versions do not inherit integration support.
 
-## System Entry Points
+The candidate includes the 1.1.8 watcher, focus and search fixes. Runtime/browser probes have passed search/IME, prompt/cancel/tools, 601-second steady-state and ten start/stop cycles. Installed-VSIX validation is in progress; [final validation handoff](HANDOFF-1.2.0-VALIDATION.md) controls acceptance claims.
 
-- `src/extension.js` (~3100 lines): composition root — activation, config, runtime resolution, server lifecycle, webview, commands, bridge wiring, feature registration (`package.json` main).
-- `package.json`: manifest — commands, views (`dsh.webview`, `dsh.changes`), `dsh.*` configuration, activation events, l10n.
-- `runtime-integration/dsh-vscode-integration/`: DSH-side client plugin synced into the runtime profile at activation (`src/dshIntegration.js`).
+## Entry points
 
-## Architecture Overview
+- `package.json` → `src/extension.js`: activation, feature assembly, commands, runtime and surface lifecycle.
+- `runtime-integration/dsh-vscode-integration/package.json` → `lib/index.js`: DSH host plugin.
+- Integration `lib/client.js`: browser entry; loads flat `client.dsh020rc1.js` and `client.sessionBridge.js` through the upstream module loader.
+- Integration `contracts/runtime-v1.json`, `session-bridge-v1.json`, `validate.cjs`: versioned wire contracts and validation; host re-export in `src/protocol/runtime.js`.
 
-1. **Runtime provisioning & process lifecycle** (src root: runtimeProvisioner → runtimeResolver/Downloader/Installer/Artifact/Archive, localRuntimeResolver, shimResolver, launchMethodResolver, managedRuntimeLaunch, serverManager, processDiscovery, dshHome, profileScaffold, embedOverlay, hmrGuard): resolve → download/verify → install → spawn → health-check → teardown a managed DSH child.
-2. **Loopback bridge layer** (versionedBridgeServer CH1 v1–v3, bridge/v3 handlers, textDocumentBridge, webEmbedProxy, loopbackAuth, ch1/notifier): newline-delimited JSON-RPC server exposing consent-gated VS Code APIs to the DSH child; HTTP/WS proxy authenticating the embedded iframe.
-3. **Webview layer** (webviewHtml, webviewMessages, interactionBridge, threadAttachment, protocol/webview): CSP-hardened iframe host, message routing, attachment coordinator.
-4. **Session/chat domain** (sessionNavigation, dshChatClient, ch2/workspaceClient, context/workspaceBinding, chatParticipant, sessionTitler, exportsFace, lmRoute, inlineCompletion): loopback JSON-RPC + SSE clients powering the sidebar, `@dsh`, programmatic API face, LM provider, FIM.
-5. **Change review** (changeTracker, changeTree, changeWatcher, editEventProjector): journal-based review of DSH-pushed edits with accept/undo.
-6. **Cross-cutting** (featureRegistry L0–L2, lifecycle, startupGate, startupErrors, vscodeFacade, vscodeCapabilities, dshCompat, capabilityCatalog, providerDetector, detection/, diagnose/, onboarding, commands/, mcp/, catalog/, adapters/).
+## Architecture and ownership
 
-Stylistic contract: DI factories (`createXxx({...deps})`) with injected vscode facade/fetch/timers/fs; frozen value objects; fail-closed timeouts; zero npm deps; tests via `node:test` (`npm run check:w0`).
+1. **Runtime**: `src/runtime/{identity,compatibility,supervisor,client}.js` own exact identity, child Node checks, preparation, authentication, lifecycle and facade transport. Existing resolver/provisioner/serverManager modules provide runtime discovery and process operations. Target profile adds `-dsh020rc1`; profiles separate plugin configuration, not home-level sessions or credentials.
+2. **Session**: `src/session/{feedHub,transcript,coordinator,browserProxy}.js` own shared subscriptions, snapshot reconciliation, temporary/durable text, workspace membership, visible target identity and attachment tickets. Domain wrappers use injected target APIs, retaining their legacy signatures.
+3. **Target host adapter**: integration `runtimeFacade.js` exposes authenticated `/api/vscode/v1`; `adapters/dsh020rc1.js` maps public session/workspace controllers and exact source events. It does not mount the legacy REST translation layer.
+4. **Browser surface**: `webviewHtml.js` owns the iframe shell identity/origin checks; the flat client chunks adapt public DSH UI services and handle versioned messages. Navigation changes sessions without replacing the iframe. Attachments target only the main Conversation; expanded internal rightbar refuses insertion (A07 partial).
+5. **Changes/chat**: confirmed tool evidence flows through `editEventProjector` into persistent `changeTracker` and snapshot-aware `changeTree`. Unknown filesystem changes remain external. `@dsh` uses progress for temporary generation and appends committed text only; native DSH UI streams normally.
+6. **Existing bridges/features**: CH1 tool bridge, textDocumentBridge, authenticated web proxy, feature registry, LM/FIM/MCP and editor/terminal/UI functions retain separate responsibilities. Optional configuration is not a claim of target certification.
 
-## Directory Map (Aggregated)
+DI factories, frozen values, bounded queues, fail-closed validation and explicit disposal remain the implementation conventions.
 
-| Directory | Responsibility Summary | Detailed Map |
-|-----------|------------------------|--------------|
-| `src/` | Composition root, runtime provisioning pipeline, bridge/webview/session/change domain services (52 root files). | [View Map](src/codemap.md) |
-| `src/adapters/` | 0.6 capability adapter contract: AdapterState enum, CapabilityAdapter base, Null Object. | [View Map](src/adapters/codemap.md) |
-| `src/bridge/` | v3 bridge handler factory: consent/feature-gated vscode/* RPC handlers over injected facade. | [View Map](src/bridge/codemap.md) |
-| `src/catalog/` | Frozen plugin catalog registry + fail-fast schema validator (SHA-256 revision). | [View Map](src/catalog/codemap.md) |
-| `src/ch1/` | CH1 v2 notification coalescer (debounced, last-write-wins, bounded). | [View Map](src/ch1/codemap.md) |
-| `src/ch2/` | DSH workspace registry JSON-RPC client (list/create workspaces, path matching). | [View Map](src/ch2/codemap.md) |
-| `src/commands/` | DI command-body factory layer (thread attach, cleanup, Ctrl+K/I edits, shell). | [View Map](src/commands/codemap.md) |
-| `src/context/` | Workspace binding FSM service (cwd → workspace/session, consent, cache-aside). | [View Map](src/context/codemap.md) |
-| `src/detection/` | Plugin/profile probe-based detection with memoization and evidence state machine. | [View Map](src/detection/codemap.md) |
-| `src/diagnose/` | Sectioned diagnostics report builder + QuickPick presentation (pure DI). | [View Map](src/diagnose/codemap.md) |
-| `src/mcp/` | MCP consume-side service: config merge, consent gate, stdio/HTTP transports, lazy client. | [View Map](src/mcp/codemap.md) |
-| `src/protocol/` | Frozen protocol contracts: webview envelope (channels/versions/types) + CH1 versioned method/notification tables with validators. | [View Map](src/protocol/codemap.md) |
-| `runtime-integration/` | Vendored side-packages synced into the DSH home at activation. | [View Map](runtime-integration/codemap.md) |
-| `runtime-integration/dsh-vscode-integration/` | DSH-side client plugin (lib/: client bridge, tools, editObserver, route plugins) restoring IDE integration inside the child. | [View Map](runtime-integration/dsh-vscode-integration/codemap.md) |
+## Directory map
 
-## Key External Contracts
+| Directory | Responsibility | Map |
+|---|---|---|
+| `src/` | Host composition and domain services | [Map](src/codemap.md) |
+| `src/runtime/` | Exact runtime identity, supervisor and facade client | Host map |
+| `src/session/` | Transcript/feed/coordinator/browser proxy | Host map |
+| `src/protocol/` | Protocol contracts and shared validator boundary | [Map](src/protocol/codemap.md) |
+| `src/bridge/` | CH1 v3 handlers | [Map](src/bridge/codemap.md) |
+| `src/ch1/` | Bounded notification coalescing | [Map](src/ch1/codemap.md) |
+| `src/ch2/` | Workspace wrapper and legacy transport | [Map](src/ch2/codemap.md) |
+| `src/context/` | Workspace binding and focus state | [Map](src/context/codemap.md) |
+| `src/commands/` | Injected command implementations | [Map](src/commands/codemap.md) |
+| `src/adapters/` | Optional capability abstractions | [Map](src/adapters/codemap.md) |
+| `src/catalog/` | Plugin catalog | [Map](src/catalog/codemap.md) |
+| `src/detection/` | Plugin/profile detection | [Map](src/detection/codemap.md) |
+| `src/diagnose/` | Diagnostics | [Map](src/diagnose/codemap.md) |
+| `src/mcp/` | MCP consumption | [Map](src/mcp/codemap.md) |
+| `runtime-integration/` | Vendored package synchronization | [Map](runtime-integration/codemap.md) |
+| Integration package | DSH host/browser adapters | [Map](runtime-integration/dsh-vscode-integration/codemap.md) |
 
-- DSH web API: /api/session.*, /api/events.mux (SSE), /api/fim, /api/lm/*, /api/remote.mux (WS).
-- Spawn env: DSH_VSCODE_BRIDGE_HOST/PORT/TOKEN/PROTOCOL, DSH_VSCODE_OPEN_URL/TOKEN, heartbeat/watchdog env, DSH_HOME, DSH_TEXT_EDITOR.
-- VS Code: webview `dsh.webview`, TreeView `dsh.changes`, chat participant `@dsh`, `vscode.lm` provider, built-in vscode.git, SecretStorage/globalStorage/l10n.
+## Verification and boundaries
 
-## Known Constraints / Roadmap
+- Planned next work: [full IDE experience](PLAN-FULL-IDE-EXPERIENCE.md) and [profile/plugin contracts](PLAN-VSCODE-PROFILE-PLUGIN-CONTRACTS.md). These specify settings-controlled profile startup, plugin feature switches, plugin-owned DSH UI and new IDE services; they are not implemented capabilities.
 
-- See KNOWN_ISSUES.md and USABILITY-AUDIT.md (P0–P2 items).
-- Roadmap (README): unify runtime boundary management around one runtime identity (home/profile selection, version negotiation, child ownership, port discovery, startup URL/token, health checks) across prepare → spawn → authenticated readiness → teardown; expect internal breaking changes with compatible user behavior.
+- `npm run check:w0`: lint, unit tests, package and secrets gates; `scripts/probe-dsh020rc1.js` exercises an isolated real runtime.
+- [Architecture contracts](PLAN-1.2.0-ARCHITECTURE-CONTRACTS.md), [implementation plan](PLAN-1.2.0-DSH-0.2.0-rc.1.md), [host mapping evidence](HANDOFF-1.2.0-HOST-CONTRACTS.md), [final validation](HANDOFF-1.2.0-VALIDATION.md).
+- Non-text file/image prompt upload, FIM and the complete optional-feature matrix are not certified. Candidate builds and installed-state tests do not imply Marketplace publication or replacement of the user's daily installation.

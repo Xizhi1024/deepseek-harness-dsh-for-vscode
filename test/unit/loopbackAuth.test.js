@@ -45,6 +45,25 @@ test('authentication never follows foreign redirects or allows foreign API targe
   assert.equal(calls, 1);
 });
 
+test('target relative root redirect exchanges cookie without widening redirect allow-list', async () => {
+  const base = 'http://127.0.0.1:4999/?token=synthetic'; // allow-secret-scan
+  const seen = [];
+  const fakeFetch = async (url, init) => {
+    seen.push({ url, init });
+    return seen.length === 1
+      ? new Response(null, { status: 303, headers: { location: './', 'set-cookie': 'dsh-test=value; HttpOnly' } })
+      : new Response('__DSH_BOOT__', { status: 200 });
+  };
+  assert.equal((await loopbackFetch(base, null, {}, fakeFetch)).status, 200);
+  assert.equal(seen[1].url, 'http://127.0.0.1:4999/');
+  assert.equal(seen[1].init.headers.cookie, 'dsh-test=value');
+  for (const location of ['//example.com/', 'http://127.0.0.1:4999/', '/other', './?token=bad', '../', 'https://127.0.0.1:4999/']) {
+    await assert.rejects(exchangeLaunchCookie(base, async () => new Response(null, {
+      status: 303, headers: { location, 'set-cookie': 'dsh-test=value' },
+    })), /Unexpected DSH authentication redirect/);
+  }
+});
+
 test('exchangeLaunchCookie returns the pair, tolerates pre-auth runtimes, rejects the rest', async () => {
   const minted = async () => new Response(null, {
     status: 303, headers: { location: '/', 'set-cookie': 'dsh-x=v1.sig; Path=/; HttpOnly; SameSite=Strict' },

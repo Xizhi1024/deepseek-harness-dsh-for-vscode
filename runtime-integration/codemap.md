@@ -2,18 +2,19 @@
 
 ## Responsibility
 
-Container directory with no source files of its own. It hosts vendored side-packages that the extension syncs into the DSH runtime (per-home profile) at activation time. Its single child, `dsh-vscode-integration/`, is a DSH-side plugin that restores/extends IDE integration inside the DSH web child process (see its own codemap.md).
+Vendored DSH integration packages copied by `src/dshIntegration.js` into the selected profile during runtime preparation. The current package is `dsh-vscode-integration@0.10.0`, bundled with extension 1.2.0 candidate. This directory contains no independent runtime entry point.
 
-## Design Patterns
+## Version and data boundaries
 
-- **Vendored snapshot / overlay**: the extension treats this tree as the source of truth and overlays it onto the active DSH home profile (packaging gate `scripts/check-package-contents.js` pins the file list; issue #9 in KNOWN_ISSUES.md historically involved a stale bundled snapshot).
-- Version noted as `dsh-vscode-integration` 0.8.0 in KNOWN_ISSUES.md (embed-only Ctrl/Cmd+Enter→newline bridge).
+- Target: exact DSH `0.2.0-rc.1`; legacy: exact `0.1.2-rc.1`. Unverified versions do not acquire managed integration capabilities.
+- Target preparation uses a profile suffix `-dsh020rc1`. Plugin configuration is separated; home-level sessions and credentials remain shared when the home is shared.
+- Source bytes are synchronized before the owned child starts. Activation without runtime selection does not overwrite a profile.
+- Packaging and synchronization allowlists cover host modules, shared contracts and flat browser chunks. A candidate artifact is not a Marketplace release.
 
-## Data & Control Flow
+## Integration points
 
-No runtime flow originates here. `src/dshIntegration.js` (extension side) reads files from this tree and writes them into the selected DSH home on activation; the DSH child then loads the synced plugin from its profile.
-
-## Integration Points
-
-- Consumed by: `src/dshIntegration.js` (sync), packaging allowlist, test canaries (e.g. sessionFollow canary).
-- Contains: `dsh-vscode-integration/` (own codemap.md).
+- `src/dshIntegration.js`: content-aware copy, integration manifest/version and foreign-file cleanup.
+- `src/runtime/supervisor.js`: preparation, owned process lifecycle and authenticated readiness.
+- `scripts/check-package-contents.js`: packaging contract.
+- [Integration package map](dsh-vscode-integration/codemap.md): facade, exact upstream adapter, browser bridge and legacy path.
+- [Final validation handoff](../HANDOFF-1.2.0-VALIDATION.md): current acceptance evidence and remaining limitations.

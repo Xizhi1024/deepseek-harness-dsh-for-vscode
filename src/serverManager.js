@@ -1247,6 +1247,23 @@ class ServerManager {
     this._healthPort = null;
   }
 
+  /** Release local observers for closePolicy=never without stopping the child. */
+  detach() {
+    this.cancelPending();
+    this._clearHealthWatch();
+    const child = this._child;
+    if (child) {
+      child.removeAllListeners('exit');
+      child.removeAllListeners('error');
+      // A detached process can still emit an error; no observer retains us.
+      child.on('error', () => {});
+      child.unref?.();
+    }
+    this._child = null;
+    this._ownedServer = null;
+    this._registryFile = null;
+  }
+
   async stop() {
     this._emit('stopping', 'Stopping DSH process…');
     this._stopping = true;

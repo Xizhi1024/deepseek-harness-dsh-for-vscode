@@ -1,0 +1,135 @@
+{
+  "format": "dsh-vscode-profile-recipe-design",
+  "schemaVersion": 0,
+  "status": "design-only-not-executable",
+  "logicalProfileId": "vscode",
+  "targetRuntime": {
+    "packageName": "@deepseek-ai/dsh",
+    "version": "0.2.0-rc.1",
+    "selectionPolicy": "exact"
+  },
+  "startup": {
+    "enabledSetting": "dsh.vscodeProfile.enabled",
+    "enabledDefault": true,
+    "autoStartSetting": "dsh.autoStart",
+    "disabledBehavior": "drain-and-stop-owned-profile-without-native-fallback"
+  },
+  "profile": {
+    "logicalNameSetting": "dsh.profile",
+    "homeModeSetting": "dsh.home.mode",
+    "preserveExistingHomeMode": true,
+    "physicalNamePattern": "<logical>-dsh020rc1-g<digest>",
+    "generationPolicy": "immutable-content-addressed",
+    "donorImport": "explicit-snapshot-with-compatibility-review",
+    "officialBundles": [
+      "@deepseek-ai/dsh-base",
+      "@deepseek-ai/dsh-web-app"
+    ]
+  },
+  "packages": [
+    {
+      "id": "dsh-vscode-integration",
+      "source": "bundled-vsix",
+      "ownership": "extension",
+      "status": "existing-package",
+      "role": "runtime-facade-ch1-browser-bridge",
+      "lockPolicy": "release-version-and-sha256"
+    },
+    {
+      "id": "dsh-vscode-ide",
+      "source": "bundled-vsix",
+      "ownership": "extension",
+      "status": "proposed-local-package",
+      "role": "new-ide-capabilities-and-optional-dsh-ui",
+      "lockPolicy": "release-version-and-sha256"
+    }
+  ],
+  "modules": [
+    {
+      "id": "ui",
+      "setting": "dsh.vscodeProfile.plugins.ui",
+      "defaultEnabled": true,
+      "requires": ["integration.browser"],
+      "provides": ["ide.ui.v1"],
+      "disabledBehavior": "native-dsh-ui"
+    },
+    {
+      "id": "tasks",
+      "setting": "dsh.vscodeProfile.plugins.tasks",
+      "defaultEnabled": true,
+      "requires": ["integration.sessions"],
+      "provides": ["ide.tasks.v1"]
+    },
+    {
+      "id": "attachments",
+      "setting": "dsh.vscodeProfile.plugins.attachments",
+      "defaultEnabled": true,
+      "requires": ["integration.sessions"],
+      "provides": ["ide.attachments.v1"]
+    },
+    {
+      "id": "edits",
+      "setting": "dsh.vscodeProfile.plugins.edits",
+      "defaultEnabled": true,
+      "requires": ["ide.tasks.v1", "integration.editor", "ide.policy.v1"],
+      "provides": ["ide.edits.v1", "ide.checkpoints.v1"]
+    },
+    {
+      "id": "context",
+      "setting": "dsh.vscodeProfile.plugins.context",
+      "defaultEnabled": true,
+      "requires": ["integration.workspace"],
+      "provides": ["ide.context.v1"],
+      "indexStartup": "on-demand"
+    },
+    {
+      "id": "completion",
+      "setting": "dsh.vscodeProfile.plugins.completion",
+      "defaultEnabled": false,
+      "requires": ["integration.model"],
+      "provides": ["ide.completion.v1", "ide.nextEdit.v1"],
+      "capabilityRequires": {
+        "ide.nextEdit.v1": ["ide.edits.v1"]
+      }
+    },
+    {
+      "id": "models",
+      "setting": "dsh.vscodeProfile.plugins.models",
+      "defaultEnabled": false,
+      "requires": ["integration.model"],
+      "provides": ["ide.models.v1"]
+    },
+    {
+      "id": "mcp",
+      "setting": "dsh.vscodeProfile.plugins.mcp",
+      "defaultEnabled": false,
+      "requires": ["integration.tools", "ide.policy.v1"],
+      "provides": ["ide.mcp.v1"]
+    },
+    {
+      "id": "skills",
+      "setting": "dsh.vscodeProfile.plugins.skills",
+      "defaultEnabled": false,
+      "requires": ["integration.workspace"],
+      "provides": ["ide.skills.v1"]
+    }
+  ],
+  "internalModules": [
+    {
+      "id": "policies",
+      "activation": "required-by-enabled-capabilities",
+      "requires": ["integration.tools"],
+      "provides": ["ide.policy.v1"],
+      "permissionBehavior": "preserve-existing-consent"
+    }
+  ],
+  "upstreamMapping": "must-be-verified-in-P0-before-available",
+  "secrets": "references-only-resolved-through-secret-storage",
+  "configurationChangePolicy": {
+    "debounceMs": 250,
+    "maximumPendingSuccessors": 1,
+    "pluginGraphChanges": "drain-then-switch-generation",
+    "liveChanges": "only-when-public-dispose-and-config-contracts-are-verified",
+    "failedAutomaticRetryCooldownMs": 30000
+  }
+}

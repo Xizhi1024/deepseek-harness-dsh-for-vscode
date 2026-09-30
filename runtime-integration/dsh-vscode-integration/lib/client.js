@@ -1,6 +1,6 @@
 window.__ModuleLoader__.load({
   id: 'dsh-vscode-integration',
-  factory: () => {
+  factory: (require) => {
     const module = { exports: {} };
     const CHANNEL = 'dsh-vscode-interaction';
     const VERSION = 1;
@@ -18,6 +18,42 @@ window.__ModuleLoader__.load({
 
     function enabled() {
       return window.parent !== window && new URLSearchParams(window.location.search).get('dsh_embed') === 'vscode';
+    }
+
+    function targetRuntime() {
+      return new URLSearchParams(window.location.search).get('dsh_runtime') === '0.2.0-rc.1';
+    }
+
+    function startTargetSessionBridge(ctx) {
+      let disposed = false;
+      let bridge;
+      if (!require || typeof require.async !== 'function' || typeof ctx.inject !== 'function') return () => {};
+      // Package-local chunks are a public 0.2 loader capability. Keep the
+      // older runtime entirely on its existing loader and service path.
+      const loaded = Promise.all([
+        require.async('./client.dsh020rc1.js'),
+        require.async('./client.sessionBridge.js'),
+      ]);
+      // An unavailable optional service can keep the inject callback waiting;
+      // contain a chunk-load failure immediately, even before that callback runs.
+      loaded.catch(() => {});
+      const fork = ctx.inject(['uiSession', 'uiWorkspace', 'layout', 'sessions', 'conversation', 'sidebarRight'], (scope) => {
+        let stopped = false;
+        loaded.then(([adapterModule, bridgeModule]) => {
+          if (disposed || stopped) return;
+          bridge = bridgeModule.createSessionBridge({
+            ctx: scope, window, createBrowserSessionAdapter: adapterModule.createBrowserSessionAdapter,
+            nonce: new URLSearchParams(window.location.search).get('dsh_bridge_nonce'),
+            initialSession: new URLSearchParams(window.location.search).get('dsh_session'),
+          });
+        }).catch(() => { /* shell's bounded handshake reports NOT_READY */ });
+        return () => { stopped = true; if (bridge) { bridge.dispose(); bridge = undefined; } };
+      });
+      return () => {
+        disposed = true;
+        if (bridge) bridge.dispose();
+        if (fork && typeof fork.dispose === 'function') void fork.dispose();
+      };
     }
 
     function markHandshakeReady() {
@@ -167,6 +203,7 @@ window.__ModuleLoader__.load({
         message && message.type === 'dshThreadAttach'
         && message.channel === THREAD_CHANNEL && message.version === THREAD_VERSION
       ) {
+        if (targetRuntime()) return; // 0.2 attachments require a revision-guarded ticket.
         // Malformed request ids are silently rejected: no pending map entry,
         // no failure echo. Matches the shell/extension-host parser policy.
         if (typeof message.requestId !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(message.requestId)) return;
@@ -316,6 +353,12 @@ window.__ModuleLoader__.load({
           // (none for Ctrl/Cmd+Enter in a contenteditable) is irrelevant.
           try {
             Object.defineProperty(event, 'shiftKey', { configurable: true, get: () => true });
+            if (targetRuntime()) {
+              // The 0.2 Lexical key map requires an actual Shift-only chord.
+              // Preserve its own line-break/selection/undo implementation.
+              Object.defineProperty(event, 'ctrlKey', { configurable: true, get: () => false });
+              Object.defineProperty(event, 'metaKey', { configurable: true, get: () => false });
+            }
             return;
           } catch { /* non-configurable event: claim below */ }
         }
@@ -504,7 +547,8 @@ window.__ModuleLoader__.load({
     const LINKIFY_TOKEN_RE = /[A-Za-z0-9_.\-\/:@%~+]+/g;
     const LINKIFY_MAX_TEXT = 100000;
     const LINKIFY_MAX_NODES_PER_SCAN = 2000;
-    const LINKIFY_SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'A', 'BUTTON', 'TEXTAREA', 'INPUT', 'SELECT', 'OPTION', 'NOSCRIPT']);
+    const LINKIFY_SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'A', 'BUTTON', 'TEXTAREA', 'INPUT', 'SELECT', 'OPTION', 'NOSCRIPT', 'FORM', 'LABEL']);
+    const LINKIFY_SKIP_ROLES = new Set(['button', 'link', 'textbox', 'searchbox', 'combobox', 'search', 'menu', 'menubar', 'menuitem', 'listbox', 'option', 'tree', 'treeitem']);
     const LINKIFY_OPEN_URL = '/api/vscode/open-link';
 
     function splitLineSuffix(token) {
@@ -580,13 +624,43 @@ window.__ModuleLoader__.load({
       return targets;
     }
 
+    function isLinkifyExcludedElement(node) {
+      if (LINKIFY_SKIP_TAGS.has(node.tagName) || node.isContentEditable) return true;
+      if (typeof node.getAttribute !== 'function') return false;
+      const editable = node.getAttribute('contenteditable');
+      if (editable !== null && editable !== 'false') return true;
+      if (node.getAttribute('data-composer-card') !== null || node.getAttribute('data-composer-input') !== null) return true;
+      const roles = String(node.getAttribute('role') || '').toLowerCase().split(/\s+/);
+      return roles.some((role) => LINKIFY_SKIP_ROLES.has(role));
+    }
+
+    function isLinkifyExcludedContext(node) {
+      // Mutation records can begin at a new text/span *inside* an existing
+      // editor or search control. Checking only the newly added root misses
+      // inherited editing state and corrupts the control's managed text.
+      for (let owner = node.nodeType === 1 ? node : node.parentElement; owner; owner = owner.parentElement) {
+        if (isLinkifyExcludedElement(owner)) return true;
+      }
+      return false;
+    }
+
+    function isReactOwned(node) {
+      if (!node) return false;
+      return Object.getOwnPropertyNames(node).some((key) => (
+        key.startsWith('__reactFiber$') || key.startsWith('__reactProps$') || key.startsWith('__reactInternalInstance$')
+      ));
+    }
+
     function linkifyTextNode(node) {
       const parent = node.parentNode;
       if (!parent || typeof parent.replaceChild !== 'function') return;
-      // Never link text that already lives inside a link/button (this also
-      // stops the observer from re-wrapping our own anchors' text).
-      const owner = node.parentElement;
-      if (owner && typeof owner.closest === 'function' && owner.closest('a,button')) return;
+      if (isLinkifyExcludedContext(node)) return;
+      // React retains host text references (and optimizes single-string
+      // children through their parent). Replacing either behind its back can
+      // break later updates/removals and unmount the surrounding search/chat
+      // UI. Leave those nodes to the runtime's native file-mention renderer;
+      // this fallback is only safe for unmanaged rendered HTML text.
+      if (isReactOwned(node) || isReactOwned(node.parentElement)) return;
       const text = node.nodeValue;
       const targets = extractLinkTargets(text);
       if (targets.length === 0) return;
@@ -613,23 +687,21 @@ window.__ModuleLoader__.load({
       parent.replaceChild(fragment, node);
     }
 
-    function scanElementTree(root) {
-      let budget = LINKIFY_MAX_NODES_PER_SCAN;
+    function scanElementTree(root, scan = { remaining: LINKIFY_MAX_NODES_PER_SCAN, seen: new Set() }) {
+      if (isLinkifyExcludedContext(root)) return;
       const visit = (node) => {
-        if (budget <= 0) return;
-        budget -= 1;
+        if (scan.remaining <= 0 || scan.seen.has(node)) return;
+        scan.seen.add(node);
+        scan.remaining -= 1;
         if (node.nodeType === 3) {
           linkifyTextNode(node);
           return;
         }
         if (node.nodeType !== 1) return;
-        if (LINKIFY_SKIP_TAGS.has(node.tagName)) return;
-        if (typeof node.getAttribute === 'function') {
-          try {
-            if (node.getAttribute('contenteditable') === 'true') return;
-          } catch { /* attribute access is best-effort */ }
-        }
-        const children = node.childNodes || [];
+        if (isLinkifyExcludedElement(node)) return;
+        // Snapshot children: wrapping a text node adds siblings to the live
+        // NodeList, which should not be scanned again in this same pass.
+        const children = Array.from(node.childNodes || []);
         for (let index = 0; index < children.length; index += 1) visit(children[index]);
       };
       visit(root);
@@ -669,10 +741,14 @@ window.__ModuleLoader__.load({
       // subtrees are post-processed (no whole-page rescans).
       scanElementTree(document.body);
       const observer = new window.MutationObserver((mutations) => {
+        // A render can report overlapping subtrees thousands of times. Bound
+        // the whole delivery, not each individual record, and visit a node at
+        // most once so streamed updates cannot multiply DOM scanning work.
+        const scan = { remaining: LINKIFY_MAX_NODES_PER_SCAN, seen: new Set() };
         for (const mutation of mutations) {
           for (const node of mutation.addedNodes || []) {
-            if (node.nodeType === 3) linkifyTextNode(node);
-            else if (node.nodeType === 1) scanElementTree(node);
+            if (scan.remaining <= 0) return;
+            if (node.nodeType === 3 || node.nodeType === 1) scanElementTree(node, scan);
           }
         }
       });
@@ -703,8 +779,10 @@ window.__ModuleLoader__.load({
       } catch { /* optional */ }
       ctx.effect(() => {
         startHandshake();
-        const stopSessionFollow = startEmbeddedSessionFollow(ctx);
-        const stopSessionCurrentWatch = startSessionCurrentWatcher(ctx);
+        const isTarget = targetRuntime();
+        const stopSessionFollow = isTarget ? () => {} : startEmbeddedSessionFollow(ctx);
+        const stopSessionCurrentWatch = isTarget ? () => {} : startSessionCurrentWatcher(ctx);
+        const stopTargetBridge = isTarget ? startTargetSessionBridge(ctx) : () => {};
         const listener = (event) => onMessage(ctx, event);
         window.addEventListener('message', listener);
         document.addEventListener('click', onClick, true);
@@ -712,14 +790,17 @@ window.__ModuleLoader__.load({
         const restoreExecFallback = installExecCommandFallback();
         const restoreMacShortcutBridge = installMacShortcutBridge();
         const stopCtrlEnterNewline = installComposerCtrlEnterNewline();
-        const stopReplyLinkify = installReplyLinkify();
-        window.parent.postMessage({
+        // Target DSH provides native file mentions. Never mutate its framework
+        // owned search/composer/message DOM via the legacy linkify observer.
+        const stopReplyLinkify = isTarget ? () => {} : installReplyLinkify();
+        if (!isTarget) window.parent.postMessage({
           type: 'dshThreadReady', channel: THREAD_CHANNEL, version: THREAD_VERSION,
         }, '*');
         return () => {
           if (handshakeTimer) clearTimeout(handshakeTimer);
           stopSessionFollow();
           stopSessionCurrentWatch();
+          stopTargetBridge();
           restoreClipboard();
           restoreExecFallback();
           restoreMacShortcutBridge();

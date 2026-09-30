@@ -268,6 +268,13 @@ async function postJson(baseUrl, apiPath, envelope, fetchImpl, signal) {
  * @throws {DshSessionError} With the DSH_SESSION_API_* error codes.
  */
 async function listSessions(baseUrl, options = {}) {
+  if (options.runtimeApi) {
+    const op = { requestId: require('node:crypto').randomUUID(), signal: options.signal || new AbortController().signal };
+    const [sessions, workspaces] = await Promise.all([options.runtimeApi.listSessions(options.workspaceId ?? null, op), options.runtimeApi.listWorkspaces(op)]);
+    return sessions.map((item) => ({ sessionId: item.id, workspaceId: item.workspaceId,
+      cwd: workspaces.find((workspace) => workspace.id === item.workspaceId)?.rootPath,
+      updatedAt: item.updatedAt === null ? null : Date.parse(item.updatedAt), projections: { values: { title: item.title } } }));
+  }
   const fetchImpl = resolveFetchImpl(options);
   const parsed = assertLoopbackBaseUrl(baseUrl);
   const response = await postJson(
@@ -320,6 +327,12 @@ async function listSessions(baseUrl, options = {}) {
  * @throws {DshSessionError} With the DSH_SESSION_API_* error codes.
  */
 async function createSession(baseUrl, options = {}) {
+  if (options.runtimeApi) {
+    const op = { requestId: require('node:crypto').randomUUID(), signal: options.signal || new AbortController().signal };
+    const workspaceId = options.workspaceId || (options.cwd ? (await options.runtimeApi.ensureWorkspace(options.cwd, op)).id : null);
+    if (!workspaceId) throw new DshSessionError('DSH_SESSION_API_INVALID_REQUEST', 'Select a workspace before creating a session');
+    return (await options.runtimeApi.createSession(workspaceId, op)).id;
+  }
   const fetchImpl = resolveFetchImpl(options);
   const parsed = assertLoopbackBaseUrl(baseUrl);
   const payload = {};
@@ -379,6 +392,10 @@ async function createSession(baseUrl, options = {}) {
  * @throws {DshSessionError} With the DSH_SESSION_API_* error codes.
  */
 async function renameSession(baseUrl, options = {}) {
+  if (options.runtimeApi) {
+    await options.runtimeApi.renameSession(options.sessionId, options.title, { requestId: require('node:crypto').randomUUID(), signal: options.signal || new AbortController().signal });
+    return { title: options.title, seq: null };
+  }
   if (typeof options.sessionId !== "string" || options.sessionId.length === 0) {
     throw new TypeError("sessionId must be a non-empty string");
   }
@@ -432,6 +449,10 @@ async function renameSession(baseUrl, options = {}) {
  */
 async function ensureWorkspaceSession(baseUrl, cwd, options = {}) {
   if (typeof cwd !== "string" || cwd.length === 0) return null;
+  if (options.runtimeApi) {
+    await options.runtimeApi.ensureWorkspace(cwd, { requestId: require('node:crypto').randomUUID(), signal: options.signal || new AbortController().signal });
+    return null;
+  }
   const fetchImpl = resolveFetchImpl(options);
   const items = await listSessions(baseUrl, { fetchImpl, signal: options.signal });
   const reused = reuseBlankSession(items, cwd);

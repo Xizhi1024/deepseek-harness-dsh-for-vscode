@@ -1,5 +1,7 @@
 "use strict";
 
+const { randomBytes } = require('node:crypto');
+
 const {
   CHANNELS,
   MESSAGE_TYPES,
@@ -249,12 +251,27 @@ function framePage({
   browserUrl = undefined,
   sessionId,
   theme,
+  runtimeVersion,
+  surfaceIdentity,
   failText = "Failed to load: DSH service unreachable",
   openBrowserLabel = "Open in browser",
   retryLabel = "Retry",
   lang = "en",
 } = {}) {
-  const safeFrameUrl = escapeHtml(withVscodeEmbedMode(url, sessionId, theme));
+  const targetRuntime = runtimeVersion === '0.2.0-rc.1';
+  const sessionIdentity = targetRuntime ? {
+    surfaceId: surfaceIdentity && surfaceIdentity.surfaceId || `surface_${randomBytes(8).toString('hex')}`,
+    surfaceEpoch: surfaceIdentity && Number.isSafeInteger(surfaceIdentity.surfaceEpoch) ? surfaceIdentity.surfaceEpoch : 0,
+  } : null;
+  const bridgeNonce = targetRuntime ? randomBytes(16).toString('hex') : null;
+  let frameUrl = withVscodeEmbedMode(url, sessionId, theme);
+  if (targetRuntime && frameUrl !== 'about:blank') {
+    const parsed = new URL(frameUrl);
+    parsed.searchParams.set('dsh_runtime', runtimeVersion);
+    parsed.searchParams.set('dsh_bridge_nonce', bridgeNonce);
+    frameUrl = parsed.toString();
+  }
+  const safeFrameUrl = escapeHtml(frameUrl);
   const safeBrowserUrl = escapeHtml(safeHttpUrl(browserUrl || url));
   let frameOrigin = 'null';
   try { frameOrigin = new URL(safeHttpUrl(url)).origin; } catch { /* null sentinel */ }
@@ -318,6 +335,13 @@ ${WEBVIEW_CSP_META}
     const THREAD_CHANNEL = CHANNELS.THREAD;
     const THREAD_VERSION = VERSIONS.THREAD;
     const LOAD_TIMEOUT_MS = 10000;
+    const SESSION_IDENTITY = ${safeScriptJson(sessionIdentity)};
+    const SESSION_NONCE = ${safeScriptJson(bridgeNonce)};
+    const SESSION_CHANNEL = 'dsh-vscode-session';
+    let sessionEpoch = SESSION_IDENTITY ? SESSION_IDENTITY.surfaceEpoch : 0;
+    let sessionReady = false;
+    let sessionHandshakeTimer;
+    let frameLoads = 0;
     let loaded = false;
     let helloReceived = false;
     let handshakeMismatch = false;
@@ -340,6 +364,29 @@ ${WEBVIEW_CSP_META}
       fallback.classList.add("show");
     }
 
+    function startSessionHandshake() {
+      if (!SESSION_IDENTITY || !frame.contentWindow) return;
+      clearTimeout(sessionHandshakeTimer);
+      sessionReady = false;
+      if (frameLoads++ > 0) sessionEpoch += 1;
+      const init = { channel: SESSION_CHANNEL, version: 1, type: 'hello-init',
+        surfaceId: SESSION_IDENTITY.surfaceId, surfaceEpoch: sessionEpoch, nonce: SESSION_NONCE };
+      // The shell announces its own allocation before forwarding browser data.
+      vscode.postMessage(init);
+      let attempts = 0;
+      const send = () => {
+        if (sessionReady || !frame.contentWindow) return;
+        if (attempts++ >= 20) {
+          vscode.postMessage({ type: MESSAGE_TYPES.HELLO, channel: CHANNELS.INTERACTION,
+            version: 1, ok: false, error: 'NOT_READY: DSH session bridge handshake timed out' });
+          return;
+        }
+        frame.contentWindow.postMessage(init, DSH_ORIGIN);
+        sessionHandshakeTimer = setTimeout(send, 250);
+      };
+      send();
+    }
+
     function postReady() {
       if (!frame.contentWindow) return;
       frame.contentWindow.postMessage({
@@ -353,6 +400,7 @@ ${WEBVIEW_CSP_META}
     frame.addEventListener("load", () => {
       loaded = true;
       postReady();
+      startSessionHandshake();
       forwardThreadAttachments();
     });
     frame.addEventListener("error", showFallback);
@@ -360,6 +408,21 @@ ${WEBVIEW_CSP_META}
 
     window.addEventListener("message", (event) => {
       const message = event.data;
+      if (SESSION_IDENTITY && message && message.channel === SESSION_CHANNEL) {
+        if (message.version !== 1 || message.surfaceId !== SESSION_IDENTITY.surfaceId || message.surfaceEpoch !== sessionEpoch) return;
+        if (event.source === frame.contentWindow && event.origin === DSH_ORIGIN) {
+          if (message.type === 'hello-ack' && message.runtimeVersion === '0.2.0-rc.1' && message.adapterId === 'dsh-0.2.0-rc.1') {
+            sessionReady = true;
+            clearTimeout(sessionHandshakeTimer);
+            vscode.postMessage(message);
+          } else if (sessionReady && (message.type === 'targetChanged' || message.type === 'result')) {
+            vscode.postMessage(message);
+          }
+        } else if (event.source !== frame.contentWindow && sessionReady && message.type === 'request') {
+          frame.contentWindow.postMessage(message, DSH_ORIGIN);
+        }
+        return;
+      }
       if (
         event.source === frame.contentWindow
         && event.origin === DSH_ORIGIN
@@ -461,6 +524,7 @@ ${WEBVIEW_CSP_META}
     document.getElementById("fallback-retry").addEventListener("click", () => {
       location.reload();
     });
+    window.addEventListener('beforeunload', () => clearTimeout(sessionHandshakeTimer));
   </script>
 </body>
 </html>`;

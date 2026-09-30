@@ -35,6 +35,7 @@ test('local resolver verifies the official package and creates a persistent .dsh
   });
 
   assert.strictEqual(runtime.executablePath, fs.realpathSync(value.nodePath));
+  assert.strictEqual(runtime.packageRoot, fs.realpathSync(value.packageRoot));
   assert.deepStrictEqual(runtime.entrypointArgs, [fs.realpathSync(value.entrypoint)]);
   assert.strictEqual(runtime.dshHome, path.resolve(dshHome));
   assert.strictEqual(runtime.profileHome, path.join(path.resolve(dshHome), 'profiles', 'vscode'));

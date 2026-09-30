@@ -21,17 +21,36 @@ const HOST_ONLY_ENV_KEYS = Object.freeze([
 ]);
 
 async function main() {
+  const requestedExecutable = process.env.VSCODE_TEST_EXECUTABLE;
+  const requestedVersion = process.env.VSCODE_TEST_VERSION || '1.106.0';
+  const originalEnvironment = { ...process.env };
+  const testStatePath = path.resolve(__dirname, '..', '..', '.vscode-test');
+  const isolatedRoot = path.join(testStatePath, `development-${process.pid}`);
+  const launchEnvironment = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
+    /^(PATH|PATHEXT|SystemRoot|ComSpec|WINDIR|TEMP|TMP|PROCESSOR_ARCHITECTURE|NUMBER_OF_PROCESSORS)$/i.test(name)));
+  Object.assign(launchEnvironment, {
+    DSH_HOME: path.join(isolatedRoot, 'dsh-home'),
+    DSH_VSCODE_STORAGE_ROOT: path.join(isolatedRoot, 'extension-storage'),
+    USERPROFILE: path.join(isolatedRoot, 'user-home'),
+    APPDATA: path.join(isolatedRoot, 'appdata'),
+    LOCALAPPDATA: path.join(isolatedRoot, 'localappdata'),
+  });
+  for (const name of ['DSH_HOME', 'DSH_VSCODE_STORAGE_ROOT', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) {
+    fs.mkdirSync(launchEnvironment[name], { recursive: true });
+  }
+  for (const name of Object.keys(process.env)) delete process.env[name];
+  Object.assign(process.env, launchEnvironment);
   const savedEnv = {};
   for (const key of HOST_ONLY_ENV_KEYS) {
     savedEnv[key] = process.env[key];
     delete process.env[key];
   }
   try {
-    const testStatePath = path.resolve(__dirname, '..', '..', '.vscode-test');
     const markerPath = path.join(testStatePath, `extension-host-proof-${process.pid}.json`);
     fs.rmSync(markerPath, { force: true });
     await runTests({
-      version: process.env.VSCODE_TEST_VERSION || '1.106.0',
+      version: requestedVersion,
+      ...(requestedExecutable ? { vscodeExecutablePath: requestedExecutable } : {}),
       extensionDevelopmentPath: path.resolve(__dirname, '..', '..'),
       extensionTestsPath: path.resolve(__dirname, 'suite'),
       launchArgs: [
@@ -72,6 +91,8 @@ async function main() {
       if (savedEnv[key] === undefined) delete process.env[key];
       else process.env[key] = savedEnv[key];
     }
+    for (const name of Object.keys(process.env)) delete process.env[name];
+    Object.assign(process.env, originalEnvironment);
   }
 }
 

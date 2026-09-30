@@ -2,7 +2,7 @@
   "name": "dsh-vs-sidebar",
   "displayName": "%dsh.displayName%",
   "description": "%dsh.ext.description%",
-  "version": "1.1.7",
+  "version": "1.2.0",
   "publisher": "Xizhi1024",
   "license": "MIT",
   "pricing": "Free",
@@ -35,9 +35,6 @@
     "vscode": "^1.106.0"
   },
   "main": "src/extension.js",
-  "enabledApiProposals": [
-    "terminalDataWriteEvent"
-  ],
   "scripts": {
     "lint": "node scripts/lint.js",
     "test": "node --test \"test/*.test.js\" \"test/unit/*.test.js\"",

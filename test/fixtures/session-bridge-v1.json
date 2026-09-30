@@ -1,0 +1,159 @@
+[
+  {
+    "name": "host bootstrap",
+    "valid": true,
+    "message": {
+      "channel": "dsh-vscode-session",
+      "version": 1,
+      "surfaceId": "sidebar",
+      "surfaceEpoch": 2,
+      "type": "hello-init",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  {
+    "name": "bad bootstrap nonce",
+    "valid": false,
+    "message": {
+      "channel": "dsh-vscode-session",
+      "version": 1,
+      "surfaceId": "sidebar",
+      "surfaceEpoch": 2,
+      "type": "hello-init",
+      "nonce": "short"
+    }
+  },
+  {
+    "name": "target observation",
+    "valid": true,
+    "message": {
+      "channel": "dsh-vscode-session",
+      "version": 1,
+      "surfaceId": "sidebar",
+      "surfaceEpoch": 2,
+      "type": "targetChanged",
+      "target": {
+        "surfaceId": "sidebar",
+        "surfaceEpoch": 2,
+        "selectionGeneration": 7,
+        "state": "known",
+        "sessionId": "session-a"
+      }
+    }
+  },
+  {
+    "name": "stale target epoch",
+    "valid": false,
+    "message": {
+      "channel": "dsh-vscode-session",
+      "version": 1,
+      "surfaceId": "sidebar",
+      "surfaceEpoch": 2,
+      "type": "targetChanged",
+      "target": {
+        "surfaceId": "sidebar",
+        "surfaceEpoch": 1,
+        "selectionGeneration": 7,
+        "state": "known",
+        "sessionId": "session-a"
+      }
+    }
+  },
+  {
+    "name": "capture",
+    "valid": true,
+    "message": {
+      "channel": "dsh-vscode-session",
+      "version": 1,
+      "surfaceId": "sidebar",
+      "surfaceEpoch": 2,
+      "type": "request",
+      "requestId": "capture-1",
+      "method": "insertion.capture",
+      "params": {
+        "expected": {
+          "surfaceId": "sidebar",
+          "surfaceEpoch": 2,
+          "selectionGeneration": 7,
+          "state": "known",
+          "sessionId": "session-a"
+        }
+      }
+    }
+  },
+  {
+    "name": "unknown request property",
+    "valid": false,
+    "message": {
+      "channel": "dsh-vscode-session",
+      "version": 1,
+      "surfaceId": "sidebar",
+      "surfaceEpoch": 2,
+      "type": "request",
+      "requestId": "capture-1",
+      "method": "target.get",
+      "params": {
+        "sessionId": "oops"
+      }
+    }
+  },
+  {
+    "name": "target result",
+    "valid": true,
+    "options": {
+      "method": "target.get"
+    },
+    "message": {
+      "channel": "dsh-vscode-session",
+      "version": 1,
+      "surfaceId": "sidebar",
+      "surfaceEpoch": 2,
+      "type": "result",
+      "requestId": "get-1",
+      "ok": true,
+      "value": {
+        "surfaceId": "sidebar",
+        "surfaceEpoch": 2,
+        "selectionGeneration": 7,
+        "state": "known",
+        "sessionId": "session-a"
+      }
+    }
+  },
+  {
+    "name": "target result wrong body",
+    "valid": false,
+    "options": {
+      "method": "target.get"
+    },
+    "message": {
+      "channel": "dsh-vscode-session",
+      "version": 1,
+      "surfaceId": "sidebar",
+      "surfaceEpoch": 2,
+      "type": "result",
+      "requestId": "get-1",
+      "ok": true,
+      "value": true
+    }
+  },
+  {
+    "name": "error result",
+    "valid": true,
+    "message": {
+      "channel": "dsh-vscode-session",
+      "version": 1,
+      "surfaceId": "sidebar",
+      "surfaceEpoch": 2,
+      "type": "result",
+      "requestId": "get-1",
+      "ok": false,
+      "error": {
+        "code": "STALE_TARGET",
+        "message": "Target changed",
+        "retryable": false,
+        "effect": "none"
+      }
+    }
+  }
+]

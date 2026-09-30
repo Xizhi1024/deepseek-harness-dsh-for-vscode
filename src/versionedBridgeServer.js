@@ -41,6 +41,8 @@ function isValidDshEditObservedParams(params) {
   if (typeof params.sessionId !== 'string') return false;
   if (typeof params.size !== 'number' || !Number.isFinite(params.size) || params.size < 0) return false;
   if (typeof params.truncated !== 'boolean') return false;
+  if (params.toolCallId !== undefined && (typeof params.toolCallId !== 'string'
+    || params.toolCallId.length === 0 || params.toolCallId.length > 256)) return false;
   if (params.beforeText !== undefined) {
     if (typeof params.beforeText !== 'string') return false;
     if (Buffer.byteLength(params.beforeText, 'utf8') > EDIT_OBSERVED_MAX_BEFORE_TEXT_BYTES) return false;

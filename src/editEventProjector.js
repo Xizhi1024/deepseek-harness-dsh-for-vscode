@@ -201,6 +201,8 @@ function createEditEventProjector({
   fetchImpl,
   baseUrl,
   resubscribeDelayMs = DEFAULT_RESUBSCRIBE_DELAY_MS,
+  feedHubProvider,
+  runtimeInstanceIdProvider,
 } = {}) {
   if (typeof recordToolEdit !== "function") {
     throw new TypeError("recordToolEdit must be a function");
@@ -229,6 +231,47 @@ function createEditEventProjector({
   const backfilled = new Set();
   /** Current subscription state (one at a time). */
   let subscription = null;
+  let disposed = false;
+  const observations = new Set();
+  const candidates = new Map();
+  const awaitingSnapshots = new Map();
+  const writeEvidence = async (evidence, beforeText) => {
+    try {
+      await recordToolEdit({ tool: evidence.tool, path: evidence.path, sessionId: evidence.sessionId || '',
+        observationId: evidence.observationId, toolCallId: evidence.toolCallId, sourceDurableSeq: evidence.sourceDurableSeq,
+        ...(typeof beforeText === 'string' ? { beforeText } : {}) });
+    } catch { observations.delete(evidence.observationId); safeLog('Confirmed edit could not be recorded'); }
+  };
+  const observe = (evidence) => {
+    if (disposed || !evidence || typeof evidence.observationId !== 'string') return;
+    if (evidence.phase === 'pre-execute') {
+      if (candidates.size >= 256) candidates.delete(candidates.keys().next().value);
+      if (evidence.sessionId && evidence.toolCallId) {
+        const key = JSON.stringify([evidence.runtimeInstanceId, evidence.sessionId, evidence.toolCallId]);
+        const confirmed = awaitingSnapshots.get(key);
+        if (confirmed && confirmed.path === evidence.path && confirmed.tool === evidence.tool) {
+          awaitingSnapshots.delete(key);
+          writeEvidence(confirmed, evidence.beforeText);
+        } else candidates.set(key, evidence);
+      }
+      return;
+    }
+    if (evidence.phase !== 'confirmed' || !['edit', 'write'].includes(evidence.tool) || observations.has(evidence.observationId)) return;
+    observations.add(evidence.observationId);
+    if (observations.size > 4096) observations.delete(observations.values().next().value);
+    const key = JSON.stringify([evidence.runtimeInstanceId, evidence.sessionId, evidence.toolCallId]);
+    const candidate = candidates.get(key);
+    candidates.delete(key);
+    // Only the exact source call can provide its before-snapshot. Path/time is
+    // never a substitute for execution identity.
+    const beforeText = typeof evidence.beforeText === 'string' ? evidence.beforeText
+      : candidate?.path === evidence.path && candidate?.tool === evidence.tool ? candidate.beforeText : null;
+    if (beforeText === null && evidence.toolCallId) {
+      if (awaitingSnapshots.size >= 256) awaitingSnapshots.delete(awaitingSnapshots.keys().next().value);
+      awaitingSnapshots.set(key, evidence);
+    }
+    writeEvidence(evidence, beforeText);
+  };
 
   const project = (event, sessionId) => {
     try {
@@ -245,7 +288,8 @@ function createEditEventProjector({
    * Bounded back-scan: download the export ZIP, keep only the tail
    * MAX_BACKFILL_EVENTS artifact lines, project each edit/write hit.
    */
-  const backfillSession = async (sessionId) => {
+  const backfillSession = async (record) => {
+    const { sessionId, abort } = record;
     const base = resolveBase();
     if (base === null) {
       safeLog("backfill skipped: no DSH server URL");
@@ -255,9 +299,13 @@ function createEditEventProjector({
     url.searchParams.set("sessionId", sessionId);
     let response;
     try {
-      response = await loopbackFetch(base, url.toString(), { method: "GET" }, fetchImpl || globalThis.fetch);
+      response = await loopbackFetch(base, url.toString(), { method: "GET", signal: abort.signal }, fetchImpl || globalThis.fetch);
     } catch (err) {
       safeLog("backfill fetch failed: " + (err && err.message ? err.message : String(err)));
+      return;
+    }
+    if (subscription !== record) {
+      try { await response?.body?.cancel?.(); } catch (_) { /* already aborted */ }
       return;
     }
     if (!response || typeof response.status !== "number" || response.status !== 200) {
@@ -271,6 +319,7 @@ function createEditEventProjector({
       safeLog("backfill body failed: " + (err && err.message ? err.message : String(err)));
       return;
     }
+    if (subscription !== record) return;
     const text = extractSessionLogText(zip);
     if (text === null) {
       safeLog("backfill skipped: no session.jsonl entry in export");
@@ -281,6 +330,7 @@ function createEditEventProjector({
     const lines = text.split("\n").filter((line) => line.length > 0);
     const tail = lines.slice(-MAX_BACKFILL_EVENTS);
     for (const line of tail) {
+      if (subscription !== record) return;
       let event;
       try {
         event = JSON.parse(line);
@@ -289,13 +339,14 @@ function createEditEventProjector({
       }
       project(event, sessionId);
     }
+    return true;
   };
 
   /** Start the live events.mux subscription for one session. */
-  const startSubscription = (sessionId) => {
-    const abort = new AbortController();
-    const record = { sessionId, abort, timer: null };
-    subscription = record;
+  const startSubscription = (record) => {
+    if (subscription !== record || disposed) return;
+    const { sessionId, abort } = record;
+    record.timer = null;
     client.streamSession({
       sessionId,
       onText: () => {}, // required seam; text deltas are not projected
@@ -304,26 +355,34 @@ function createEditEventProjector({
         // the SSE stream ended or stalled: re-subscribe unless unfollowed /
         // superseded in the meantime.
         record.timer = setTimeout(() => {
-          if (subscription === record) startSubscription(sessionId);
+          if (subscription === record) startSubscription(record);
         }, resubscribeDelayMs);
         if (typeof record.timer.unref === "function") record.timer.unref();
       },
-      onEvent: (event) => project(event, sessionId),
+      onEvent: (event) => {
+        if (subscription === record) project(event, sessionId);
+      },
       signal: abort.signal,
     }).catch((err) => {
       safeLog("subscription failed: " + (err && err.message ? err.message : String(err)));
+      // A setup failure (for example no server URL yet) may reject before
+      // onDone. Release ownership so a later follow can retry this session.
+      if (subscription === record && record.timer === null) unfollow();
     });
   };
 
   const unfollow = () => {
     if (subscription === null) return;
-    clearTimeout(subscription.timer);
+    const record = subscription;
+    // Invalidate before abort: streamSession calls onDone synchronously.
+    subscription = null;
+    record.release?.();
+    clearTimeout(record.timer);
     try {
-      subscription.abort.abort();
+      record.abort.abort();
     } catch (_) {
       /* double-abort is fine */
     }
-    subscription = null;
   };
 
   /**
@@ -334,21 +393,52 @@ function createEditEventProjector({
    * @param {string} sessionId - Session to follow.
    * @returns {Promise<void>} Resolves once the follow attempt settled.
    */
-  const followSession = (sessionId) => (async () => {
-    try {
-      if (typeof sessionId !== "string" || sessionId.length === 0) return;
-      unfollow();
-      if (!backfilled.has(sessionId)) {
-        backfilled.add(sessionId);
-        await backfillSession(sessionId);
+  const followSession = (sessionId) => {
+    if (disposed || typeof sessionId !== "string" || sessionId.length === 0) return Promise.resolve();
+    if (subscription && subscription.sessionId === sessionId) return subscription.ready;
+    unfollow();
+    if (typeof feedHubProvider === 'function') {
+      const hub = feedHubProvider();
+      const instanceId = runtimeInstanceIdProvider?.();
+      if (hub && instanceId) {
+        const record = { sessionId, abort: new AbortController(), timer: null, ready: Promise.resolve() };
+        subscription = record;
+        const owned = hub.subscribe({ instanceId, sessionId }, {
+          onBaseline: () => {},
+          onUpdate: (update) => { if (subscription === record && update.kind === 'edit-observation') observe(update.observation); },
+          onError: () => { if (subscription === record) unfollow(); },
+        });
+        record.release = () => owned.release();
+        if (subscription !== record) record.release();
+        return record.ready;
       }
-      startSubscription(sessionId);
-    } catch (err) {
-      safeLog("followSession failed: " + (err && err.message ? err.message : String(err)));
     }
-  })();
+    // Reserve ownership before awaiting the export; a superseded export must
+    // never start an orphan SSE stream or overwrite the new active session.
+    const record = { sessionId, abort: new AbortController(), timer: null, ready: null };
+    subscription = record;
+    record.ready = (async () => {
+      try {
+        if (!backfilled.has(sessionId)) {
+          const completed = await backfillSession(record);
+          if (completed && subscription === record) backfilled.add(sessionId);
+        }
+        startSubscription(record);
+      } catch (err) {
+        safeLog("followSession failed: " + (err && err.message ? err.message : String(err)));
+      }
+    })();
+    return record.ready;
+  };
 
-  return Object.freeze({ followSession, unfollow, dispose: unfollow });
+  const dispose = () => {
+    disposed = true;
+    unfollow();
+    observations.clear();
+    candidates.clear();
+    awaitingSnapshots.clear();
+  };
+  return Object.freeze({ followSession, unfollow, observe, dispose });
 }
 
 module.exports = {

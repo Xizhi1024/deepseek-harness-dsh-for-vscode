@@ -8,6 +8,8 @@ import { createLmRoutes } from './lmRoute.js';
 import { createFimRoutes } from './fimRoutes.js';
 import { createLinkRoutes, editorOpenViaBridge } from './linkRoutes.js';
 import { installCompatSessionRoutes, installCompatWorkspaceRoutes } from './compatSessionRoutes.js';
+import { installRuntimeFacade } from './runtimeFacade.js';
+import { createDsh020rc1Adapter } from './adapters/dsh020rc1.js';
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
@@ -454,6 +456,7 @@ function installOpenPathBridge(ctx, options = {}) {
 }
 
 function apply(ctx) {
+  const targetRuntime = process.env.DSH_VSCODE_RUNTIME_VERSION === '0.2.0-rc.1';
   ctx.effect(() => {
     // C1 watchdog: if this DSH process is a VS Code-managed child, keep an eye
     // on its owner window and self-terminate only when the dual condition is
@@ -471,6 +474,8 @@ function apply(ctx) {
   // Cross-version openPath bridge: claimed dynamically per runtime line so
   // no service name is ever statically awaited (see installOpenPathBridge).
   ctx.effect(() => {
+    // Target openPath is private; editor links use the explicit public bridge.
+    if (targetRuntime) return () => {};
     const stop = installOpenPathBridge(ctx);
     return () => {
       if (typeof stop === 'function') stop();
@@ -481,12 +486,19 @@ function apply(ctx) {
   // apiproxy REST surface (0.1.2-rc.1+, sessionController service present)
   // this mounts the frozen wire routes the extension speaks. Old runtimes
   // keep their native routes — the inject never fires there.
-  ctx.inject(['sessionController', 'webServer'], (scope) => {
+  if (targetRuntime) ctx.inject(['sessionController', 'workspaceController', 'webServer'], (scope) => {
+    const runtimeInstanceId = process.env.DSH_VSCODE_RUNTIME_INSTANCE_ID;
+    const adapter = createDsh020rc1Adapter({ ctx: scope, runtimeInstanceId,
+      integrationVersion: packageJson.version, runtimeVersion: process.env.DSH_VSCODE_RUNTIME_VERSION });
+    const facade = installRuntimeFacade({ ctx: scope, adapter, runtimeInstanceId, token: process.env.DSH_VSCODE_API_TOKEN });
+    return () => facade.dispose();
+  });
+  if (!targetRuntime) ctx.inject(['sessionController', 'webServer'], (scope) => {
     const routes = installCompatSessionRoutes(scope);
     console.log('[dsh-vscode-integration] session REST compat routes mounted (/api/session.*, /api/events.mux)');
     return () => routes.dispose();
   });
-  ctx.inject(['sessionController', 'workspaceController', 'webServer'], (scope) => {
+  if (!targetRuntime) ctx.inject(['sessionController', 'workspaceController', 'webServer'], (scope) => {
     const routes = installCompatWorkspaceRoutes(scope);
     console.log('[dsh-vscode-integration] workspace REST compat routes mounted');
     return () => routes.dispose();
@@ -509,6 +521,7 @@ function apply(ctx) {
     if (started.running && observeToolsEnabled(process.env)) {
       observer = createEditObserver({
         ctx,
+        includeToolCallId: targetRuntime,
         notify: (params) => started.notify('vscode/dshEditObserved', params),
       });
     }

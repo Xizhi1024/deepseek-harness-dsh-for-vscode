@@ -21,6 +21,13 @@ const DEV_FILES = [
   'package.json',
   'lib/index.js',
   'lib/client.js',
+  'lib/client.dsh020rc1.js',
+  'lib/client.sessionBridge.js',
+  'lib/runtimeFacade.js',
+  'lib/adapters/dsh020rc1.js',
+  'contracts/runtime-v1.json',
+  'contracts/session-bridge-v1.json',
+  'contracts/validate.cjs',
   'lib/tools.js',
   'lib/lmRoute.js',
   'lib/fimRoutes.js',
@@ -28,7 +35,7 @@ const DEV_FILES = [
   'lib/compatSessionRoutes.js',
   'lib/editObserver.js',
 ];
-const OLD_FILES = DEV_FILES.slice(0, 5); // 0.9.x/1.0.x shipped exactly these
+const OLD_FILES = ['package.json', 'lib/index.js', 'lib/client.js', 'lib/tools.js', 'lib/lmRoute.js'];
 
 function makeExtensionRoot(version, files, payload) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-ext-')));

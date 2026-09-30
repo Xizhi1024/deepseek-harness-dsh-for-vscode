@@ -62,6 +62,7 @@ function resolveDefaultPort(env = process.env) {
  * @returns {object} Read-only workspace helpers.
  */
 function createWorkspaceContext(vscode, extensionContext, globalStorageUri = extensionContext.globalStorageUri, defaultPort = DEFAULT_PORT) {
+  let lastWorkspaceCwd = null;
   return Object.freeze({
     config() {
       const settings = vscode.workspace.getConfiguration('dsh');
@@ -88,17 +89,29 @@ function createWorkspaceContext(vscode, extensionContext, globalStorageUri = ext
 
     workspaceCwd() {
       const folders = vscode.workspace.workspaceFolders;
-      if (!folders || folders.length === 0) return null;
+      if (!folders || folders.length === 0) {
+        lastWorkspaceCwd = null;
+        return null;
+      }
       try {
         const active = vscode.window.activeTextEditor;
         if (active && active.document && active.document.uri) {
           const folder = vscode.workspace.getWorkspaceFolder(active.document.uri);
-          if (folder) return folder.uri.fsPath;
+          if (folder) {
+            lastWorkspaceCwd = folder.uri.fsPath;
+            return lastWorkspaceCwd;
+          }
         }
       } catch {
-        // Active-editor lookup is advisory; the first workspace is authoritative fallback.
+        // Keep the current root when focus leaves an ordinary text editor.
       }
-      return folders[0].uri.fsPath;
+      // Search, settings and webviews have no workspace text editor. Falling
+      // back to the first folder here used to rebind and reload the DSH iframe
+      // on each focus change in a multi-root workspace, losing its input UI.
+      const previous = lastWorkspaceCwd && folders.find((folder) =>
+        ServerManager.samePath(folder.uri.fsPath, lastWorkspaceCwd));
+      lastWorkspaceCwd = (previous || folders[0]).uri.fsPath;
+      return lastWorkspaceCwd;
     },
 
     registryFilePath() {

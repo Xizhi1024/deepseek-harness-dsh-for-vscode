@@ -39,6 +39,8 @@ function createAddFileToThreadCommand({
   formatFileAttachment,
   waitForResolvedView,
   ensureConnected,
+  useSessionBridge = () => false,
+  insertTargetAttachment = null,
   loc = defaultLoc,
 }) {
   if (!vscode || !vscode.commands || typeof vscode.commands.executeCommand !== 'function') {
@@ -66,6 +68,15 @@ function createAddFileToThreadCommand({
       // open workspace folders. Implicit Add Active File / Selection /
       // Problems commands keep the workspace-only gate.
       const attachment = editorContext.attachActiveFile({ allowOutsideWorkspace: true });
+      if (useSessionBridge()) {
+        if (typeof insertTargetAttachment !== 'function') throw new Error('Browser attachment bridge is unavailable');
+        await insertTargetAttachment(async (signal) => {
+          if (signal.aborted) throw Object.assign(new Error('Attachment cancelled'), { code: 'CANCELLED' });
+          return formatFileAttachment(attachment, attachment.document.uri);
+        });
+        await vscode.window.showInformationMessage(loc('File added to the DSH conversation'));
+        return;
+      }
       await vscode.commands.executeCommand('workbench.view.extension.' + CONTAINER_ID);
       await vscode.commands.executeCommand(VIEW_ID + '.focus');
       const view = await waitForResolvedView();
@@ -75,6 +86,7 @@ function createAddFileToThreadCommand({
       await coordinator.request(view.webview, text);
       await vscode.window.showInformationMessage(loc('File added to the DSH conversation'));
     } catch (err) {
+      if (err && err.code === 'CANCELLED') return;
       await vscode.window.showErrorMessage(loc('Add to DSH conversation failed: {message}', {
         message: err && err.message ? err.message : String(err),
       }));
@@ -112,6 +124,8 @@ function createAddFolderToThreadCommand({
   formatFolderAttachment,
   waitForResolvedView,
   ensureConnected,
+  useSessionBridge = () => false,
+  insertTargetAttachment = null,
   loc = defaultLoc,
 }) {
   if (!vscode || !vscode.commands || typeof vscode.commands.executeCommand !== 'function') {
@@ -138,6 +152,17 @@ function createAddFolderToThreadCommand({
       if (!uri || typeof uri !== 'object') {
         throw new Error(loc('A folder URI is required'));
       }
+      if (useSessionBridge()) {
+        if (typeof insertTargetAttachment !== 'function') throw new Error('Browser attachment bridge is unavailable');
+        await insertTargetAttachment(async (signal) => {
+          if (signal.aborted) throw Object.assign(new Error('Attachment cancelled'), { code: 'CANCELLED' });
+          const attachment = await editorContext.attachFolder(uri, { allowOutsideWorkspace: true });
+          if (signal.aborted) throw Object.assign(new Error('Attachment cancelled'), { code: 'CANCELLED' });
+          return formatFolderAttachment(attachment, attachment.document.uri);
+        });
+        await vscode.window.showInformationMessage(loc('Folder added to the DSH conversation'));
+        return;
+      }
       // Explicit reader action: like Add File to DSH Thread, a trusted
       // file:// folder outside the open workspace folders may be listed.
       const attachment = editorContext.attachFolder(uri, { allowOutsideWorkspace: true });
@@ -150,6 +175,7 @@ function createAddFolderToThreadCommand({
       await coordinator.request(view.webview, text);
       await vscode.window.showInformationMessage(loc('Folder added to the DSH conversation'));
     } catch (err) {
+      if (err && err.code === 'CANCELLED') return;
       await vscode.window.showErrorMessage(loc('Add to DSH conversation failed: {message}', {
         message: err && err.message ? err.message : String(err),
       }));

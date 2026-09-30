@@ -383,6 +383,7 @@ async function resolveLocalDshRuntime({
 
   return Object.freeze({
     executablePath: resolvedNodeExecutable,
+    packageRoot: resolvedPackageRoot,
     entrypointArgs: Object.freeze([entrypoint]),
     dshHome: resolvedHome,
     profileHome: path.join(resolvedHome, 'profiles', MANAGED_PROFILE),
@@ -407,6 +408,10 @@ async function resolveLocalDshRuntime({
  * @returns {Promise<string|null>}
  */
 async function detectDshVersionNear(filePath, { readFile, realpath } = {}) {
+  return (await detectDshPackageNear(filePath, { readFile, realpath }))?.dshVersion || null;
+}
+
+async function detectDshPackageNear(filePath, { readFile, realpath } = {}) {
   const read = readFile || ((candidate) => fs.promises.readFile(candidate, 'utf8'));
   const resolveReal = realpath || ((candidate) => fs.promises.realpath(candidate));
   try {
@@ -424,7 +429,7 @@ async function detectDshVersionNear(filePath, { readFile, realpath } = {}) {
             parsed && parsed.name === '@deepseek-ai/dsh'
             && typeof parsed.version === 'string' && parsed.version.length > 0
           ) {
-            return parsed.version;
+            return Object.freeze({ packageRoot: path.dirname(manifestPath), dshVersion: parsed.version });
           }
         } catch {
           // try the next layout/ancestor
@@ -445,4 +450,5 @@ module.exports = {
   packageCandidates,
   resolveLocalDshRuntime,
   detectDshVersionNear,
+  detectDshPackageNear,
 };
