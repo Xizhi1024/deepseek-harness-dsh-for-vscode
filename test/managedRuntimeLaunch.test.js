@@ -7,9 +7,15 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  assertLaunchableRuntime,
   buildManagedLaunchSpec,
   normalizeResolvedRuntime,
 } = require('../src/managedRuntimeLaunch');
+const {
+  detectRuntimeEnvironment,
+  isForeignHostPath,
+  windowsMountRoots,
+} = require('../src/runtimeEnvironment');
 const {
   EMBED_DISABLED_PLUGIN_IDS,
   EMBED_INTEGRATION_PACKAGE,
@@ -99,6 +105,52 @@ test('managed launch validates loopback and port before spawning', (t) => {
     () => buildManagedLaunchSpec(runtime, '127.0.0.1', 0, 'win32'),
     /integer from 1 to 65535/
   );
+});
+
+test('normalizeResolvedRuntime derives the runtime environment instead of trusting input', (t) => {
+  // The field is stamped into the shared instance registry, so it has to come
+  // from the host the runtime was resolved FOR — a caller-supplied value must
+  // never be able to launder a foreign runtime into this window's namespace.
+  assert.strictEqual(normalizeResolvedRuntime(fixture(t, '.exe'), 'win32').environment, 'windows');
+  assert.strictEqual(
+    normalizeResolvedRuntime(fixture(t), 'linux').environment,
+    detectRuntimeEnvironment({ platform: 'linux' }).id
+  );
+  assert.strictEqual(
+    normalizeResolvedRuntime({ ...fixture(t), environment: 'windows' }, 'linux').environment,
+    detectRuntimeEnvironment({ platform: 'linux' }).id
+  );
+});
+
+test('launch gate refuses a runtime that lives on a Windows mount', { skip: process.platform === 'win32' }, (t) => {
+  // A /mnt/c shim is executable and stat-able, so it passes every other check
+  // in this module — yet the process behind it rejects WSL paths outright.
+  // The check is structural (pre-spawn), so it needs the mount list to be
+  // real: build the fixture inside the first Windows mount of this host.
+  const mountRoot = windowsMountRoots()[0];
+  if (!mountRoot || !isForeignHostPath(path.join(mountRoot, 'dsh-foreign-probe'), { platform: 'linux' })) {
+    return t.skip('this host has no Windows mount');
+  }
+  let root;
+  try {
+    root = fs.mkdtempSync(path.join(mountRoot, 'dsh-foreign-'));
+  } catch {
+    return t.skip('the Windows mount is not writable');
+  }
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const executablePath = path.join(root, 'node.exe');
+  fs.writeFileSync(executablePath, 'runtime');
+  fs.chmodSync(executablePath, 0o755);
+  const runtime = { ...fixture(t), executablePath, entrypointArgs: [] };
+
+  assert.throws(
+    () => assertLaunchableRuntime(runtime, 'linux'),
+    (error) => error.code === 'RUNTIME_FOREIGN_ENVIRONMENT'
+      && error.params.path === executablePath
+      && typeof error.params.host === 'string' && error.params.host.length > 0
+  );
+  // The very same binary is the correct runtime on the side that owns it.
+  assert.doesNotThrow(() => assertLaunchableRuntime(runtime, 'win32'));
 });
 
 test('managed launch always passes --no-open: the embedded sidebar replaces the browser handoff', (t) => {

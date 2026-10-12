@@ -2,11 +2,10 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const path = require('node:path');
 
 const {
-  listWorkspaces,
   createWorkspace,
+  deleteWorkspace,
   findWorkspaceByPath,
 } = require('../../src/ch2/workspaceClient');
 const { DshSessionError } = require('../../src/sessionNavigation');
@@ -22,72 +21,13 @@ function jsonResponse(status, body) {
   };
 }
 
-test('listWorkspaces posts workspace.list and returns validated workspace items', async () => {
+test('createWorkspace posts workspace/create with path and returns workspace/created', async () => {
   let capturedUrl;
-  let capturedInit;
-  const items = [
-    { workspaceId: 'w1', path: 'D:\\work', title: 'Work', sessionIds: ['s1'], createdAt: 1, updatedAt: 2 },
-    { workspaceId: 'w2', path: '/home/me', title: 'Home', sessionIds: [], createdAt: 3, updatedAt: 4 },
-  ];
-
-  const result = await listWorkspaces(BASE_URL, {
-    fetchImpl: async (url, init) => {
-      capturedUrl = url;
-      capturedInit = init;
-      const request = JSON.parse(init.body);
-      return jsonResponse(200, {
-        result: { ok: true, value: { items } },
-      });
-    },
-  });
-
-  assert.strictEqual(capturedUrl, BASE_URL + '/api/workspace.list');
-  assert.strictEqual(capturedInit.method, 'POST');
-  assert.strictEqual(capturedInit.headers['content-type'], 'application/json');
-  const request = JSON.parse(capturedInit.body);
-  assert.strictEqual(request.method, 'workspace.list');
-  assert.deepStrictEqual(request.payload, {});
-  assert.strictEqual(result.length, 2);
-  assert.deepStrictEqual(result[0], items[0]);
-  assert.notStrictEqual(result, items);
-});
-
-test('listWorkspaces validates workspaceId/path/sessionIds item types', async () => {
-  const badItems = [
-    { workspaceId: '', path: 'D:\\work', sessionIds: [] },
-    { workspaceId: 'w1', path: 42, sessionIds: [] },
-    { workspaceId: 'w1', path: 'D:\\work', sessionIds: 's1' },
-    { workspaceId: 'w1', path: 'D:\\work', sessionIds: [42] },
-    null,
-  ];
-  for (const bad of badItems) {
-    await assert.rejects(
-      listWorkspaces(BASE_URL, {
-        fetchImpl: async () => jsonResponse(200, {
-          result: { ok: true, value: { items: [bad] } },
-        }),
-      }),
-      (err) => err instanceof DshSessionError && err.code === 'DSH_SESSION_API_INVALID_RESPONSE'
-    );
-  }
-});
-
-test('listWorkspaces validates result.value.items array', async () => {
-  await assert.rejects(
-    listWorkspaces(BASE_URL, {
-      fetchImpl: async () => jsonResponse(200, {
-        result: { ok: true, value: { items: 'nope' } },
-      }),
-    }),
-    (err) => err instanceof DshSessionError && err.code === 'DSH_SESSION_API_INVALID_RESPONSE'
-  );
-});
-
-test('createWorkspace posts workspace.create with path and returns workspace/created', async () => {
   let capturedBody;
   const workspace = { workspaceId: 'w-new', path: 'D:\\project', title: 'Project', sessionIds: [] };
   const result = await createWorkspace(BASE_URL, 'D:\\project', {
     fetchImpl: async (url, init) => {
+      capturedUrl = url;
       capturedBody = JSON.parse(init.body);
       return jsonResponse(200, {
         result: { ok: true, value: { workspace, created: true } },
@@ -95,8 +35,9 @@ test('createWorkspace posts workspace.create with path and returns workspace/cre
     },
   });
 
-  assert.strictEqual(capturedBody.method, 'workspace.create');
-  assert.deepStrictEqual(capturedBody.payload, { path: 'D:\\project' });
+  assert.strictEqual(capturedUrl, BASE_URL + '/api/workspace/create');
+  assert.strictEqual(capturedBody.method, 'workspace/create');
+  assert.deepStrictEqual(capturedBody.payload, { args: { request: { path: 'D:\\project' } } });
   assert.deepStrictEqual(result, { workspace, created: true });
 });
 
@@ -116,6 +57,80 @@ test('createWorkspace validates workspace and created fields', async () => {
       }),
     }),
     (err) => err instanceof DshSessionError && err.code === 'DSH_SESSION_API_INVALID_RESPONSE'
+  );
+});
+
+test('deleteWorkspace posts workspace/delete and returns {deleted:true}', async () => {
+  let capturedUrl;
+  let capturedBody;
+  const result = await deleteWorkspace(BASE_URL, { workspaceId: 'w-1' }, {
+    fetchImpl: async (url, init) => {
+      capturedUrl = url;
+      capturedBody = JSON.parse(init.body);
+      return jsonResponse(200, {
+        result: { ok: true, value: { deleted: true } },
+      });
+    },
+  });
+
+  assert.strictEqual(capturedUrl, BASE_URL + '/api/workspace/delete');
+  assert.strictEqual(capturedBody.method, 'workspace/delete');
+  assert.deepStrictEqual(capturedBody.payload, { args: { request: { workspaceId: 'w-1' } } });
+  assert.deepStrictEqual(result, { deleted: true });
+});
+
+test('deleteWorkspace requires a non-empty workspaceId', async () => {
+  const fetchImpl = async () => { throw new Error('must not be called'); };
+  for (const bad of [undefined, null, '', 42, {}, { workspaceId: '' }]) {
+    await assert.rejects(
+      deleteWorkspace(BASE_URL, bad, { fetchImpl }),
+      (err) => err instanceof TypeError
+    );
+  }
+});
+
+test('deleteWorkspace validates result.value.deleted === true', async () => {
+  for (const value of [{}, { deleted: false }, { deleted: 'yes' }, null]) {
+    await assert.rejects(
+      deleteWorkspace(BASE_URL, { workspaceId: 'w-1' }, {
+        fetchImpl: async () => jsonResponse(200, { result: { ok: true, value } }),
+      }),
+      (err) => err instanceof DshSessionError && err.code === 'DSH_SESSION_API_INVALID_RESPONSE'
+    );
+  }
+});
+
+test('deleteWorkspace wraps business failures with the same error mapping', async () => {
+  await assert.rejects(
+    deleteWorkspace(BASE_URL, { workspaceId: 'w-1' }, {
+      fetchImpl: async () => jsonResponse(200, {
+        result: { ok: false, error: { code: 'NOT_FOUND', message: 'no such workspace' } },
+      }),
+    }),
+    (err) => err instanceof DshSessionError
+      && err.code === 'DSH_SESSION_API_BUSINESS_ERROR'
+      && err.businessCode === 'NOT_FOUND'
+      && err.message === 'DSH session API business error: NOT_FOUND: no such workspace'
+  );
+});
+
+test('deleteWorkspace surfaces the server message of a rejected workspace path', async () => {
+  // What a DSH hosted by the OTHER OS answers a workspace operation with; the
+  // binding page shows err.message, so the sentence has to survive the wrap.
+  await assert.rejects(
+    deleteWorkspace(BASE_URL, { workspaceId: 'w-1' }, {
+      fetchImpl: async () => jsonResponse(200, {
+        result: {
+          ok: false,
+          error: {
+            code: 'workspace/invalid-path',
+            message: "Workspace path is not fully qualified: '/home/andy/workspace'",
+          },
+        },
+      }),
+    }),
+    (err) => err.businessCode === 'workspace/invalid-path'
+      && err.message.includes("Workspace path is not fully qualified: '/home/andy/workspace'")
   );
 });
 

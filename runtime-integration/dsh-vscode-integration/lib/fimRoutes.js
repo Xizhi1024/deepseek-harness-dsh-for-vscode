@@ -1,18 +1,27 @@
 import { timingSafeEqual } from 'node:crypto';
 
+import { createRuntimeConfig } from './runtimeConfig.js';
+
 // ---------------------------------------------------------------------------
 // DSH side of tab completion: POST /api/fim exact WebRoute.
-// Auth = Authorization: Bearer <DSH_FIM_BRIDGE_TOKEN> (injected into the DSH
-// spawn env by the extension's tab-completion feature).
-// Upstream = an OpenAI-compatible *completions* endpoint (DSH_FIM_BASE_URL,
+// Auth = Authorization: Bearer <one of the FIM bridge tokens> (injected into
+// the DSH spawn env by the extension's tab-completion feature, updatable at
+// runtime via POST /api/vscode/configure — see runtimeConfig.js).
+// Upstream = an OpenAI-compatible *completions* endpoint (fim.baseUrl,
 // full URL, e.g. https://api.deepseek.com/beta/completions) called with a FIM
 // prompt; the streamed deltas are re-emitted as SSE frames
 // (data: {"text": ...} ... data: [DONE]) that the extension-side
 // inlineCompletion parser understands.
+//
+// The route is ALWAYS mounted (2026-09-19, known-issue #1 fix): the old
+// mount-only-when-env-present behavior left tab completion broken on any
+// instance whose spawn predated the feature (adopted/shared instances, later
+// toggles) with a bare "404 not found" from the /api fetch bridge. Now an
+// unconfigured instance answers 503 fim-not-configured with the same
+// guidance the extension already surfaces.
 // ---------------------------------------------------------------------------
 
 const MAX_BODY_BYTES = 256 * 1024;
-const MAX_UPSTREAM_TOKENS = 256;
 const UPSTREAM_TIMEOUT_MS = 8000;
 const DEFAULT_FIM_TEMPLATE = '<｜fim▁begin｜>{prefix}<｜fim▁hole｜>{suffix}<｜fim▁end｜>';
 
@@ -109,31 +118,32 @@ async function writeSseFrame(response, payload) {
 
 /**
  * @param {object} deps
- * @param {object} deps.env - env source (DSH_FIM_BRIDGE_TOKEN, DSH_FIM_BASE_URL,
- *   DSH_FIM_API_KEY, optional DSH_FIM_TEMPLATE / DSH_FIM_MAX_TOKENS).
+ * @param {object} deps.env - env source (DSH_FIM_* bootstrap).
+ * @param {object} [deps.config] - runtimeConfig store; when omitted one is
+ *   synthesized from env (bootstrap-only, no runtime reconfiguration).
  * @param {object} deps.ctx - DSH plugin context ({ webServer }).
  * @param {Function} [deps.fetchImpl] - injectable fetch (tests).
  * @returns {{dispose: Function, routes: Array<{path: string}>}}
  */
-export function createFimRoutes({ env = process.env, ctx = null, fetchImpl = globalThis.fetch } = {}) {
+export function createFimRoutes({ env = process.env, config = null, ctx = null, fetchImpl = globalThis.fetch } = {}) {
   if (!ctx || !ctx.webServer || typeof ctx.webServer.register !== 'function') {
     throw new TypeError('createFimRoutes requires ctx.webServer.register');
   }
-  const token = env && typeof env.DSH_FIM_BRIDGE_TOKEN === 'string' ? env.DSH_FIM_BRIDGE_TOKEN : '';
+  const store = config || createRuntimeConfig({ env });
   const disposers = [];
   const routes = [];
-  if (token.length === 0) {
-    // Tab completion disabled on the extension side: mount nothing.
-    return { dispose: () => { for (const d of disposers) { try { d(); } catch { /* best-effort */ } } }, routes };
-  }
 
-  const baseUrl = typeof env.DSH_FIM_BASE_URL === 'string' ? env.DSH_FIM_BASE_URL : '';
-  const apiKey = typeof env.DSH_FIM_API_KEY === 'string' ? env.DSH_FIM_API_KEY : '';
-  const template = typeof env.DSH_FIM_TEMPLATE === 'string' && env.DSH_FIM_TEMPLATE.includes('{prefix}')
-    ? env.DSH_FIM_TEMPLATE
-    : DEFAULT_FIM_TEMPLATE;
-  const maxTokensRaw = Number.parseInt(String(env.DSH_FIM_MAX_TOKENS ?? ''), 10);
-  const maxTokens = Number.isInteger(maxTokensRaw) && maxTokensRaw > 0 && maxTokensRaw <= 1024 ? maxTokensRaw : MAX_UPSTREAM_TOKENS;
+  const baseUrl = () => store.fim.baseUrl;
+  const apiKey = () => store.fim.apiKey;
+  const template = () => store.fim.template;
+  const maxTokens = () => store.fim.maxTokens;
+  const hasToken = () => store.fim.tokens.size > 0;
+  const tokenMatches = (supplied) => {
+    for (const token of store.fim.tokens) {
+      if (safeTokenEqual(supplied, token)) return true;
+    }
+    return false;
+  };
 
   function registerRoute(path, handler) {
     const disposer = ctx.webServer.register({ kind: 'exact', path, handler });
@@ -144,7 +154,17 @@ export function createFimRoutes({ env = process.env, ctx = null, fetchImpl = glo
 
   registerRoute('/api/fim', async (request, response) => {
     try {
-      if (token.length === 0 || !safeTokenEqual(readBearerToken(request), token)) {
+      if (!hasToken()) {
+        // Tab completion was never enabled on this instance (no FIM bridge
+        // token from spawn env or a configure push): 503 with the guidance
+        // the extension surfaces, instead of the /api fetch bridge's 404.
+        writeJson(response, 503, {
+          error: 'fim-not-configured',
+          message: 'Tab completion is not enabled on this DSH instance: enable dsh.features.tab-completion and restart the DSH server (command "dsh.restartServer"), or update the extension so it can configure the running instance',
+        });
+        return;
+      }
+      if (!tokenMatches(readBearerToken(request))) {
         writeJson(response, 401, { error: 'unauthorized', message: 'DSH FIM bridge token required' });
         return;
       }
@@ -152,7 +172,7 @@ export function createFimRoutes({ env = process.env, ctx = null, fetchImpl = glo
         writeJson(response, 405, { error: 'method-not-allowed' });
         return;
       }
-      if (baseUrl.length === 0 || apiKey.length === 0) {
+      if (baseUrl().length === 0 || apiKey().length === 0) {
         // The message is user-facing guidance: the extension surfaces it in a
         // warning the first time a 503 is observed (F-e), so spell out the
         // exact fix steps.
@@ -177,13 +197,13 @@ export function createFimRoutes({ env = process.env, ctx = null, fetchImpl = glo
 
       let upstream;
       try {
-        upstream = await fetchImpl(baseUrl, {
+        upstream = await fetchImpl(baseUrl(), {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${apiKey()}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ model, prompt: buildPrompt(template, prefix, suffix), max_tokens: maxTokens, temperature: 0, stream: true }),
+          body: JSON.stringify({ model, prompt: buildPrompt(template(), prefix, suffix), max_tokens: maxTokens(), temperature: 0, stream: true }),
           signal: controller.signal,
         });
       } catch (error) {

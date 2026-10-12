@@ -1,9 +1,14 @@
 import { timingSafeEqual } from 'node:crypto';
 
+import { createRuntimeConfig } from './runtimeConfig.js';
+
 // ---------------------------------------------------------------------------
 // DSH side of R23 model routing: /api/lm/models and /api/lm/chat exact
-// WebRoutes. Auth = Authorization: Bearer <DSH_LM_BRIDGE_TOKEN>, which the
-// extension injects into the DSH spawn env. The key never reaches VS Code.
+// WebRoutes. Auth = Authorization: Bearer <one of the LM bridge tokens>,
+// which the extension injects into the DSH spawn env and can update at
+// runtime via POST /api/vscode/configure (see runtimeConfig.js — the routes
+// are ALWAYS mounted; a tokenless instance answers 401 instead of leaving
+// the endpoints to the /api fetch bridge's bare 404).
 // ---------------------------------------------------------------------------
 
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -151,15 +156,17 @@ async function writeSseChunk(response, payload) {
 
 /**
  * @param {object} deps
- * @param {object} deps.env - env source (DSH_LM_BRIDGE_TOKEN).
+ * @param {object} deps.env - env source (DSH_LM_BRIDGE_TOKEN bootstrap).
+ * @param {object} [deps.config] - runtimeConfig store; when omitted one is
+ *   synthesized from env (bootstrap-only, no runtime reconfiguration).
  * @param {object} deps.ctx - DSH plugin context ({ webServer, llm }).
  * @returns {{dispose: Function, routes: Array<{path: string, disposer: Function|null}>}}
  */
-function createLmRoutes({ env = process.env, ctx = null } = {}) {
+function createLmRoutes({ env = process.env, config = null, ctx = null } = {}) {
   if (!ctx || !ctx.webServer || typeof ctx.webServer.register !== 'function') {
     throw new TypeError('createLmRoutes requires ctx.webServer.register');
   }
-  const token = env && typeof env.DSH_LM_BRIDGE_TOKEN === 'string' ? env.DSH_LM_BRIDGE_TOKEN : '';
+  const store = config || createRuntimeConfig({ env });
   const disposers = [];
 
   function registerRoute(path, handler) {
@@ -169,7 +176,14 @@ function createLmRoutes({ env = process.env, ctx = null } = {}) {
   }
 
   function authorized(request, response) {
-    if (token.length === 0 || !safeTokenEqual(readBearerToken(request), token)) {
+    let matched = false;
+    for (const token of store.lm.tokens) {
+      if (safeTokenEqual(readBearerToken(request), token)) {
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
       writeJson(response, 401, { error: 'unauthorized', message: 'DSH model bridge token required' });
       return false;
     }

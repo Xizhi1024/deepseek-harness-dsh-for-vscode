@@ -177,7 +177,7 @@ test('single-flight: a new call during an in-flight request returns [] and does 
   assert.equal(h.fetchCalls.length, 1, 'no second request was queued');
 });
 
-test('timeout: 800ms aborts the in-flight request and returns []', async () => {
+test('timeout: REQUEST_TIMEOUT_MS aborts the in-flight request and returns []', async () => {
   const h = makeHarness({
     fetchImpl: (url, options) => new Promise((resolve, reject) => {
       options.signal.addEventListener('abort', () => {
@@ -197,7 +197,9 @@ test('timeout: 800ms aborts the in-flight request and returns []', async () => {
   h.timers.advance(150);
   assert.equal(h.fetchCalls.length, 1);
 
-  h.timers.advance(799);
+  // The request timeout timer is armed when the fetch starts (t=150) and
+  // fires REQUEST_TIMEOUT_MS (5000) later at t=5150.
+  h.timers.advance(4999);
   h.timers.advance(1);
 
   assert.deepEqual(await p, []);

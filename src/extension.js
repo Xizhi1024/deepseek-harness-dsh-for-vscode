@@ -32,6 +32,7 @@ const { ensureManagedRuntime } = require("./runtimeProvisioner");
 const { resolveLocalDshRuntime } = require("./localRuntimeResolver");
 const { normalizeLaunchMethod, resolveCommandRuntime } = require("./launchMethodResolver");
 const { discoverDshWebPorts: defaultDiscoverDshWebPorts } = require("./processDiscovery");
+const { detectRuntimeEnvironment, resolveSharedEndpointPort, SHARE_MODES } = require("./runtimeEnvironment");
 const { isRetryableStartupError, renderStartupError } = require("./startupErrors");
 const { deriveVscodeCapabilities } = require("./vscodeCapabilities");
 const { deriveFeatureFlags, deriveRuntimeIssues } = require("./dshCompat");
@@ -101,6 +102,7 @@ const {
   diagnosticSnapshot,
 } = require("./providerDetector");
 const { writeCleanOverlay, writeEmbedOverlay } = require("./embedOverlay");
+const { startEmbedProxy } = require("./embedProxy");
 const {
   HOME_MODES,
   bindRuntimeHome,
@@ -118,6 +120,16 @@ let vscode = null; // injected during activation; avoids loading vscode in node:
 let hostContext = null; // workspace/config facade bound during activation
 let manager = null; // ServerManager instance (created in activate)
 let currentServer = null; // RunningServer | null
+// Live bridge feature config for the plugin's POST /api/vscode/configure
+// push (dsh-vscode-integration 0.8.0, known-issue #1 fix): spawn env is a
+// SPAWN-TIME snapshot, so a feature enabled later — or a window adopting an
+// instance another window spawned — could never reach the running plugin and
+// its bridge endpoints answered the /api fetch bridge's bare 404. Each
+// feature setup records its endpoint/token here; the values ride
+// pushBridgeConfigure() to the running instance (Bearer configureToken).
+let fimBridgeConfig = null; // { token, baseUrl, apiKey } | null (tab completion)
+let lmBridgeToken = null; // string | null (model routing)
+let editorLinksBridgeEnv = null; // { DSH_VSCODE_OPEN_URL, DSH_VSCODE_OPEN_TOKEN } | null
 // Shared auth-aware fetch for every DSH /api consumer (session create/list/
 // rename, chat prompt + SSE, workspace binding, LM route). On dsh 0.1.2+
 // the server's auth fence requires a Cookie minted from the launch token;
@@ -126,6 +138,7 @@ const dshApiFetch = createAuthedFetch({
   tokenProvider: () => (currentServer && typeof currentServer.authToken === 'string' ? currentServer.authToken : null),
 });
 let currentExternalUrl = null; // client-reachable URL (forwarded in remote workspaces)
+let currentBrowserUrl = null; // direct client-reachable DSH URL (token intact) for "open in browser"
 let currentSessionId = null; // DSH session id to pass to the iframe (dsh_session)
 let currentDshTheme = null; // active VS Code theme ('dark'|'light') for dsh_theme / dshThemeChanged
 let currentView = null; // vscode.WebviewView | null
@@ -201,6 +214,7 @@ let instanceSeq = 0; // R16: monotonically increasing instance counter
 let lastFocusedInstanceId = null; // R16: most recently focused DSH surface (null = sidebar)
 let interactionHandlers = []; // webview interaction routers registered by L1/L2 features
 let cleanMode = false; // D1 clean-restart mode: spawns with vscode-clean.overlay.yml
+let embedProxyState = null; // SM-3 { key, proxy } authenticating proxy for fenced embedded UIs
 let cleanPatchPath = null; // absolute clean overlay currently in effect
 let pendingCleanRestart = false; // status-page Retry maps to Restart-Clean on HEALTH_TIMEOUT/SPAWN_EXITED_EARLY
 let selfHealEvents = []; // Diagnose records successful patch-drop self-heal retries here
@@ -210,6 +224,7 @@ let ownerWindowId = null; // stable window identity (vscode.env.windowId or deri
 let heartbeatFilePath = null; // per-window heartbeat path injected via DSH_VSCODE_HEARTBEAT_PATH
 let heartbeatTimer = null; // 10s heartbeat writer
 let ownerStartTs = null; // extension-host process start timestamp (PID-reuse guard)
+let runtimeEnvironment = null; // OS environment of this extension host: windows / wsl / linux / other
 
 async function waitForResolvedView(timeoutMs = 3000) {
   const deadline = Date.now() + timeoutMs;
@@ -269,11 +284,13 @@ async function openInstancePanel({
     panel.dispose();
     throw error;
   }
-  const externalUrl = await externalize(server.authUrl || server.url);
+  const externalUrl = await externalize(await embeddedUrlFor(server));
+  const browserUrl = await externalize(server.authUrl || server.url);
   const sessionValue = sessionIdFromValue(sessionId);
   const paint = () => {
     panel.webview.html = framePage({
       url: externalUrl,
+      browserUrl,
       lang: facade.env.language,
       failText: loc("Failed to load: DSH service unreachable"),
       openBrowserLabel: loc("Open in browser"),
@@ -629,6 +646,10 @@ async function sweepOrphansBeforeL0() {
     || ((file, options) => ServerManager.sweepDeadOwnerEntries(file, options));
   const swept = await sweep(hostContext.registryFilePath(), {
     terminate: killProcessTree,
+    onSkip: ({ pid }) => appendDiagnostic(loc(
+      "Orphan sweep skipped pid {pid}: the live process postdates its registry entry (recycled pid) — not terminated.",
+      { pid: String(pid) }
+    )),
     currentVscodePid: process.pid,
   });
   if (Array.isArray(swept) && swept.length > 0) {
@@ -683,6 +704,74 @@ async function externalize(url) {
   }
 }
 
+/**
+ * Resolve the URL an embedded DSH surface (sidebar iframe, instance panels)
+ * should load for one server handle.
+ *
+ * Fenced runtimes (dsh 0.1.2+, i.e. handles carrying a launch token) cannot be
+ * embedded directly: their browser credential is a `SameSite=Strict` cookie,
+ * which a `vscode-webview://` cross-site iframe can never send, and the
+ * tokened URL variant only redirects to a clean `/` (dropping `dsh_session` /
+ * `dsh_embed` / `dsh_theme`). Such servers are embedded through the extension
+ * host's authenticating loopback proxy instead — see src/embedProxy.js. The
+ * proxy is reused while the server URL and token are unchanged and replaced
+ * when either moves (restart, port-conflict fallback, re-adoption).
+ *
+ * Unfenced runtimes keep the historical direct URL, so older dsh builds are
+ * untouched.
+ *
+ * @param {object} server - RunningServer handle.
+ * @returns {Promise<string>} URL to embed (not yet externalized).
+ */
+async function embeddedUrlFor(server) {
+  const token = server && typeof server.authToken === 'string' ? server.authToken : '';
+  if (!server || token.length === 0) {
+    return (server && server.url) || '';
+  }
+  const key = `${server.url}#${token}`;
+  if (embedProxyState && embedProxyState.key === key) {
+    return embedProxyState.proxy.url;
+  }
+  closeEmbedProxy();
+  try {
+    const startProxy = injectedDependencies.startEmbedProxy || startEmbedProxy;
+    const proxy = await startProxy({
+      upstreamUrl: server.url,
+      token,
+      fetchImpl: dshApiFetch,
+      log: (message) => appendDiagnostic(`[embed-proxy] ${message}`),
+    });
+    embedProxyState = { key, proxy };
+    return proxy.url;
+  } catch (err) {
+    // No proxy means no embedded UI on a fenced runtime; the direct URL at
+    // least surfaces dsh's own message instead of hiding the failure.
+    appendDiagnostic(`[embed-proxy] ${err && err.message ? err.message : String(err)}`);
+    return server.authUrl || server.url;
+  }
+}
+
+/** Stop the embedded-UI proxy, if one is running. */
+function closeEmbedProxy() {
+  if (!embedProxyState) return;
+  try {
+    embedProxyState.proxy.close();
+  } catch (_) { /* already closed */ }
+  embedProxyState = null;
+}
+
+/**
+ * Drop the cached embedded URLs and stop the embed proxy. Called wherever the
+ * current server handle stops being usable (restart, explicit stop, server
+ * loss, view close, deactivate) so no loopback listener survives the server it
+ * proxies to.
+ */
+function resetEmbeddedServerUrls() {
+  currentExternalUrl = null;
+  currentBrowserUrl = null;
+  closeEmbedProxy();
+}
+
 function setStatusBar(text, tooltip) {
   if (!statusBar) {
     // The indicator is normally created by the L1 statusbar-basic feature.
@@ -720,6 +809,7 @@ function renderFrame(context) {
   try { changeTree?.setActiveSession?.(currentSessionId); } catch (_) { /* advisory */ }
   render(framePage({
     url: currentExternalUrl,
+    browserUrl: currentBrowserUrl || currentExternalUrl,
     lang: vscode.env.language,
     failText: loc("Failed to load: DSH service unreachable"),
     openBrowserLabel: loc("Open in browser"),
@@ -730,14 +820,80 @@ function renderFrame(context) {
 }
 
 /**
- * Stop the manager-owned child, if any, so a reused external instance is
- * NEVER killed — mirroring the exact rule the
- * `dsh.stopServer` command and the close policy rely on. Safe no-op when
- * there is nothing owned.
+ * Resolve the effective DSH endpoint port for this window's environment.
+ *
+ * Shared-instance mode (`dsh.share.mode = "environment"`, the default)
+ * converges every window of one OS environment onto one instance: a WSL
+ * extension host that has not explicitly pinned `dsh.port` uses its own
+ * default port (3081) so WSL2 localhost forwarding can never make a Windows
+ * window adopt the WSL instance (or vice versa). Everything else — an
+ * explicit port, window mode, user-managed mode, non-WSL environments —
+ * keeps the configured port verbatim.
+ */
+function resolveEndpointPort(cfg) {
+  return resolveSharedEndpointPort({
+    port: cfg.port,
+    portExplicit: cfg.portExplicitlySet,
+    shareMode: cfg.shareMode,
+    autoStart: cfg.autoStart,
+    environment: runtimeEnvironment,
+  });
+}
+
+/**
+ * Detail line for a failed workspace binding.
+ *
+ * `workspace/invalid-path` on a non-Windows host is the signature of a DSH
+ * running in the OTHER OS environment: a Windows-hosted instance rejects
+ * every POSIX path with "Workspace path is not fully qualified". The server's
+ * own sentence is already part of the message (the session layer surfaces it);
+ * what the raw text lacks is the way out, so the hint names the action that
+ * resolves it — a restarted instance for THIS environment.
+ *
+ * @param {{error?: string|null, errorCode?: string|null}|null} bindingState
+ * @returns {string} Localized detail text.
+ */
+function bindingFailureDetail(bindingState) {
+  const base = (bindingState && bindingState.error) || loc("Unknown workspace binding error");
+  if (!bindingState || bindingState.errorCode !== 'workspace/invalid-path' || !runtimeEnvironment) {
+    return base;
+  }
+  if (runtimeEnvironment.id === 'windows') return base;
+  return base + ' — ' + loc('The DSH instance runs in another OS environment and cannot serve this window\'s paths. Run "Restart DSH Server" to start an instance for this environment.');
+}
+
+/**
+ * True when the owned child is currently adopted by another live window.
+ * Advisory: injected/fake managers without the method (older seams) and any
+ * registry error resolve to false so the legacy stop behavior stands.
+ */
+async function ownedChildKeptForAdopters() {
+  try {
+    if (!manager || typeof manager.ownedChildHasLiveAdopters !== 'function') return false;
+    return await manager.ownedChildHasLiveAdopters(hostContext.registryFilePath());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Stop the owned DSH child. In shared-instance mode other windows may have
+ * adopted this instance; unless `force` is set (explicit user command, or a
+ * restart that must replace the child), the stop is skipped while any
+ * adopting window's extension host is still alive — the activation sweep
+ * reclaims the instance once the owner AND every attacher are gone.
+ * Safe no-op when there is nothing owned.
+ * @param {{force?: boolean}} [options] - force bypasses adopter protection.
  * @returns {Promise<boolean>} true when an owned server was stopped.
  */
-async function stopOwnedServer() {
+async function stopOwnedServer({ force = false } = {}) {
   if (!manager || !manager.hasOwnedChild()) return false;
+  if (!force && await ownedChildKeptForAdopters()) {
+    appendDiagnostic(loc(
+      "Shared DSH instance left running: other window(s) still attached."
+    ));
+    return false;
+  }
   await manager.stop();
   return true;
 }
@@ -758,17 +914,106 @@ async function stopOwnedServer() {
  * to paint and the view — resolved later — schedules another ensure to show it.
  */
 /**
+ * Build the current bridge-configure patch from the live feature state.
+ * Token arrays are UPSERT semantics on the plugin side (per-window bearer
+ * tokens accumulate on a shared instance until restart); scalar fields
+ * replace. An empty patch (no feature produced config) pushes nothing.
+ */
+function currentBridgeConfigurePatch() {
+  const patch = {};
+  if (fimBridgeConfig && typeof fimBridgeConfig.token === 'string' && fimBridgeConfig.token.length > 0) {
+    patch.fim = {
+      addTokens: [fimBridgeConfig.token],
+      baseUrl: typeof fimBridgeConfig.baseUrl === 'string' ? fimBridgeConfig.baseUrl : '',
+      apiKey: typeof fimBridgeConfig.apiKey === 'string' ? fimBridgeConfig.apiKey : '',
+    };
+  }
+  if (typeof lmBridgeToken === 'string' && lmBridgeToken.length > 0) {
+    patch.lm = { addTokens: [lmBridgeToken] };
+  }
+  if (editorLinksBridgeEnv
+    && typeof editorLinksBridgeEnv.DSH_VSCODE_OPEN_URL === 'string' && editorLinksBridgeEnv.DSH_VSCODE_OPEN_URL.length > 0
+    && typeof editorLinksBridgeEnv.DSH_VSCODE_OPEN_TOKEN === 'string' && editorLinksBridgeEnv.DSH_VSCODE_OPEN_TOKEN.length > 0) {
+    patch.editorLinks = {
+      openUrl: editorLinksBridgeEnv.DSH_VSCODE_OPEN_URL,
+      openToken: editorLinksBridgeEnv.DSH_VSCODE_OPEN_TOKEN,
+    };
+  }
+  return patch;
+}
+
+/**
+ * Push the current bridge feature config to a running DSH instance over
+ * POST /api/vscode/configure (dsh-vscode-integration 0.8.0). Best-effort by
+ * design: every failure is diagnostic-only, never lifecycle-breaking.
+ *   - 404  → the instance's plugin predates the configure route (spawned by
+ *     an older extension build): a restart (dsh.restartServer) brings it up.
+ *   - 401  → this window holds no configure token for the instance (user-
+ *     started `dsh web`, or a registry entry from an old build).
+ *   - else → network/server errors: the next ensure/adopt retry pushes again.
+ */
+async function pushBridgeConfigure(server) {
+  const target = server || currentServer;
+  if (!target || typeof target.url !== 'string' || target.url.length === 0) return;
+  const patch = currentBridgeConfigurePatch();
+  if (Object.keys(patch).length === 0) return;
+  const configureToken = (typeof target.configureToken === 'string' && target.configureToken.length > 0)
+    ? target.configureToken
+    : (manager && typeof manager.configureToken === 'function' ? manager.configureToken() : null);
+  if (!configureToken) {
+    appendDiagnostic('[bridgeConfigure] no configure token for ' + target.url + ' (instance not extension-managed); skip');
+    return;
+  }
+  try {
+    const response = await fetch(target.url + '/api/vscode/configure', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + configureToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(patch),
+      signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined,
+    });
+    if (response.ok) {
+      appendDiagnostic('[bridgeConfigure] applied to ' + target.url + ': ' + JSON.stringify(patch).slice(0, 200));
+      return;
+    }
+    if (response.status === 404) {
+      appendDiagnostic('[bridgeConfigure] ' + target.url + ' has no /api/vscode/configure (older plugin); run DSH: Restart Server to pick up live bridge config');
+      return;
+    }
+    if (response.status === 401) {
+      appendDiagnostic('[bridgeConfigure] ' + target.url + ' rejected the configure token; run DSH: Restart Server so this window can configure the instance');
+      return;
+    }
+    appendDiagnostic('[bridgeConfigure] ' + target.url + ' answered HTTP ' + response.status);
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    appendDiagnostic('[bridgeConfigure] push to ' + target.url + ' failed: ' + message);
+  }
+}
+
+/**
  * Bind the sidebar to one ready RunningServer handle: record it, optionally
  * auto-bind an owned instance to the current workspace session, externalize
  * its URL for the webview and update the status bar / iframe.
  */
 async function bindServer(context, server, cwd) {
   currentServer = server;
+  // Known-issue #1 fix: whatever handle just became current (freshly spawned,
+  // reused, or adopted from another window), sync THIS window's live bridge
+  // feature config into the running plugin. Fire-and-forget: a slow or
+  // failing push must never delay the sidebar bind.
+  void pushBridgeConfigure(server);
   boundCwd = cwd;
-  // dsh 0.1.2+: embed the tokened authUrl so the iframe passes the auth
-  // fence; older servers have no authUrl and externalize their plain URL.
-  const url = await externalize(server.authUrl || server.url);
+  // SM-3: fenced runtimes (dsh 0.1.2+) embed through the extension's
+  // authenticating loopback proxy — a webview iframe cannot carry dsh's
+  // SameSite=Strict cookie; older servers embed their plain URL directly.
+  const url = await externalize(await embeddedUrlFor(server));
   currentExternalUrl = url;
+  // "Open in browser" always targets the DSH server itself (its launch token
+  // is what a real browser needs; the proxy URL is for the sandboxed iframe).
+  currentBrowserUrl = await externalize(server.authUrl || server.url);
   const mode = loc(server.owned ? "managed" : "reused");
   // A6/U9: when the port-conflict fallback moved the server off the
   // configured port, the tooltip says which port is actually in use.
@@ -796,10 +1041,13 @@ async function bindServer(context, server, cwd) {
     currentSessionId = sessionId ? sessionIdFromValue(sessionId) : null;
     followEditProjection(currentSessionId);
     const bindingState = workspaceBinding.state();
-    if (bindingState.state === BINDING_STATES.ERROR) {
+    // The controller-wide state can be overwritten by a newer pass (latest
+    // workspace wins), so only treat THIS resolve as failed when it returned
+    // no session and the latest state is the ERROR state.
+    if (sessionId === null && bindingState.state === BINDING_STATES.ERROR) {
       render(statusPage({
         title: loc("DSH workspace binding failed"),
-        detail: bindingState.error || loc("Unknown workspace binding error"),
+        detail: bindingFailureDetail(bindingState),
         showRetry: true,
         retryLabel: loc("Retry"),
         lang: vscode.env.language,
@@ -900,20 +1148,26 @@ async function connectNow(context) {
           }
         }
       } catch (runtimeError) {
+        const endpointPort = resolveEndpointPort(cfg);
+        const adoptOptions = { registryFile: hostContext.registryFilePath() };
         let adopted = typeof manager.adoptRunningDsh === 'function'
-          ? await manager.adoptRunningDsh(cfg.host, cfg.port).catch(() => null)
+          ? await manager.adoptRunningDsh(cfg.host, endpointPort, adoptOptions).catch(() => null)
           : null;
         if (!adopted) {
           // Process-discovery fallback (credited to DM010727/dsh-cline): the
           // configured port is silent but a `dsh web` may be running on a
-          // different port of this machine (leftover instance, a port override
-          // in another window, a manual terminal session). Scan process
-          // command lines, then probe each discovered port before giving up.
+          // different port of this environment (leftover instance, a port
+          // override in another window, a manual terminal session). Scan
+          // process command lines, then probe each discovered port before
+          // giving up. WSL interop means this side's process table DOES show
+          // the other environment's processes, so the scan itself drops
+          // Windows-shaped command lines (see processDiscovery) and every
+          // adoption is refused by the registry environment gate.
           try {
             const ports = await discoverRunningDshWebPorts({ platform: process.platform });
             for (const port of ports) {
-              if (port === cfg.port) continue;
-              adopted = await manager.adoptRunningDsh(cfg.host, port);
+              if (port === endpointPort) continue;
+              adopted = await manager.adoptRunningDsh(cfg.host, port, adoptOptions);
               if (adopted) break;
             }
           } catch {
@@ -937,10 +1191,12 @@ async function connectNow(context) {
     if (server === null) {
       server = await manager.ensureServer({
         host: cfg.host,
-        port: cfg.port,
+        port: resolveEndpointPort(cfg),
         autoStart: cfg.autoStart,
         cwd,
         registryFile: hostContext.registryFilePath(),
+        shareMode: cfg.shareMode,
+        discoverDshWebPorts: discoverRunningDshWebPorts,
       });
     }
     await bindServer(context, server, cwd);
@@ -950,8 +1206,9 @@ async function connectNow(context) {
     if (lifecycle.stopped) return;
     setStatusBar("$(error) " + loc("DSH: unavailable"));
     const cfg = hostContext.config();
-    const url = "http://" + cfg.host + ":" + cfg.port;
+    const url = "http://" + cfg.host + ":" + resolveEndpointPort(cfg);
     currentExternalUrl = safeHttpUrl(url) === "about:blank" ? null : await externalize(url);
+    currentBrowserUrl = null; // no bound server: the endpoint above IS the browser target
     const cleanEligible = isCleanRestartEligible(err);
     pendingCleanRestart = cleanEligible;
     appendDiagnostic(`[startup] ${renderStartupError(err, loc)}`);
@@ -998,9 +1255,9 @@ async function reconnectNow(context) {
     });
     return;
   }
-  await stopOwnedServer();
+  await stopOwnedServer({ force: true }); // restart must replace the child even when other windows adopted it
   currentServer = null;
-  currentExternalUrl = null;
+  resetEmbeddedServerUrls();
   currentSessionId = null;
   followEditProjection(null);
   await connectNow(context);
@@ -1082,7 +1339,7 @@ async function rebindToWorkspace(context) {
   // process no longer exists, fall back to the full connect/ensure flow.
   if (!currentServer || (currentServer.owned && !manager.hasOwnedChild())) {
     currentServer = null;
-    currentExternalUrl = null;
+    resetEmbeddedServerUrls();
     currentSessionId = null;
     followEditProjection(null);
     await connectNow(context);
@@ -1095,10 +1352,12 @@ async function rebindToWorkspace(context) {
   currentSessionId = sessionId ? sessionIdFromValue(sessionId) : null;
   followEditProjection(currentSessionId);
   const bindingState = workspaceBinding.state();
-  if (bindingState.state === BINDING_STATES.ERROR) {
+  // Only treat THIS resolve as failed (see bindServer): the controller-wide
+  // state may already belong to a newer pass.
+  if (sessionId === null && bindingState.state === BINDING_STATES.ERROR) {
     render(statusPage({
       title: loc("DSH workspace binding failed"),
-      detail: bindingState.error || loc("Unknown workspace binding error"),
+      detail: bindingFailureDetail(bindingState),
       showRetry: true,
       retryLabel: loc("Retry"),
       lang: vscode.env.language,
@@ -1448,7 +1707,7 @@ async function setupCoreServer({ context, services }) {
       if (s.state === "error") {
         setStatusBar("$(error) " + (s.message ? loc(s.message, s.params) : loc("DSH: unavailable")));
         currentServer = null;
-        currentExternalUrl = null;
+        resetEmbeddedServerUrls();
         currentSessionId = null;
         followEditProjection(null);
         boundCwd = null;
@@ -1499,14 +1758,28 @@ async function setupCoreServer({ context, services }) {
       [WATCHDOG_ENV.WINDOW_ID]: ownerWindowId,
       [WATCHDOG_ENV.HEARTBEAT_PATH]: heartbeatFilePath,
     };
-    if (hostContext.config().closePolicy === CLOSE_POLICIES.NEVER) {
+    // Watchdog off when the instance is meant to outlive its spawning window:
+    // `never` close policy (explicit user-managed operation) and shared-
+    // instance mode, where the owner window exiting must not kill the child
+    // other windows adopted. The registry sweep (owner dead AND no live
+    // attachers) reclaims such instances instead.
+    if (
+      hostContext.config().closePolicy === CLOSE_POLICIES.NEVER
+      || hostContext.config().shareMode === SHARE_MODES.ENVIRONMENT
+    ) {
       watchdogEnv[WATCHDOG_ENV.WATCHDOG] = 'off';
     }
     services.manager?.setSpawnEnv?.(watchdogEnv);
   }
   // Stamp this window's owner identity so every ready registry entry carries
-  // vscodePid + windowId (the activation scan tree-kills only dead owners).
-  services.manager?.setOwnerIdentity?.({ vscodePid: process.pid, windowId: ownerWindowId });
+  // vscodePid + windowId (the activation scan tree-kills only dead owners),
+  // plus the OS environment this window IS — the value adoption compares a
+  // running instance's environment against.
+  services.manager?.setOwnerIdentity?.({
+    vscodePid: process.pid,
+    windowId: ownerWindowId,
+    environment: runtimeEnvironment ? runtimeEnvironment.id : null,
+  });
   // Prune dead registry entries (best effort). NEVER kills live instances —
   // they may belong to another VS Code window with its own workspace.
   try {
@@ -1531,6 +1804,7 @@ async function setupCoreServer({ context, services }) {
         e.affectsConfiguration("dsh.port") ||
         e.affectsConfiguration("dsh.autoStart") ||
         e.affectsConfiguration("dsh.closePolicy") ||
+        e.affectsConfiguration("dsh.share.mode") ||
         e.affectsConfiguration("dsh.runtime.manifestUrl") ||
         e.affectsConfiguration("dsh.runtime.version") ||
         e.affectsConfiguration("dsh.local.packageRoot") ||
@@ -1689,8 +1963,9 @@ async function setupCoreSidebar({ context, services }) {
   };
   services.changeTracker = changeTracker;
   // C2.5 event-flow attribution: project edit/write tool calls from the DSH
-  // session event stream (bounded export back-scan + live events.mux
-  // subscription) into the change journal. Zero interception: the journal's
+  // session event stream (follow snapshot `records` backfill + live
+  // /api/remote.mux subscription) into the change journal. Zero interception:
+  // the journal's
   // (path, sessionId, ±2s) idempotent merge folds duplicates with C2 bridge
   // notifications. Every projector failure only logs via appendDiagnostic.
   try {
@@ -1800,7 +2075,10 @@ async function setupCoreSidebar({ context, services }) {
             // The status page also renders after a failed connect; in that
             // state currentServer is null but currentExternalUrl points at
             // the configured endpoint, so keep this handler usable there.
-            const candidate = currentExternalUrl && safeHttpUrl(currentExternalUrl);
+            // Prefer the direct DSH URL: the embed proxy is for the sandboxed
+            // iframe, while a real browser can hold dsh's auth cookie itself.
+            const candidate = (currentBrowserUrl || currentExternalUrl)
+              && safeHttpUrl(currentBrowserUrl || currentExternalUrl);
             if (candidate && candidate !== "about:blank") {
               vscode.env.openExternal(vscode.Uri.parse(candidate));
             }
@@ -1837,7 +2115,7 @@ async function setupCoreSidebar({ context, services }) {
               if (!shouldStopOnViewClose(hostContext.config().closePolicy)) return;
               if (await stopOwnedServer()) {
                 currentServer = null;
-                currentExternalUrl = null;
+                resetEmbeddedServerUrls();
                 boundCwd = null;
               }
             }).catch(() => {});
@@ -1958,6 +2236,9 @@ async function setupEditorLinks({ context, services }) {
     Object.assign(services.bridgeEnv, textDocumentBridge.env);
   }
   services.manager?.setSpawnEnv?.(textDocumentBridge.env || {});
+  // Known-issue #1 fix: record for the configure push (running instance).
+  editorLinksBridgeEnv = textDocumentBridge.env || null;
+  void pushBridgeConfigure(null);
   const handler = async (message, webview) => {
     const request = parseInteractionRequest(message);
     if (!request || request.method === 'clipboard/writeText') return false;
@@ -1980,6 +2261,7 @@ async function setupEditorLinks({ context, services }) {
     interactionHandlers = interactionHandlers.filter((h) => h !== handler);
     await textDocumentBridge?.close().catch(() => {});
     textDocumentBridge = null;
+    editorLinksBridgeEnv = null;
   };
 }
 
@@ -2166,7 +2448,12 @@ async function setupTabCompletion({ context, services }) {
     return env;
   }
   const refreshFimSpawnEnv = async () => {
-    services.manager?.setSpawnEnv?.(await readFimSpawnEnv());
+    const env = await readFimSpawnEnv();
+    services.manager?.setSpawnEnv?.(env);
+    // Known-issue #1 fix: also record the config for the configure push so a
+    // RUNNING instance (adopted or started before the toggle) learns it.
+    fimBridgeConfig = { token, baseUrl: env.DSH_FIM_BASE_URL || '', apiKey: env.DSH_FIM_API_KEY || '' };
+    void pushBridgeConfigure(null);
   };
   await refreshFimSpawnEnv();
   if (typeof vscode.workspace.onDidChangeConfiguration === 'function') {
@@ -2208,6 +2495,9 @@ async function setupTabCompletion({ context, services }) {
     }
     provider.dispose();
     services.manager?.setSpawnEnv?.({ DSH_FIM_BRIDGE_TOKEN: '', DSH_FIM_BASE_URL: '', DSH_FIM_API_KEY: '' });
+    // Stop advertising this window's FIM config in future configure pushes
+    // (tokens already applied on a shared instance persist until restart).
+    fimBridgeConfig = null;
   };
 }
 
@@ -2256,11 +2546,15 @@ async function setupLmRoute({ context, services }) {
     fetchImpl: dshApiFetch,
   });
   services.manager?.setSpawnEnv?.({ DSH_LM_BRIDGE_TOKEN: token });
+  // Known-issue #1 fix: record for the configure push (running instance).
+  lmBridgeToken = token;
+  void pushBridgeConfigure(null);
   context.subscriptions.push(lmRoute.disposable);
   return () => {
     lmRoute?.disposable?.dispose?.();
     lmRoute = null;
     services.manager?.setSpawnEnv?.({ DSH_LM_BRIDGE_TOKEN: '' });
+    lmBridgeToken = null;
   };
 }
 
@@ -2436,8 +2730,12 @@ function registerFeatureCommands(context, featureOk) {
           vscode.window.showErrorMessage(loc("DSH: unavailable"));
           return;
         }
-        if (currentExternalUrl) {
-          await vscode.env.openExternal(vscode.Uri.parse(currentExternalUrl));
+        // A real browser holds dsh's auth cookie itself, so it opens the
+        // direct (token-carrying) DSH URL; the proxy URL is for the sandboxed
+        // iframe only.
+        const target = currentBrowserUrl || currentExternalUrl;
+        if (target) {
+          await vscode.env.openExternal(vscode.Uri.parse(target));
         }
       });
     }),
@@ -2458,13 +2756,15 @@ function registerFeatureCommands(context, featureOk) {
       // Stops ONLY a process this extension instance spawned and owns. A
       // reused external server (found already running and adopted) is never
       // killed — the pure decision function is self-tested in serverManager.js.
+      // The explicit command is forced: the user asked for this process to
+      // stop even when other windows adopted it in shared mode.
         if (!manager.hasOwnedChild()) {
           vscode.window.showInformationMessage(loc("No DSH server is owned by this extension"));
           return;
         }
-        await stopOwnedServer();
+        await stopOwnedServer({ force: true });
         currentServer = null;
-        currentExternalUrl = null;
+        resetEmbeddedServerUrls();
         currentSessionId = null;
         followEditProjection(null);
         boundCwd = null;
@@ -2604,7 +2904,10 @@ function registerFeatureCommands(context, featureOk) {
         const timer = setTimeout(() => controller.abort(), 6000);
         let items;
         try {
-          items = await listSessions(baseUrl, { signal: controller.signal });
+          // The authed fetch is mandatory: dsh 0.1.2+ answers a tokenless
+          // /api call with 401, so the picker came up empty on every fenced
+          // instance (the sibling command below had it right).
+          items = await listSessions(baseUrl, { signal: controller.signal, fetchImpl: dshApiFetch });
         } finally {
           clearTimeout(timer);
         }
@@ -2647,7 +2950,7 @@ function registerFeatureCommands(context, featureOk) {
             const timer = setTimeout(() => controller.abort(), 6000);
             let items;
             try {
-              items = await listSessions(baseUrl, { signal: controller.signal });
+              items = await listSessions(baseUrl, { signal: controller.signal, fetchImpl: dshApiFetch });
             } finally {
               clearTimeout(timer);
             }
@@ -2887,6 +3190,7 @@ async function activateWithDependencies(context, dependencies = {}) {
   // timer, owner identity or channel.
   stopHeartbeat();
   ownerWindowId = null;
+  runtimeEnvironment = null;
   heartbeatFilePath = null;
   ownerStartTs = null;
   outputChannel = null;
@@ -2897,6 +3201,10 @@ async function activateWithDependencies(context, dependencies = {}) {
   ownerWindowId = deriveWindowId(vscode);
   heartbeatFilePath = heartbeatPathFor(context, ownerWindowId);
   startHeartbeat();
+  // Shared-instance mode: classify this extension host's OS environment once
+  // per activation (Windows window vs Remote-WSL window). Every connect pass
+  // resolves its effective endpoint from this value.
+  runtimeEnvironment = detectRuntimeEnvironment();
 
   // C1 activation scan (early, before L0): sweep registry entries left by
   // dead owner Windows. Never kills a live owner's child; a sweep failure
@@ -3043,6 +3351,14 @@ async function deactivate() {
   lifecycle?.stopAccepting?.();
   runtimeAbort?.abort?.(); // cancel only in-flight provisioning; never touches a ready owned child
   viewGeneration += 1;
+  // Shared-instance bookkeeping: drop this window's attacher record first so
+  // our own exit never counts as a live adopter of someone else's instance.
+  try {
+    ServerManager.removeAdopterFromRegistry(hostContext.registryFilePath(), {
+      vscodePid: process.pid,
+      windowId: ownerWindowId,
+    });
+  } catch { /* best-effort bookkeeping */ }
   try {
     if (!manager) return undefined;
     if (normalizeClosePolicy(hostContext.config().closePolicy) === CLOSE_POLICIES.NEVER) {
@@ -3053,13 +3369,22 @@ async function deactivate() {
     // Prevent probe/port-scan work from spawning after shutdown begins. If a
     // child already exists, stopping it also makes an in-flight health wait
     // settle promptly instead of delaying deactivation for the full timeout.
+    // Shared-instance exception: when other windows adopted our child, leave
+    // it running for them — the activation sweep reclaims it once the owner
+    // AND every attacher extension host is gone.
     manager.cancelPending();
     if (manager.hasOwnedChild()) {
-      await manager.stop();
+      if (await ownedChildKeptForAdopters()) {
+        appendDiagnostic(loc("Shared DSH instance left running: other window(s) still attached."));
+      } else {
+        await manager.stop();
+      }
     }
     await lifecycle.wait();
     if (manager.hasOwnedChild()) {
-      await manager.stop();
+      if (!(await ownedChildKeptForAdopters())) {
+        await manager.stop();
+      }
     }
     return undefined;
   } finally {
@@ -3074,7 +3399,7 @@ async function deactivate() {
     }
     currentView = null;
     currentServer = null;
-    currentExternalUrl = null;
+    resetEmbeddedServerUrls();
     currentSessionId = null;
     // C2.5: stop the edit-event projection subscription (if any).
     try {

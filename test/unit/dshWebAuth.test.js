@@ -64,8 +64,8 @@ test('createAuthedFetch exchanges the token once and attaches the cookie', async
   };
   let token = 'launch-token';
   const fetch = createAuthedFetch({ fetchImpl: inner, tokenProvider: () => token });
-  await fetch('http://127.0.0.1:3080/api/session.prompt', { method: 'POST' });
-  await fetch('http://127.0.0.1:3080/api/events.mux');
+  await fetch('http://127.0.0.1:3080/api/session/prompt', { method: 'POST' });
+  await fetch('http://127.0.0.1:3080/api/workspace/create');
   // exactly one exchange, both API calls carry the minted cookie
   assert.strictEqual(seen.filter((c) => c.url.includes('/?token=')).length, 1);
   assert.strictEqual(seen[1].cookie, 'dsh_session=s3');

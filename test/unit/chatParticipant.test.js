@@ -148,8 +148,16 @@ test('handleRequest surfaces resolveSessionId errors as markdown and does not th
   assert.equal(streamCalls.length, 0);
 });
 
-test('handleRequest surfaces prompt errors as markdown and does not start the stream', async () => {
+test('handleRequest surfaces prompt errors as markdown after opening the follow stream (stream-first ordering)', async () => {
   const { deps, promptCalls, streamCalls } = makeDeps();
+  // The module opens the stream BEFORE the prompt is queued (the DSH event
+  // bus has no replay), so prompt errors happen after streamSession resolves
+  // the readiness gate via onReady.
+  deps.chatClient.streamSession = async (args) => {
+    streamCalls.push(args);
+    args.onReady();
+    return { reason: 'stream-end' };
+  };
   deps.chatClient.prompt = async (args) => {
     promptCalls.push(args);
     throw new Error('prompt down');
@@ -162,12 +170,18 @@ test('handleRequest surfaces prompt errors as markdown and does not start the st
   assert.equal(response.calls.length, 1);
   assert.match(response.calls[0], /DSH unavailable: prompt down/);
   assert.equal(promptCalls.length, 1);
-  assert.equal(streamCalls.length, 0);
+  assert.equal(streamCalls.length, 1, 'stream-first ordering opens the follow stream before the prompt');
+  assert.equal(streamCalls[0].signal.aborted, true, 'the opened stream is aborted when the prompt fails');
 });
 
 test('handleRequest wires token cancellation into the prompt/stream AbortSignal and disposes the listener', async () => {
   const { deps, promptCalls, streamCalls } = makeDeps();
   const token = makeToken();
+  deps.chatClient.streamSession = async (args) => {
+    streamCalls.push(args);
+    args.onReady(); // stream-first: the follow stream gates the prompt queue
+    return { reason: 'stream-end' };
+  };
   deps.chatClient.prompt = async (args) => {
     promptCalls.push(args);
     token.cancel();

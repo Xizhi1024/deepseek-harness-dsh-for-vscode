@@ -6,7 +6,7 @@ const test = require('node:test');
 
 const { createWorkspaceContext } = require('../src/workspaceContext');
 
-function createHost({ folders = [], activeUri = null, activeFolder = null, values = {} } = {}) {
+function createHost({ folders = [], activeUri = null, activeFolder = null, values = {}, inspect = null } = {}) {
   return {
     Uri: {
       joinPath(base, child) { return { fsPath: path.join(base.fsPath, child) }; },
@@ -17,7 +17,9 @@ function createHost({ folders = [], activeUri = null, activeFolder = null, value
     workspace: {
       workspaceFolders: folders,
       getConfiguration() {
-        return { get: (key, fallback) => values[key] ?? fallback };
+        const settings = { get: (key, fallback) => values[key] ?? fallback };
+        if (inspect) settings.inspect = inspect;
+        return settings;
       },
       getWorkspaceFolder(uri) {
         return uri === activeUri ? activeFolder : undefined;
@@ -34,6 +36,10 @@ test('workspace context reads normalized settings and stable storage path', () =
   assert.deepStrictEqual(context.config(), {
     host: '127.0.0.1',
     port: 4100,
+    // No inspect() in this fake → the port counts as not explicitly set.
+    portExplicitlySet: false,
+    // Extension default: windows of one OS environment share one instance.
+    shareMode: 'environment',
     autoStart: false,
     profile: 'web',
     closePolicy: 'never',
@@ -49,6 +55,23 @@ test('workspace context reads normalized settings and stable storage path', () =
     homePath: '',
   });
   assert.strictEqual(context.registryFilePath(), path.join('D:\\state', 'dsh-instances.json'));
+});
+
+test('workspace context detects an explicitly pinned port and share mode overrides', () => {
+  const vscode = createHost({
+    values: { 'share.mode': 'window' },
+    inspect: (key) => (key === 'port' ? { workspaceValue: 4100 } : undefined),
+  });
+  const context = createWorkspaceContext(vscode, { globalStorageUri: { fsPath: 'D:\\state' } });
+  const config = context.config();
+  assert.strictEqual(config.portExplicitlySet, true, 'a workspace-scoped dsh.port counts as explicit');
+  assert.strictEqual(config.shareMode, 'window', 'the user-selected share mode wins');
+});
+
+test('workspace context falls back to the environment default on unknown share modes', () => {
+  const vscode = createHost({ values: { 'share.mode': 'enviroment' /* typo */ } });
+  const context = createWorkspaceContext(vscode, { globalStorageUri: { fsPath: 'D:\\state' } });
+  assert.strictEqual(context.config().shareMode, 'environment');
 });
 
 test('workspace context reads a custom window-scoped profile', () => {

@@ -7,6 +7,8 @@ import { createEditObserver } from './editObserver.js';
 import { createLmRoutes } from './lmRoute.js';
 import { createFimRoutes } from './fimRoutes.js';
 import { createLinkRoutes, editorOpenViaBridge } from './linkRoutes.js';
+import { createConfigureRoute } from './configureRoute.js';
+import { createRuntimeConfig } from './runtimeConfig.js';
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
@@ -16,7 +18,19 @@ const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.me
 // process exits before the sidebar ever connects). This package is only
 // installed into extension-owned homes, where the web profile always
 // provides the webServer service.
-const inject = ['apiProxy', 'tools', 'llm', 'webServer'];
+//
+// 'apiProxy' must NOT be declared: it is an old-protocol service the typert
+// gateway (dsh ≥ 0.1.3-alpha.2) no longer provides, and a declared inject
+// that never exists keeps this entry "pending" forever — the boot's
+// assertEntriesActivated then FAILS THE WHOLE PROCESS ("1 entry did not
+// activate"), the extension's spawn-time self-heal restarts without the
+// embed overlay, and the instance runs without this plugin entirely (live
+// bug 2026-09-18: the shared instance booted plugin-less, nothing consumed
+// dsh_session, and every newly opened window's workspace never followed in
+// the sidebar). The apiProxy host bridge below is applied only when the
+// service happens to exist (older runtimes); everything this package needs
+// on typert runtimes (tools, llm, webServer) is declared explicitly.
+const inject = ['tools', 'llm', 'webServer'];
 const name = 'dsh-vscode-integration';
 
 // ---------------------------------------------------------------------------
@@ -56,9 +70,16 @@ function failure(request, message) {
   };
 }
 
-async function openThroughBridge(path, signal, env = process.env) {
-  const rawUrl = env.DSH_VSCODE_OPEN_URL;
-  const token = env.DSH_VSCODE_OPEN_TOKEN;
+async function openThroughBridge(path, signal, links = null, env = process.env) {
+  // Effective config: the live runtimeConfig store's editor-links entry when
+  // provided (a configure push may have changed or cleared it), else the
+  // spawn-env bootstrap (legacy call sites).
+  const rawUrl = links && typeof links.openUrl === 'string' && links.openUrl.length > 0
+    ? links.openUrl
+    : env.DSH_VSCODE_OPEN_URL;
+  const token = links && typeof links.openToken === 'string' && links.openToken.length > 0
+    ? links.openToken
+    : env.DSH_VSCODE_OPEN_TOKEN;
   if (typeof rawUrl !== 'string' || rawUrl.length === 0 || typeof token !== 'string' || token.length === 0) {
     throw new Error('VS Code text-document bridge is unavailable');
   }
@@ -343,21 +364,38 @@ function createWatchdogMonitor({
 
 function apply(ctx) {
   ctx.effect(() => {
-    const host = ctx.apiProxy.host;
-    const original = host.openPath;
-    host.openPath = async (request, signal) => {
-      const target = request && request.payload && request.payload.path;
-      if (typeof target !== 'string' || target.length === 0) {
-        return failure(request, 'path open failed: a path is required');
+    // openPath bridge: only meaningful on old-protocol runtimes that still
+    // provide the apiProxy host (typert runtimes dropped apiProxy entirely —
+    // property access below throws, which the guard turns into a no-op). The
+    // C1 watchdog MUST run on every runtime, so it shares this effect rather
+    // than depending on the bridge's availability.
+    let restoreOpenPath = null;
+    try {
+      const apiProxy = ctx.apiProxy;
+      const host = apiProxy && apiProxy.host;
+      if (host && typeof host.openPath === 'function') {
+        const original = host.openPath;
+        host.openPath = async (request, signal) => {
+          const target = request && request.payload && request.payload.path;
+          if (typeof target !== 'string' || target.length === 0) {
+            return failure(request, 'path open failed: a path is required');
+          }
+          try {
+            await openThroughBridge(target, signal);
+            return { rpcId: request.rpcId, result: { ok: true, value: { opened: true } } };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return failure(request, `path open failed: ${message}`);
+          }
+        };
+        restoreOpenPath = () => {
+          host.openPath = original;
+        };
       }
-      try {
-        await openThroughBridge(target, signal);
-        return { rpcId: request.rpcId, result: { ok: true, value: { opened: true } } };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return failure(request, `path open failed: ${message}`);
-      }
-    };
+    } catch {
+      // apiProxy does not exist on this runtime (typert gateway): skip the
+      // legacy bridge; access must never abort the effect.
+    }
     // C1 watchdog: if this DSH process is a VS Code-managed child, keep an eye
     // on its owner window and self-terminate only when the dual condition is
     // met (heartbeat expired AND owner gone). Inert for standalone DSH (no
@@ -367,7 +405,7 @@ function apply(ctx) {
     });
     monitor.start();
     return () => {
-      host.openPath = original;
+      if (restoreOpenPath) restoreOpenPath();
       monitor.stop();
     };
   }, 'dsh-vscode-integration: host.openPath bridge + C1 watchdog');
@@ -398,31 +436,49 @@ function apply(ctx) {
     };
   }, 'dsh-vscode-integration: vscode bridge tools + edit observer');
 
+  // Live bridge configuration (2026-09-19, known-issue #1 fix): one store
+  // bootstrapped from the spawn env and updatable at runtime via
+  // POST /api/vscode/configure, so feature toggles and adopted shared
+  // instances no longer depend on spawn-time env alone.
+  const runtimeConfig = createRuntimeConfig({ env: process.env });
+
   ctx.effect(() => {
-    const routes = createLmRoutes({ env: process.env, ctx });
+    const routes = createLmRoutes({ env: process.env, config: runtimeConfig, ctx });
     return () => routes.dispose();
   }, 'dsh-vscode-integration: /api/lm routes');
 
-  // Tab completion: mounts POST /api/fim only when the extension injected
-  // DSH_FIM_BRIDGE_TOKEN (feature off => no route, zero surface).
+  // Tab completion: /api/fim is ALWAYS mounted; an instance without any FIM
+  // bridge token answers 503 fim-not-configured (guidance) instead of leaving
+  // the path to the /api fetch bridge's bare 404.
   ctx.effect(() => {
-    const fim = createFimRoutes({ env: process.env, ctx });
+    const fim = createFimRoutes({ env: process.env, config: runtimeConfig, ctx });
     return () => fim.dispose();
   }, 'dsh-vscode-integration: /api/fim route');
+
+  // Runtime reconfiguration channel: the extension pushes FIM/LM/editor-links
+  // config here (Bearer DSH_VSCODE_CONFIGURE_TOKEN) so a RUNNING instance —
+  // including one adopted from another window — picks up feature changes
+  // without a restart. Instances spawned by older extension builds carry no
+  // token: the route stays mounted but always answers 401.
+  ctx.effect(() => {
+    const configure = createConfigureRoute({ ctx, config: runtimeConfig, log: (line) => console.error(`[dsh-vscode-integration] ${line}`) });
+    return () => configure.dispose();
+  }, 'dsh-vscode-integration: /api/vscode/configure route');
 
   // B3 (issue #6): same-origin open-link route for reply-path linkify. The
   // browser client POSTs { path, line, col }; this side resolves relative
   // paths against the child cwd (the VS Code workspace root) and opens via
-  // the existing channels: openThroughBridge (textDocumentBridge, gated by
-  // the extension's dsh.features.editor-links) or, when a line was clicked,
-  // the v3 vscode/editor/open method for the selection. No route mounts when
-  // the editor-links env is absent (feature off).
+  // the existing channels: openThroughBridge (textDocumentBridge endpoint
+  // from the live editor-links config) or, when a line was clicked, the v3
+  // vscode/editor/open method for the selection. The route is always mounted;
+  // an instance without editor-links config answers 503 instead of 404.
   ctx.effect(() => {
     const links = createLinkRoutes({
       env: process.env,
+      config: runtimeConfig,
       ctx,
       net,
-      openImpl: openThroughBridge,
+      openImpl: (absolutePath, signal) => openThroughBridge(absolutePath, signal, runtimeConfig.links),
       editorOpenImpl: ({ params }) => editorOpenViaBridge({ env: process.env, net, params }),
     });
     return () => links.dispose();

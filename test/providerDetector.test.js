@@ -186,6 +186,7 @@ test('diagnosticSnapshot exposes stable fields with live server and bridge', () 
     port: 3080,
     autoStart: false,
     closePolicy: 'onVscodeExit',
+    shareMode: null,
     homeMode: 'shared',
     homePath: '',
   });
@@ -221,6 +222,7 @@ test('diagnosticSnapshot reports unavailable server and bridge for null inputs',
     port: null,
     autoStart: null,
     closePolicy: null,
+    shareMode: null,
     homeMode: null,
     homePath: null,
   });
@@ -298,6 +300,7 @@ test('diagnosticSnapshot includes dshPlugins without changing existing fields', 
     port: 3080,
     autoStart: false,
     closePolicy: 'onVscodeExit',
+    shareMode: null,
     homeMode: 'shared',
     homePath: '',
   });

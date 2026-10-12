@@ -170,6 +170,7 @@ module.exports = {
   bindRuntimeHome,
   directoryHasEntries,
   hasExplicitHomeMode,
+  hasExplicitSetting,
   migrateLegacyHomeMode,
   normalizeHomeMode,
   resolveDshHome,

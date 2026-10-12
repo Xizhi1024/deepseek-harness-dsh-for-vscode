@@ -104,3 +104,17 @@ test('framePage shell forwards dshThemeChanged messages to the DSH iframe withou
   assert.ok(html.includes('message.theme === "dark" || message.theme === "light"'));
   assert.ok(html.includes('frame.contentWindow.postMessage'));
 });
+
+test('framePage sends the open-in-browser entry to browserUrl while embedding url', () => {
+  const html = framePage({
+    url: 'http://127.0.0.1:4999/',
+    browserUrl: 'http://127.0.0.1:3080/?token=abc',
+  });
+  assert.ok(html.includes('src="http://127.0.0.1:4999/?dsh_embed=vscode"'), 'iframe embeds the proxy URL');
+  assert.ok(
+    html.includes('href="http://127.0.0.1:3080/?token=abc"'),
+    'a real browser gets the direct tokened DSH URL'
+  );
+  const fallback = framePage({ url: 'http://127.0.0.1:4999/' });
+  assert.ok(fallback.includes('href="http://127.0.0.1:4999/"'), 'browserUrl defaults to the embedded URL');
+});

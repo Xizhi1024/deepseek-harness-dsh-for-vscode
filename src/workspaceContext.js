@@ -2,6 +2,8 @@
 
 const { DEFAULT_HOST, DEFAULT_PORT } = require('./types');
 const { normalizeClosePolicy, ServerManager } = require('./serverManager');
+const { SHARE_MODES, normalizeShareMode } = require('./runtimeEnvironment');
+const { hasExplicitSetting } = require('./dshHome');
 
 /**
  * Bind workspace and configuration reads to one VS Code extension context.
@@ -17,6 +19,16 @@ function createWorkspaceContext(vscode, extensionContext) {
       return {
         host: settings.get('host', DEFAULT_HOST),
         port: settings.get('port', DEFAULT_PORT),
+        // True when dsh.port is explicitly set at any configuration scope.
+        // The environment-shared mode shifts the default port for WSL
+        // extension hosts only when the user has NOT pinned the port; an
+        // explicit port is always honored verbatim.
+        portExplicitlySet: hasExplicitSetting(settings, 'port'),
+        // Extension default is environment-shared (all windows of one OS
+        // environment — Windows vs WSL — converge on one DSH instance);
+        // unknown values fall back to that default too. The ServerManager
+        // API-level default stays 'window' for standalone consumers.
+        shareMode: normalizeShareMode(settings.get('share.mode'), SHARE_MODES.ENVIRONMENT),
         autoStart: settings.get('autoStart', true),
         profile: String(settings.get('profile', 'web') || 'web'),
         closePolicy: normalizeClosePolicy(settings.get('closePolicy')),

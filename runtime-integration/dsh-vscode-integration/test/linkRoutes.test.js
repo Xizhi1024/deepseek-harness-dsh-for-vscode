@@ -21,6 +21,7 @@ import {
   rangeFor,
   resolveAbsolutePath,
 } from '../lib/linkRoutes.js';
+import { createRuntimeConfig } from '../lib/runtimeConfig.js';
 
 const ENV = {
   DSH_VSCODE_OPEN_URL: 'http://127.0.0.1:9/open-text-document',
@@ -153,16 +154,43 @@ test('createLinkRoutes requires ctx.webServer.register and an openImpl', () => {
   assert.throws(() => createLinkRoutes({ env: ENV, ctx: { webServer: fakeWebServer() } }), TypeError);
 });
 
-test('no route mounts when the editor-links env is absent (feature gate)', () => {
+test('the open-link route ALWAYS mounts; without editor-links config it answers 503 (feature gate, live)', async () => {
   const webServer = fakeWebServer();
   const routes = createLinkRoutes({
     env: {},
     ctx: { webServer },
     openImpl: async () => {},
   });
-  assert.strictEqual(routes.running, false);
-  assert.strictEqual(routes.reason, 'editor-links-disabled');
-  assert.strictEqual(webServer.registered.length, 0);
+  // Known-issue #1 fix: the route is mounted even when the spawn env carried
+  // no editor-links config — an unmounted route let the /api fetch bridge
+  // answer a bare 404, and a later configure push would have had nothing to
+  // reconfigure. The gate is now per-request and answers 503.
+  assert.strictEqual(routes.running, true);
+  assert.strictEqual(webServer.registered.length, 1);
+  assert.strictEqual(webServer.registered[0].path, OPEN_ROUTE_PATH);
+  const result = await call(webServer.registered[0].handler, 'POST', OK_HEADERS, JSON.stringify({ path: 'src/x.js' }));
+  assert.strictEqual(result.status, 503);
+  assert.strictEqual(result.json.error, 'editor-links-unavailable');
+});
+
+test('a configure push can enable editor-links on a previously unconfigured route', async () => {
+  const webServer = fakeWebServer();
+  const opens = [];
+  const config = createRuntimeConfig({ env: {} });
+  createLinkRoutes({
+    env: {},
+    config,
+    ctx: { webServer },
+    cwd: '/ws',
+    pathMod: path.posix,
+    openImpl: async (absolute) => { opens.push(absolute); },
+  });
+  const handler = webServer.registered[0].handler;
+  assert.strictEqual((await call(handler, 'POST', OK_HEADERS, JSON.stringify({ path: 'src/x.js' }))).status, 503);
+  config.applyConfigure({ editorLinks: { openUrl: ENV.DSH_VSCODE_OPEN_URL, openToken: ENV.DSH_VSCODE_OPEN_TOKEN } });
+  const result = await call(handler, 'POST', OK_HEADERS, JSON.stringify({ path: 'src/x.js' }));
+  assert.strictEqual(result.status, 200);
+  assert.deepStrictEqual(opens, ['/ws/src/x.js']);
 });
 
 test('route answers 405 for GET and 403 without the linkify header', async () => {

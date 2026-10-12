@@ -3,9 +3,17 @@
 /**
  * DSH workspace registry client (CH2).
  *
- * Thin JSON-RPC client over the DSH Web API's workspace.list / workspace.create
+ * Thin typert gateway client over the DSH Web API's workspace create / delete
  * methods. Reuses the loopback/JSON-RPC helpers from sessionNavigation so the
  * two clients share one transport and one response contract.
+ *
+ * Wire note (verified 2026-09-17 against the installed dsh 0.1.5-rc.1
+ * typert gateway): the workspace controller registers create / rename /
+ * delete / insertBefore / insertSessionBefore / archiveSession / follow, but
+ * NO list endpoint. Registration is therefore create-or-adopt:
+ * `workspace/create` returns `{ workspace, created }`, where `created: false`
+ * means the workspace was already registered. `workspace/delete` removes a
+ * registration by id and is used to roll back a consent-declined creation.
  */
 
 const path = require("node:path");
@@ -19,10 +27,10 @@ const {
   resolveFetchImpl,
 } = require("../sessionNavigation");
 
-/** API path for workspace.list. @type {string} */
-const WORKSPACE_LIST_PATH = "/api/workspace.list";
 /** API path for workspace.create. @type {string} */
-const WORKSPACE_CREATE_PATH = "/api/workspace.create";
+const WORKSPACE_CREATE_PATH = "/api/workspace/create";
+/** API path for workspace.delete. @type {string} */
+const WORKSPACE_DELETE_PATH = "/api/workspace/delete";
 
 /**
  * Validate one WorkspaceView-ish item returned by the workspace registry.
@@ -69,41 +77,11 @@ function assertWorkspaceItem(item) {
 }
 
 /**
- * List DSH workspaces through `POST <baseUrl>/api/workspace.list`.
+ * Create or adopt a DSH workspace through `POST <baseUrl>/api/workspace/create`.
  *
- * @param {string} baseUrl - Loopback base URL (`http://127.0.0.1:<port>` or
- *   `http://localhost:<port>`).
- * @param {object} [options]
- * @param {Function} [options.fetchImpl] - Fetch-compatible function; defaults
- *   to `globalThis.fetch`.
- * @param {AbortSignal} [options.signal] - Optional abort signal.
- * @returns {Promise<Array<object>>} New array of workspace items.
- * @throws {DshSessionError} With the DSH_SESSION_API_* error codes.
- */
-async function listWorkspaces(baseUrl, options = {}) {
-  const fetchImpl = resolveFetchImpl(options);
-  const parsed = assertLoopbackBaseUrl(baseUrl);
-  const response = await postJson(
-    parsed,
-    WORKSPACE_LIST_PATH,
-    clientRequest("workspace.list", {}),
-    fetchImpl,
-    options.signal
-  );
-  const body = await readJsonBody(response);
-  const result = assertServerResponse(body);
-  const value = result.value;
-  if (!value || typeof value !== "object" || Array.isArray(value) || !Array.isArray(value.items)) {
-    throw new DshSessionError(
-      "DSH_SESSION_API_INVALID_RESPONSE",
-      "DSH workspace API invalid response: result.value.items must be an array"
-    );
-  }
-  return value.items.map((item) => assertWorkspaceItem(item));
-}
-
-/**
- * Create a DSH workspace through `POST <baseUrl>/api/workspace.create`.
+ * The call is idempotent: when the registry already has a workspace for the
+ * path it returns that workspace with `created: false`, otherwise it registers
+ * one with `created: true`.
  *
  * @param {string} baseUrl - Loopback base URL (`http://127.0.0.1:<port>` or
  *   `http://localhost:<port>`).
@@ -112,8 +90,8 @@ async function listWorkspaces(baseUrl, options = {}) {
  * @param {Function} [options.fetchImpl] - Fetch-compatible function; defaults
  *   to `globalThis.fetch`.
  * @param {AbortSignal} [options.signal] - Optional abort signal.
- * @returns {Promise<{ workspace: object, created: boolean }>} Created workspace
- *   view plus whether the registry created it.
+ * @returns {Promise<{ workspace: object, created: boolean }>} Workspace view
+ *   plus whether this call registered it (`false` = adopted an existing one).
  * @throws {DshSessionError} With the DSH_SESSION_API_* error codes.
  */
 async function createWorkspace(baseUrl, workspacePath, options = {}) {
@@ -122,7 +100,7 @@ async function createWorkspace(baseUrl, workspacePath, options = {}) {
   const response = await postJson(
     parsed,
     WORKSPACE_CREATE_PATH,
-    clientRequest("workspace.create", { path: workspacePath }),
+    clientRequest("workspace/create", { request: { path: workspacePath } }),
     fetchImpl,
     options.signal
   );
@@ -146,6 +124,57 @@ async function createWorkspace(baseUrl, workspacePath, options = {}) {
 }
 
 /**
+ * Delete a DSH workspace registration through
+ * `POST <baseUrl>/api/workspace/delete`.
+ *
+ * Used to roll back a create-on-a-shared-server decision the user declined:
+ * at that point the workspace carries no sessions yet (the root session is
+ * created only after binding), so deletion is safe.
+ *
+ * @param {string} baseUrl - Loopback base URL (`http://127.0.0.1:<port>` or
+ *   `http://localhost:<port>`).
+ * @param {object} request
+ * @param {string} request.workspaceId - Workspace id to delete.
+ * @param {object} [options]
+ * @param {Function} [options.fetchImpl] - Fetch-compatible function; defaults
+ *   to `globalThis.fetch`.
+ * @param {AbortSignal} [options.signal] - Optional abort signal.
+ * @returns {Promise<{deleted: true}>} Delete receipt.
+ * @throws {TypeError} When workspaceId is missing or empty.
+ * @throws {DshSessionError} With the DSH_SESSION_API_* error codes.
+ */
+async function deleteWorkspace(baseUrl, request, options = {}) {
+  if (!request || typeof request.workspaceId !== "string" || request.workspaceId.length === 0) {
+    throw new TypeError("workspaceId must be a non-empty string");
+  }
+  const fetchImpl = resolveFetchImpl(options);
+  const parsed = assertLoopbackBaseUrl(baseUrl);
+  const response = await postJson(
+    parsed,
+    WORKSPACE_DELETE_PATH,
+    clientRequest("workspace/delete", { request: { workspaceId: request.workspaceId } }),
+    fetchImpl,
+    options.signal
+  );
+  const body = await readJsonBody(response);
+  const result = assertServerResponse(body);
+  const value = result.value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new DshSessionError(
+      "DSH_SESSION_API_INVALID_RESPONSE",
+      "DSH workspace API invalid response: result.value must be an object"
+    );
+  }
+  if (value.deleted !== true) {
+    throw new DshSessionError(
+      "DSH_SESSION_API_INVALID_RESPONSE",
+      "DSH workspace API invalid response: result.value.deleted must be true"
+    );
+  }
+  return { deleted: true };
+}
+
+/**
  * Normalize a filesystem path for workspace matching.
  *
  * @param {string} value - Path to normalize.
@@ -160,7 +189,7 @@ function normalizeWorkspacePath(value, platform) {
 /**
  * Find a workspace item whose path matches the given filesystem path.
  *
- * @param {Array<object>} items - Workspace items from listWorkspaces.
+ * @param {Array<object>} items - Workspace items.
  * @param {string} fsPath - Absolute workspace path to find.
  * @param {string} [platform=process.platform] - Node platform name.
  * @returns {object|null} Matching workspace item, or null.
@@ -180,8 +209,8 @@ function findWorkspaceByPath(items, fsPath, platform = process.platform) {
 }
 
 module.exports = {
-  listWorkspaces,
   createWorkspace,
+  deleteWorkspace,
   findWorkspaceByPath,
   normalizeWorkspacePath,
 };

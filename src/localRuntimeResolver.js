@@ -9,9 +9,12 @@ const { STARTUP_ERRORS } = require('./startupErrors');
 const {
   executableSettingPackageRoots,
   shimDiscoveredPackageRoots,
+  pnpmGlobalPackageRoots,
+  pnpmGlobalPackageRootsPosix,
   windowsPathPackageCandidates,
   windowsGlobalLayoutCandidates,
 } = require('./shimResolver');
+const { isForeignHostPath } = require('./runtimeEnvironment');
 
 function unique(values, platform) {
   const seen = new Set();
@@ -30,7 +33,16 @@ function isConfiguredPathAbsolute(value, platform) {
   return path.posix.isAbsolute(value);
 }
 
-function packageCandidates(env, platform) {
+/**
+ * Package roots to probe for the official DSH, in priority order.
+ *
+ * @param {object} env - Environment to read (HOME/PATH/APPDATA/...).
+ * @param {string} platform - Host platform.
+ * @param {{mountRoots?: string[]|null}} [deps] - Injectable foreign-mount list
+ *   (defaults to this host's real /proc/mounts).
+ * @returns {string[]}
+ */
+function packageCandidates(env, platform, { mountRoots = null } = {}) {
   const candidates = [];
   if (env.NPM_CONFIG_PREFIX) {
     candidates.push(platform === 'win32'
@@ -76,7 +88,12 @@ function packageCandidates(env, platform) {
     }
   }
   candidates.push(...versionManagerPackageCandidates(env, platform));
-  return unique(candidates, platform);
+  // A candidate under a Windows mount (/mnt/c/...) is not a native install of
+  // this environment: selecting it would spawn a Windows-hosted DSH that
+  // rejects every path this window can offer. Filtered for every platform —
+  // isForeignHostPath is false on win32.
+  return unique(candidates, platform)
+    .filter((candidate) => !isForeignHostPath(candidate, { platform, mountRoots }));
 }
 
 function addVersionManagerRoot(roots, candidate) {
@@ -152,11 +169,22 @@ function versionManagerPackageCandidates(env, platform) {
 }
 
 function versionManagerNodeCandidates(env, platform) {
-  // Version-manager node binaries are a win32 convenience; on POSIX the
-  // paired binary is found by the colocated <version>/bin walk, so confine
-  // this layer to win32 and keep POSIX candidates equal to the classic set.
-  if (platform !== 'win32') return [];
   const candidates = [];
+  if (platform !== 'win32') {
+    // POSIX version managers keep node at <versionRoot>/bin/node (nvm, asdf,
+    // volta, n) or under fnm's extra `installation` layer. This layer matters
+    // exactly when the extension host has no shell PATH — the Remote-WSL case:
+    // DSH resolved out of the pnpm global store has no colocated node (the
+    // store sits under ~/.local/share, not under a node prefix) and a system
+    // node may not exist at all.
+    forEachVersionRoot(versionManagerRoots(env, platform), (versionRoot) => {
+      candidates.push(
+        path.join(versionRoot, 'bin', 'node'),
+        path.join(versionRoot, 'installation', 'bin', 'node')
+      );
+    });
+    return unique(candidates, platform);
+  }
   if (env.NVM_SYMLINK) {
     candidates.push(
       path.join(env.NVM_SYMLINK, 'node.exe'),
@@ -186,7 +214,18 @@ function compareVersionNamesDesc(a, b) {
   return b.localeCompare(a);
 }
 
-function nodeCandidates(env, platform) {
+/**
+ * Node executables to probe, in priority order (version managers first — a
+ * Remote-WSL extension host has no shell PATH, so the manager that owns the
+ * DSH install is the reliable pairing).
+ *
+ * @param {object} env - Environment to read (HOME/PATH/NVM_DIR/...).
+ * @param {string} platform - Host platform.
+ * @param {{mountRoots?: string[]|null}} [deps] - Injectable foreign-mount list
+ *   (defaults to this host's real /proc/mounts).
+ * @returns {string[]}
+ */
+function nodeCandidates(env, platform, { mountRoots = null } = {}) {
   const executable = platform === 'win32' ? 'node.exe' : 'node';
   const candidates = [];
   if (platform === 'win32' && env.ProgramFiles) {
@@ -196,7 +235,8 @@ function nodeCandidates(env, platform) {
   for (const segment of String(env.Path || env.PATH || '').split(path.delimiter)) {
     if (segment.trim()) candidates.push(path.join(segment.trim(), executable));
   }
-  return unique(candidates, platform);
+  return unique(candidates, platform)
+    .filter((candidate) => !isForeignHostPath(candidate, { platform, mountRoots }));
 }
 
 function colocatedNodeCandidates(packageRoot, executable) {
@@ -301,12 +341,20 @@ async function resolveLocalDshRuntime({
     }
     explicitRoots.push(...normalized.packageRoots);
   }
-  const shimRoots = explicitRoots.length === 0 && platform === 'win32'
-    ? await shimDiscoveredPackageRoots(env)
-    : [];
+  // Discovery order: on win32 parsed shims (authoritative — they embed the
+  // real entrypoint), then the enumerated pnpm global store (its directory
+  // names are content hashes, so only a listing can find them), then the
+  // static layout guesses. On POSIX the pnpm global store has the same
+  // unguessable naming, and a Remote-WSL/Remote-SSH extension host usually
+  // never had the pnpm prefix on PATH at all, so it is enumerated there too.
+  const discoveredRoots = explicitRoots.length > 0
+    ? []
+    : platform === 'win32'
+      ? [...await shimDiscoveredPackageRoots(env), ...await pnpmGlobalPackageRoots(env)]
+      : await pnpmGlobalPackageRootsPosix(env);
   const roots = explicitRoots.length > 0
     ? explicitRoots
-    : [...shimRoots, ...packageCandidates(env, platform)];
+    : [...discoveredRoots, ...packageCandidates(env, platform)];
   let resolvedPackageRoot = null;
   let packageJson = null;
   for (const candidate of roots) {

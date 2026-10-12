@@ -61,6 +61,42 @@ function originOfInput(input) {
 }
 
 /**
+ * Exchange a launch token for dsh's browser-session cookie.
+ *
+ * dsh 0.1.2+ answers `GET /?token=<valid>` with 303 + `set-cookie`; the first
+ * `name=value` pair is the Cookie request header every later request needs.
+ * Extracted from `createAuthedFetch` so non-fetch consumers (the embedded-UI
+ * proxy) mint the exact same credential.
+ *
+ * @param {object} options
+ * @param {string} options.origin - Loopback origin (`http://127.0.0.1:<port>`).
+ * @param {string} options.token - Launch token from the ready line.
+ * @param {Function} [options.fetchImpl=globalThis.fetch] - Fetch implementation.
+ * @returns {Promise<string|null>} Cookie request-header value, or null when the
+ *   exchange failed or the runtime has no auth fence.
+ */
+async function mintCookiePair({ origin, token, fetchImpl = globalThis.fetch } = {}) {
+  if (typeof fetchImpl !== 'function') return null;
+  if (typeof origin !== 'string' || origin.length === 0) return null;
+  if (typeof token !== 'string' || token.length === 0) return null;
+  try {
+    const response = await fetchImpl(`${origin}/?token=${encodeURIComponent(token)}`, {
+      redirect: 'manual',
+      headers: { accept: 'text/html' },
+    });
+    // Consume the body so the socket is released before any retry.
+    try { await response.arrayBuffer(); } catch { /* already consumed or empty */ }
+    if (!response || response.status !== 303) return null;
+    const setCookie = typeof response.headers.get === 'function'
+      ? response.headers.get('set-cookie')
+      : null;
+    return cookiePairFromSetCookie(setCookie);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Wrap a fetch implementation with dsh web authentication.
  *
  * The returned function forwards to `fetchImpl`, attaching the Cookie header
@@ -85,32 +121,13 @@ function createAuthedFetch({ fetchImpl = globalThis.fetch, tokenProvider = null,
   }
   let cache = null; // { token, origin, cookie, at, ok }
 
-  const exchange = async (token, origin) => {
-    const response = await fetchImpl(`${origin}/?token=${encodeURIComponent(token)}`, {
-      redirect: 'manual',
-      headers: { accept: 'text/html' },
-    });
-    // Consume the body so the socket is released before any retry.
-    try { await response.arrayBuffer(); } catch { /* already consumed or empty */ }
-    if (!response || response.status !== 303) return null;
-    const setCookie = typeof response.headers.get === 'function'
-      ? response.headers.get('set-cookie')
-      : null;
-    return cookiePairFromSetCookie(setCookie);
-  };
-
   const cookieFor = async (token, origin, force = false) => {
     if (token === null || origin === null) return null;
     if (!force && cache && cache.token === token && cache.origin === origin) {
       const ttl = cache.ok ? COOKIE_TTL_MS : FAILURE_TTL_MS;
       if (now() - cache.at < ttl) return cache.ok ? cache.cookie : null;
     }
-    let cookie = null;
-    try {
-      cookie = await exchange(token, origin);
-    } catch {
-      cookie = null;
-    }
+    const cookie = await mintCookiePair({ origin, token, fetchImpl });
     cache = { token, origin, cookie, at: now(), ok: cookie !== null };
     return cookie;
   };
@@ -147,6 +164,7 @@ module.exports = {
   FAILURE_TTL_MS,
   cookiePairFromSetCookie,
   createAuthedFetch,
+  mintCookiePair,
   originOfInput,
   tokenFromUrl,
 };

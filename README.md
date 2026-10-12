@@ -17,8 +17,10 @@ Embeds the full DSH web UI in the VS Code auxiliary sidebar: every window automa
 | Item | Requirement |
 |---|---|
 | VS Code | ≥ 1.106, desktop only; remote / virtual / untrusted workspaces not supported |
-| DSH CLI | `npm i -g @deepseek-ai/dsh`, ≥ 0.1.0-rc.7 recommended (older runtimes auto-retry degraded, some features limited) |
+| DSH CLI | `npm i -g @deepseek-ai/dsh`, requires ≥ 0.1.5-rc.2 (typert wire protocol) |
 | Node.js | auto-detected; set `dsh.local.nodePath` for non-standard locations |
+
+> **Wire protocol:** the runtime speaks the typert gateway — slashed JSON-RPC endpoints (`POST /api/session/list`, `/api/session/prompt`, …) and WebSocket event streams on `/api/remote.mux`. This extension hardcodes that protocol and requires dsh ≥ 0.1.5-rc.2 (no fallback); it no longer uses the legacy `session.list` / `session.export` / `events.mux` / `workspace.list` endpoints, and dsh builds below 0.1.5-rc.2 cannot work with it.
 
 ## 📦 Install
 
@@ -58,6 +60,19 @@ Common commands (palette, `DSH:` prefix): New / Switch Session · Open Session H
 | `dsh.bridge.terminal` / `editorRead` / `ui` | false | Terminal / editor-read / UI surface bridges (consent switches) |
 
 Full key list in `package.json`; run **DSH: Diagnose** for a health summary.
+
+## 🪟 Window & environment sharing (`dsh.share.mode`)
+
+**`environment` (default)** — all VS Code windows of one OS environment converge on **one** DSH instance:
+
+- The **first** window starts it (owned, per the close policy); every other window **adopts** it as a reused instance and never stops it.
+- The instance keeps running while at least one attached window is open. When the spawning window exits, it is left running for the remaining windows; the activation sweep reclaims it only after the owner **and** every attached window are gone.
+- **Windows vs WSL stay separate**: a Remote-WSL window runs the extension inside WSL, so it finds (or starts) the WSL instance; Windows windows use the Windows instance. A WSL window that has not explicitly set `dsh.port` uses its own default port **3081**, so WSL2 localhost forwarding can never make one environment adopt the other's instance. An explicit `dsh.port` is always honored verbatim.
+- Switching folders inside a window (multi-root) rebinds the running instance through the DSH workspace registry — the child is never killed.
+
+**`window` (legacy)** — every VS Code window probes the configured port, treats any occupant as somebody else's, and spawns its own child on a scanned-forward free port.
+
+In both modes `dsh.autoStart = false` keeps the strict user-managed semantics: probe the configured port, reuse, never spawn, never stop.
 
 ## License
 

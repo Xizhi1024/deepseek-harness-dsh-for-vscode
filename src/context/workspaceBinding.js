@@ -10,13 +10,30 @@ const path = require("node:path");
  * WorkspaceView and a blank root session, reusing the registry and session
  * APIs instead of killing/restarting the DSH child when the active workspace
  * changes.
+ *
+ * 0.1.5 dropped `workspace.list`, so registration is create-or-adopt:
+ * `workspace.create` returns `{ workspace, created }`. On a server this
+ * extension runs a miss simply registers; on a genuinely user-managed server a
+ * `created: true` answer means the extension JUST registered a workspace the
+ * user did not see coming, so the consent gate fires and a decline ROLLS THE
+ * CREATION BACK with `workspace.delete` (safe: the root session is created only
+ * after binding, so the fresh workspace holds no sessions yet). A pre-existing
+ * workspace (`created: false`) proceeds silently - no prompt regression on
+ * every reload.
+ *
+ * "Runs" covers two handle shapes: `owned` (this window spawned the child) and
+ * `managed` (a sibling window of the same OS environment did, and this window
+ * adopted it in shared-instance mode). Both are the extension's own
+ * bookkeeping; gating the second on consent made a shared instance effectively
+ * unbindable - the prompt was answered away or declined, and a decline rolled
+ * the registration back every time. Only a server neither window started (the
+ * user's own `dsh web`, adopted with autoStart off) still prompts.
  */
 
 const { listSessions, createSession } = require("../sessionNavigation");
 const {
-  listWorkspaces,
   createWorkspace,
-  findWorkspaceByPath,
+  deleteWorkspace,
 } = require("../ch2/workspaceClient");
 
 /** @type {Readonly<Record<string,string>>} */
@@ -35,6 +52,11 @@ const BINDING_STATES = Object.freeze({
 /**
  * Build the initial Binding value.
  *
+ * `errorCode` is the DSH API business code behind a failed bind (e.g.
+ * `workspace/invalid-path`), kept separate from the human-readable `error`
+ * text so callers can react to the CAUSE instead of matching prose; null
+ * whenever the binding is not in error.
+ *
  * @returns {object} A frozen Binding.
  */
 function initialBinding() {
@@ -45,6 +67,7 @@ function initialBinding() {
     sessionId: null,
     owned: false,
     error: null,
+    errorCode: null,
     at: Date.now(),
   });
 }
@@ -58,7 +81,8 @@ function initialBinding() {
  * @param {() => string|null|undefined} [options.baseUrlProvider] - Returns the
  *   current DSH loopback base URL; falls back to the server passed to resolve.
  * @param {(cwd: string) => Promise<boolean>|boolean} [options.requestConsent] -
- *   Called when a non-owned server has no workspace for `cwd`. Defaults to a
+ *   Called when a non-owned server had to register a NEW workspace for `cwd`
+ *   (`created === true`); a decline rolls the registration back. Defaults to a
  *   modal VS Code warning.
  * @param {number} [options.debounceMs=250] - Debounce window for resolve calls.
  * @param {(binding: object) => void} [options.onChange] - Called after every
@@ -82,6 +106,18 @@ function createWorkspaceBinding({
   let currentServer = null;
   let currentCwd = null;
   let disposed = false;
+  /** Identity of the server the cache was populated for. @type {string|null} */
+  let cacheServerId = null;
+  // Run serialization: `workspace/create` + `session/list` + `session/create`
+  // are multi-round-trip flows, so a resolve() arriving while one flow is in
+  // flight (view-resolution connect, workspace rebind, @dsh participant …)
+  // used to start a SECOND concurrent flow. Concurrent flows double-created
+  // sessions (both saw "no matching session" before either created one),
+  // double-prompted the consent dialog, and interleaved setState() so the
+  // caller-visible binding state belonged to the other run. All runs now go
+  // through one promise chain: strictly one at a time, latest (server, cwd)
+  // wins, and every waiter is settled by the run that incorporated it.
+  let runChain = Promise.resolve();
 
   /**
    * Replace the binding snapshot and notify listeners.
@@ -115,6 +151,46 @@ function createWorkspaceBinding({
   function cacheKey(cwd) {
     const resolved = path.resolve(cwd);
     return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  }
+
+  /**
+   * Identity of the server a binding was resolved against (loopback origin +
+   * owned pid). The in-memory cache must never answer for a different server:
+   * after a reconnect the child may come back on another port (port-conflict
+   * fallback), a different DSH home, or as a foreign shared instance, and a
+   * cached sessionId from the previous instance would point at a workspace or
+   * session that no longer exists there — the sidebar then loads a dead
+   * dsh_session and the workspace silently fails to bind.
+   *
+   * The pid is part of the identity whenever it is known - owned or adopted
+   * from the instance registry alike. The port is the one thing that DOES
+   * repeat: a dead shared instance is replaced on the same configured port, so
+   * a url-only identity would serve the previous instance's workspace and
+   * session ids to the replacement (the sidebar loads a dead dsh_session and
+   * the workspace silently fails to bind).
+   *
+   * @param {object|null} server - Current server handle.
+   * @returns {string|null} Server identity, or null when unknown.
+   */
+  function serverIdentity(server) {
+    const url = server && typeof server.url === "string" ? server.url : null;
+    if (!url) return null;
+    const pid = Number.isInteger(server.pid) ? `#${server.pid}` : "";
+    return `${url}${pid}`;
+  }
+
+  /**
+   * Drop the cache whenever the server identity changed since the last run.
+   *
+   * @param {object|null} server - Server handle of the upcoming run.
+   */
+  function ensureCacheServer(server) {
+    const identity = serverIdentity(server);
+    if (identity === null) return;
+    if (cacheServerId !== identity) {
+      cache.clear();
+      cacheServerId = identity;
+    }
   }
 
   /**
@@ -246,6 +322,13 @@ function createWorkspaceBinding({
     }
 
     const owned = Boolean(server && server.owned === true);
+    // A server this extension started - this window (owned) or a sibling
+    // window of the same environment (managed, adopted in shared mode) - is
+    // the extension's own instance, never a service the user must consent to
+    // having workspaces registered on. `owned` still drives the reported
+    // state: it keeps meaning "this window owns the child process".
+    const trustedServer = owned || Boolean(server && server.managed === true);
+    ensureCacheServer(server);
     const key = cacheKey(cwd);
     if (!forceRefresh && cache.has(key)) {
       const cached = cache.get(key);
@@ -256,6 +339,7 @@ function createWorkspaceBinding({
         sessionId: cached.sessionId,
         owned,
         error: null,
+        errorCode: null,
       });
       return cached.sessionId;
     }
@@ -275,59 +359,51 @@ function createWorkspaceBinding({
 
     try {
       setState({
-        state: BINDING_STATES.MATCHING,
+        state: BINDING_STATES.CREATING,
         cwd,
         workspaceId: null,
         sessionId: null,
         owned,
         error: null,
+        errorCode: null,
       });
-      const items = await listWorkspaces(baseUrl, { fetchImpl });
-      let workspace = findWorkspaceByPath(items, cwd, process.platform);
+      // 0.1.5 has no workspace.list: create-or-adopt is the only probe.
+      const created = await createWorkspace(baseUrl, cwd, { fetchImpl });
+      const workspace = created.workspace;
 
-      if (!workspace) {
-        if (owned) {
-          setState({
-            state: BINDING_STATES.CREATING,
-            cwd,
-            workspaceId: null,
-            sessionId: null,
-            owned,
-            error: null,
-          });
-          const created = await createWorkspace(baseUrl, cwd, { fetchImpl });
-          workspace = created.workspace;
-        } else {
-          setState({
-            state: BINDING_STATES.CONSENT,
-            cwd,
-            workspaceId: null,
-            sessionId: null,
-            owned,
-            error: null,
-          });
-          const allowed = await requestConsentFor(cwd);
-          if (!allowed) {
-            setState({
-              state: BINDING_STATES.UNBOUND,
-              cwd,
-              workspaceId: null,
-              sessionId: null,
-              owned,
-              error: null,
-            });
-            return null;
+      if (!trustedServer && created.created === true) {
+        // A user-managed server just got a workspace registered that the user
+        // did not see coming - the consent gate fires now, before any session
+        // is bound to it.
+        setState({
+          state: BINDING_STATES.CONSENT,
+          cwd,
+          workspaceId: workspace.workspaceId,
+          sessionId: null,
+          owned,
+          error: null,
+          errorCode: null,
+        });
+        const allowed = await requestConsentFor(cwd);
+        if (!allowed) {
+          // Roll the fresh registration back. Safe: the root session is
+          // created only below, so the workspace holds no sessions to
+          // cascade. A failed rollback still leaves the binding unbound.
+          try {
+            await deleteWorkspace(baseUrl, { workspaceId: workspace.workspaceId }, { fetchImpl });
+          } catch (_) {
+            /* the decline stands either way */
           }
           setState({
-            state: BINDING_STATES.CREATING,
+            state: BINDING_STATES.UNBOUND,
             cwd,
             workspaceId: null,
             sessionId: null,
             owned,
             error: null,
+            errorCode: null,
           });
-          const created = await createWorkspace(baseUrl, cwd, { fetchImpl });
-          workspace = created.workspace;
+          return null;
         }
       }
 
@@ -338,6 +414,7 @@ function createWorkspaceBinding({
         sessionId: null,
         owned,
         error: null,
+        errorCode: null,
       });
       const sessionId = await ensureWorkspaceRootSession(baseUrl, workspace, cwd, fetchImpl);
       cache.set(key, { workspaceId: workspace.workspaceId, sessionId });
@@ -348,6 +425,7 @@ function createWorkspaceBinding({
         sessionId,
         owned,
         error: null,
+        errorCode: null,
       });
       return sessionId;
     } catch (err) {
@@ -358,15 +436,52 @@ function createWorkspaceBinding({
         sessionId: binding.sessionId,
         owned,
         error: err && err.message ? err.message : String(err),
+        // The DSH API business code from the session layer
+        // (DSH_SESSION_API_BUSINESS_ERROR carries it), e.g.
+        // `workspace/invalid-path` — the machine-readable cause the status
+        // page turns into actionable guidance.
+        errorCode: err && typeof err.businessCode === "string" && err.businessCode.length > 0
+          ? err.businessCode
+          : null,
       });
       return null;
     }
   }
 
+  /**
+   * Queue one binding pass on the run chain. Strictly one pass executes at a
+   * time; each pass reads the LATEST currentServer/currentCwd (latest-wins)
+   * and settles exactly the waiters handed to it, so a resolve() that arrives
+   * while a pass is in flight is served by a fresh later pass instead of
+   * racing it.
+   *
+   * @param {boolean} forceRefresh - True to bypass the in-memory cache.
+   * @param {Array<(sessionId: string|null) => void>} pending - Waiters this
+   *   pass owns.
+   * @returns {Promise<string|null>} The pass's bound session id.
+   */
+  function enqueueRun(forceRefresh, pending) {
+    const promise = runChain.then(() => {
+      const owned = pending.splice(0);
+      return run(currentServer, currentCwd, forceRefresh).then((sessionId) => {
+        for (const settle of owned) settle(sessionId);
+        return sessionId;
+      });
+    });
+    // Keep the chain alive whatever happens; run() never rejects (it maps
+    // failures to the ERROR state), but a waiter-settle throw must not poison
+    // later passes.
+    runChain = promise.then(() => undefined, () => undefined);
+    return promise;
+  }
+
   return {
     /**
      * Resolve the DSH workspace/session binding for a server and workspace
-     * root. Calls are debounced; rapid changes produce one workspace.list pass.
+     * root. Calls are debounced; rapid changes produce one create-or-adopt
+     * probe (0.1.5 dropped `workspace.list`). Passes are serialized: a call
+     * arriving while another pass runs is chained behind it (never concurrent
+     * with it), so session creation and consent prompts cannot duplicate.
      *
      * @param {object} server - RunningServer handle.
      * @param {string|null|undefined} cwd - Workspace root.
@@ -393,6 +508,7 @@ function createWorkspaceBinding({
         sessionId: null,
         owned: Boolean(server && server.owned === true),
         error: null,
+        errorCode: null,
       });
 
       return new Promise((resolvePromise) => {
@@ -402,15 +518,15 @@ function createWorkspaceBinding({
           timer = null;
           const pending = waiters;
           waiters = [];
-          run(currentServer, currentCwd, false).then((sessionId) => {
-            for (const resolve of pending) resolve(sessionId);
-          });
+          enqueueRun(false, pending);
         }, debounceMs);
       });
     },
 
     /**
      * Force a full re-run of the binding flow, bypassing the in-memory cache.
+     * Serialized with any in-flight/debounced pass; drains waiters resolved
+     * so far so they settle with this refresh's outcome.
      *
      * @returns {Promise<string|null>} Bound session id or null.
      */
@@ -422,11 +538,7 @@ function createWorkspaceBinding({
       }
       const pending = waiters;
       waiters = [];
-      const promise = run(currentServer, currentCwd, true);
-      promise.then((sessionId) => {
-        for (const resolve of pending) resolve(sessionId);
-      });
-      return promise;
+      return enqueueRun(true, pending);
     },
 
     /**
@@ -442,6 +554,7 @@ function createWorkspaceBinding({
       if (disposed) return false;
       if (typeof sessionId !== "string" || sessionId.length === 0) return false;
       if (!currentCwd) return false;
+      ensureCacheServer(currentServer);
       const key = cacheKey(currentCwd);
       const previous = cache.get(key);
       cache.set(key, { workspaceId: previous ? previous.workspaceId : null, sessionId });
@@ -450,6 +563,7 @@ function createWorkspaceBinding({
           state: BINDING_STATES.BOUND,
           sessionId,
           error: null,
+          errorCode: null,
         });
       }
       return true;

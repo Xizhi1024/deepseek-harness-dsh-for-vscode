@@ -14,6 +14,10 @@ const INTEGRATION_FILES = Object.freeze([
   'lib/fimRoutes.js',
   'lib/linkRoutes.js',
   'lib/editObserver.js',
+  // 0.8.0 (known-issue #1 fix): live bridge-config store + the
+  // /api/vscode/configure route it backs.
+  'lib/runtimeConfig.js',
+  'lib/configureRoute.js',
 ]);
 // Records which extension version last owned the synced package directory.
 // See installDshIntegration: several installed/dev versions of this extension

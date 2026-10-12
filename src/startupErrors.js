@@ -60,6 +60,16 @@ const STARTUP_ERRORS = Object.freeze({
     template: 'Node.js was not found for the installed DSH package. Set dsh.local.nodePath to the absolute Node executable path.',
     diagnoseHint: 'Install Node.js or set dsh.local.nodePath, then retry.',
   }),
+  RUNTIME_FOREIGN_ENVIRONMENT: Object.freeze({
+    retryable: false,
+    template: 'The resolved DSH executable belongs to another OS environment ({path}); this {host} window needs a DSH installed for its own OS',
+    diagnoseHint: 'Install DSH inside this environment (or set dsh.launch.command to a native dsh), then retry.',
+  }),
+  RUNTIME_FOREIGN_INSTANCE: Object.freeze({
+    retryable: false,
+    template: 'The DSH instance answering on http://{host}:{port} runs in another OS environment; this {environment} window cannot use it',
+    diagnoseHint: 'Install DSH in this environment and let dsh.autoStart start it, or point dsh.port at a DSH running in this environment.',
+  }),
   NO_FREE_PORT: Object.freeze({
     retryable: true,
     template: 'No free port found within {limit} ports starting from {start}',

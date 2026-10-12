@@ -50,6 +50,22 @@ test('configuration-only startup codes stay non-retryable', () => {
   assert.equal(isRetryableStartupError({ code: 'CONFIG_PROFILE_INVALID' }), false);
 });
 
+test('foreign-runtime codes are non-retryable and name the environment they belong to', () => {
+  // Retrying cannot help: the runtime is fine, it just belongs to the OTHER OS
+  // (a /mnt/c shim, or an instance another environment's window started), and
+  // every path this window offers is rejected by it.
+  assert.equal(isRetryableStartupError({ code: 'RUNTIME_FOREIGN_ENVIRONMENT' }), false);
+  assert.equal(isRetryableStartupError({ code: 'RUNTIME_FOREIGN_INSTANCE' }), false);
+  assert.match(STARTUP_ERRORS.RUNTIME_FOREIGN_ENVIRONMENT.template, /\{path\}/);
+  assert.match(STARTUP_ERRORS.RUNTIME_FOREIGN_ENVIRONMENT.template, /\{host\}/);
+  assert.match(STARTUP_ERRORS.RUNTIME_FOREIGN_INSTANCE.template, /\{host\}/);
+  assert.match(STARTUP_ERRORS.RUNTIME_FOREIGN_INSTANCE.template, /\{port\}/);
+  assert.match(STARTUP_ERRORS.RUNTIME_FOREIGN_INSTANCE.template, /\{environment\}/);
+  // The user-facing text says what to do instead of only what failed.
+  assert.match(STARTUP_ERRORS.RUNTIME_FOREIGN_ENVIRONMENT.diagnoseHint, /Install DSH inside this environment/);
+  assert.match(STARTUP_ERRORS.RUNTIME_FOREIGN_INSTANCE.diagnoseHint, /dsh\.port|autoStart/);
+});
+
 test('runtime/spawn/health codes and unknown errors stay retryable', () => {
   assert.equal(isRetryableStartupError({ code: 'RUNTIME_NOT_INSTALLED' }), true);
   assert.equal(isRetryableStartupError({ code: 'RUNTIME_NODE_MISSING' }), true);

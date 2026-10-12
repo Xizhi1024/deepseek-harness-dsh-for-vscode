@@ -4,14 +4,13 @@
  * C2.5: edit/write attribution projected from the DSH session event stream.
  *
  * DSH is log-everything: every tool call an agent makes is recorded as a
- * `tool/call` event on the session log and mirrored live on
- * `GET /api/events.mux`. This projector rides that architecture instead of
- * intercepting anything: it
+ * `tool/call` event on the session log and mirrored live on the
+ * `session/follow` Remote stream (`/api/remote.mux`). This projector rides
+ * that architecture instead of intercepting anything: it
  *
- *   1. performs ONE bounded back-scan per session id (GET /api/session.export
- *      returns a ZIP whose root entry is the session's `session.jsonl`
- *      artifact verbatim; only the trailing MAX_BACKFILL_EVENTS lines are ever
- *      projected), and
+ *   1. performs ONE bounded back-scan per session id (the follow stream's
+ *      opening snapshot carries the durable history tail in `records`; only
+ *      the trailing MAX_BACKFILL_EVENTS records are ever projected), and
  *   2. keeps a long-lived `streamSession` subscription whose `onEvent` seam
  *      forwards every live `tool/call` (text deltas are irrelevant here).
  *
@@ -23,28 +22,20 @@
  * disturbs the subscription or the caller.
  */
 
-const { inflateRawSync } = require("node:zlib");
 const { createDshChatClient } = require("./dshChatClient");
 
 /** Hard cap on back-scanned events per session (tail window only). */
 const MAX_BACKFILL_EVENTS = 300;
-/** Hard cap on the downloaded export archive (memory guard). */
-const MAX_EXPORT_BYTES = 64 * 1024 * 1024;
-/** Delay before re-subscribing after a stream ends or stalls. */
+/** Delay before re-subscribing after a stream ends. */
 const DEFAULT_RESUBSCRIBE_DELAY_MS = 2000;
 /** Tool names whose calls mutate files and are projected. */
 const PROJECTED_TOOLS = new Set(["edit", "write"]);
-
-/** ZIP signatures. */
-const ZIP_EOCD_SIG = 0x06054b50;
-const ZIP_CENTRAL_SIG = 0x02014b50;
-const ZIP_LOCAL_SIG = 0x04034b50;
 
 /**
  * Defensively extract an edit/write tool call from one session event.
  * Pure: any malformed shape returns null, never throws.
  *
- * Event shape (verified from a real session.jsonl decode): tool calls are
+ * Event shape (verified from a real session decode): tool calls are
  * `{type:'tool/call', data:{name, ...}}` with arguments in
  * `data.arguments`/`data.args` and the path under `file_path`/`path`/
  * `absolute_path`. Both the name and the arguments carriers are probed
@@ -85,98 +76,6 @@ function extractToolEdit(event) {
 }
 
 /**
- * Read one fetch response body as a Buffer, enforcing a hard byte cap.
- *
- * @param {object} response - Fetch response with a web ReadableStream body.
- * @param {number} cap - Maximum accepted bytes.
- * @returns {Promise<Buffer>} Body bytes.
- * @throws {Error} When the body exceeds the cap or cannot be read.
- */
-async function readBodyCapped(response, cap) {
-  if (!response.body || typeof response.body.getReader !== "function") {
-    throw new Error("export response has no stream body");
-  }
-  const reader = response.body.getReader();
-  const chunks = [];
-  let total = 0;
-  for (;;) {
-    const read = await reader.read();
-    if (read.done) break;
-    total += read.value.byteLength;
-    if (total > cap) {
-      try {
-        await reader.cancel();
-      } catch (_) {
-        /* already cancelled */
-      }
-      throw new Error(`session export exceeds ${cap} bytes`);
-    }
-    chunks.push(Buffer.from(read.value));
-  }
-  return Buffer.concat(chunks);
-}
-
-/**
- * Extract the root session-log text from an export ZIP buffer. The root
- * artifact sits at the archive top level (`session.jsonl`); subagent logs
- * live under `subagents/` and media under `media/` and are ignored.
- *
- * Minimal central-directory reader (STORE + DEFLATE only); ZIP64 archives are
- * rejected defensively (a session log far below 4 GiB never needs them).
- *
- * @param {Buffer} zip - Raw ZIP bytes.
- * @returns {string|null} Artifact text, or null when no usable entry exists.
- */
-function extractSessionLogText(zip) {
-  try {
-    if (!Buffer.isBuffer(zip) || zip.length < 22) return null;
-    // locate the End Of Central Directory record (scan backwards; the only
-    // variable tail is a <=64 KiB archive comment)
-    let eocd = -1;
-    const scanStart = Math.max(0, zip.length - 22 - 65535);
-    for (let i = zip.length - 22; i >= scanStart; i -= 1) {
-      if (zip.readUInt32LE(i) === ZIP_EOCD_SIG) {
-        eocd = i;
-        break;
-      }
-    }
-    if (eocd < 0) return null;
-    const entries = zip.readUInt16LE(eocd + 10);
-    let offset = zip.readUInt32LE(eocd + 16);
-    const candidates = [];
-    for (let i = 0; i < entries; i += 1) {
-      if (offset + 46 > zip.length || zip.readUInt32LE(offset) !== ZIP_CENTRAL_SIG) return null;
-      const method = zip.readUInt16LE(offset + 10);
-      const compressedSize = zip.readUInt32LE(offset + 20);
-      const nameLen = zip.readUInt16LE(offset + 28);
-      const extraLen = zip.readUInt16LE(offset + 30);
-      const commentLen = zip.readUInt16LE(offset + 32);
-      const localOffset = zip.readUInt32LE(offset + 42);
-      const name = zip.slice(offset + 46, offset + 46 + nameLen).toString("utf8");
-      candidates.push({ name, method, compressedSize, localOffset });
-      offset += 46 + nameLen + extraLen + commentLen;
-    }
-    const entry = candidates.find((c) =>
-      typeof c.name === "string"
-      && c.name.endsWith(".jsonl")
-      && !c.name.includes("/")
-    );
-    if (!entry) return null;
-    const lo = entry.localOffset;
-    if (lo + 30 > zip.length || zip.readUInt32LE(lo) !== ZIP_LOCAL_SIG) return null;
-    const loNameLen = zip.readUInt16LE(lo + 26);
-    const loExtraLen = zip.readUInt16LE(lo + 28);
-    const dataStart = lo + 30 + loNameLen + loExtraLen;
-    const raw = zip.slice(dataStart, dataStart + entry.compressedSize);
-    if (entry.method === 0) return raw.toString("utf8");
-    if (entry.method === 8) return inflateRawSync(raw).toString("utf8");
-    return null;
-  } catch (_) {
-    return null;
-  }
-}
-
-/**
  * Create the edit event projector. At most one session is followed at a
  * time; switching sessions aborts the previous subscription. Each session id
  * is back-scanned at most once per projector lifetime.
@@ -190,7 +89,7 @@ function extractSessionLogText(zip) {
  * @param {string|Function} [options.baseUrl] - DSH web base URL, or a
  *   provider returning it (or null when the server is down).
  * @param {number} [options.resubscribeDelayMs] - Re-subscribe delay after a
- *   stream ends or stalls (tests inject large values).
+ *   stream ends (tests inject large values).
  * @returns {{followSession: Function, unfollow: Function, dispose: Function}}
  *   Frozen projector API.
  */
@@ -241,8 +140,10 @@ function createEditEventProjector({
   };
 
   /**
-   * Bounded back-scan: download the export ZIP, keep only the tail
-   * MAX_BACKFILL_EVENTS artifact lines, project each edit/write hit.
+   * Bounded back-scan: open one session/follow stream, take the opening
+   * snapshot's durable `records` tail, project each edit/write hit, then
+   * cancel. The snapshot is the first item the server emits, so this is a
+   * single bounded round-trip, not a subscription.
    */
   const backfillSession = async (sessionId) => {
     const base = resolveBase();
@@ -250,47 +151,39 @@ function createEditEventProjector({
       safeLog("backfill skipped: no DSH server URL");
       return;
     }
-    const url = new URL("/api/session.export", base);
-    url.searchParams.set("sessionId", sessionId);
-    let response;
+    let handle;
     try {
-      response = await (fetchImpl || globalThis.fetch)(url.toString(), { method: "GET" });
+      handle = await client.openFollow({
+        sessionId,
+        maxMessages: MAX_BACKFILL_EVENTS,
+        onValue: () => {}, // backfill reads only the snapshot via `ready`
+      });
     } catch (err) {
-      safeLog("backfill fetch failed: " + (err && err.message ? err.message : String(err)));
+      safeLog("backfill failed: " + (err && err.message ? err.message : String(err)));
       return;
     }
-    if (!response || typeof response.status !== "number" || response.status !== 200) {
-      safeLog("backfill skipped: export HTTP " + (response && response.status));
+    const snapshot = await handle.ready;
+    if (snapshot === null || !snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      safeLog("backfill skipped: follow stream ended before its snapshot");
+      handle.cancel();
       return;
     }
-    let zip;
-    try {
-      zip = await readBodyCapped(response, MAX_EXPORT_BYTES);
-    } catch (err) {
-      safeLog("backfill body failed: " + (err && err.message ? err.message : String(err)));
+    if (snapshot.type !== "snapshot") {
+      safeLog("backfill skipped: unexpected first follow value");
+      handle.cancel();
       return;
     }
-    const text = extractSessionLogText(zip);
-    if (text === null) {
-      safeLog("backfill skipped: no session.jsonl entry in export");
-      return;
+    const records = Array.isArray(snapshot.records) ? snapshot.records : [];
+    const tail = records.slice(-MAX_BACKFILL_EVENTS);
+    for (const record of tail) {
+      if (!record || typeof record !== "object" || Array.isArray(record)) continue;
+      if (record.type !== "event" || !record.event) continue;
+      project(record.event, sessionId);
     }
-    // Empty lines (e.g. the trailing newline) are not events: the tail
-    // window is computed over non-empty artifact lines only.
-    const lines = text.split("\n").filter((line) => line.length > 0);
-    const tail = lines.slice(-MAX_BACKFILL_EVENTS);
-    for (const line of tail) {
-      let event;
-      try {
-        event = JSON.parse(line);
-      } catch (_) {
-        continue; // unparsable artifact lines cannot be tool calls
-      }
-      project(event, sessionId);
-    }
+    handle.cancel();
   };
 
-  /** Start the live events.mux subscription for one session. */
+  /** Start the live session/follow subscription for one session. */
   const startSubscription = (sessionId) => {
     const abort = new AbortController();
     const record = { sessionId, abort, timer: null };
@@ -300,7 +193,7 @@ function createEditEventProjector({
       onText: () => {}, // required seam; text deltas are not projected
       onDone: () => {
         if (subscription !== record) return;
-        // the SSE stream ended or stalled: re-subscribe unless unfollowed /
+        // the stream ended or failed: re-subscribe unless unfollowed /
         // superseded in the meantime.
         record.timer = setTimeout(() => {
           if (subscription === record) startSubscription(sessionId);

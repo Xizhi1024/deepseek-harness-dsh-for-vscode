@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { compareDshVersions } = require('./dshCompat');
+const { STARTUP_ERRORS, fillTemplate } = require('./startupErrors');
+const { detectRuntimeEnvironment, isForeignHostPath, hostEnvironmentLabel } = require('./runtimeEnvironment');
 
 const MANAGED_PROFILE = 'web';
 const PROFILE_NAME_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
@@ -116,8 +118,36 @@ function normalizeResolvedRuntime(input, platform = process.platform) {
     profileName,
     dshVersion: typeof input.dshVersion === 'string' && input.dshVersion.length > 0 ? input.dshVersion : null,
     entrypointArgs: Object.freeze(normalizedArgs),
+    // The environment this runtime RUNS IN, derived from the host platform —
+    // a window's own native runtime is its host environment, and after
+    // assertNativeRuntimeEnvironment no other kind can be spawned. ServerManager
+    // stamps it into the instance registry so another environment's window
+    // never adopts this instance.
+    environment: platform === 'win32' ? 'windows' : detectRuntimeEnvironment({ platform }).id,
     ...(input.payloadRoot === undefined ? {} : { payloadRoot: path.resolve(input.payloadRoot) }),
   });
+}
+
+/**
+ * Refuse a runtime that lives in another OS environment.
+ *
+ * A `/mnt/c` shim (or the Windows node.exe behind it) is executable and passes
+ * every other check here, yet the process it produces sees only Windows paths:
+ * every `workspace/create` it serves answers `workspace/invalid-path` and the
+ * sidebar cannot bind at all. This runs as part of assertLaunchableRuntime —
+ * the last gate before spawn, reached by managed and command launches alike —
+ * so no caller can route around it.
+ */
+function assertNativeRuntimeEnvironment(runtime, platform = process.platform) {
+  if (platform === 'win32') return;
+  const foreign = [runtime.executablePath, ...(runtime.entrypointArgs || [])]
+    .find((candidate) => isForeignHostPath(candidate, { platform }));
+  if (!foreign) return;
+  const params = { path: foreign, host: hostEnvironmentLabel({ platform }) };
+  const error = new Error(fillTemplate(STARTUP_ERRORS.RUNTIME_FOREIGN_ENVIRONMENT.template, params));
+  error.code = 'RUNTIME_FOREIGN_ENVIRONMENT';
+  error.params = params;
+  throw error;
 }
 
 function assertLaunchableRuntime(runtime, platform = process.platform) {
@@ -132,6 +162,7 @@ function assertLaunchableRuntime(runtime, platform = process.platform) {
   } else if ((stat.mode & 0o111) === 0) {
     throw new Error('Managed DSH runtime entrypoint is not executable');
   }
+  assertNativeRuntimeEnvironment(runtime, platform);
 }
 
 function assertEmbedPatchPath(patchPath) {

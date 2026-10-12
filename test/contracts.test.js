@@ -41,18 +41,22 @@ test('editor title exposes one persistent icon and DSH view title exposes only t
     command: 'dsh.changes.refresh',
     when: 'view == dsh.changes',
     group: 'navigation@1'
+  }, {
+    command: 'dsh.changes.toggleScope',
+    when: 'view == dsh.changes',
+    group: 'navigation@2'
   }]);
   assert.deepStrictEqual(menus['view/item/context'], [{
     command: 'dsh.changes.openDiff',
-    when: 'view == dsh.changes && viewItem == dsh.changes.entry',
+    when: 'view == dsh.changes && viewItem =~ /^dsh\\.changes\\.entry/',
     group: 'inline@1'
   }, {
     command: 'dsh.changes.accept',
-    when: 'view == dsh.changes && viewItem == dsh.changes.entry',
+    when: 'view == dsh.changes && viewItem =~ /^dsh\\.changes\\.entry\\.(pending|legacy)$/',
     group: 'inline@2'
   }, {
     command: 'dsh.changes.undo',
-    when: 'view == dsh.changes && viewItem == dsh.changes.entry',
+    when: 'view == dsh.changes && viewItem =~ /^dsh\\.changes\\.entry\\.(pending|accepted)$/',
     group: 'inline@3'
   }]);
   assert.deepStrictEqual(menus['editor/context'], [{
@@ -70,14 +74,32 @@ test('editor title exposes one persistent icon and DSH view title exposes only t
     key: 'ctrl+alt+b',
     when: '!terminalFocus'
   }, {
+    command: 'dsh.newInstance',
+    key: 'ctrl+alt+n',
+    mac: 'cmd+alt+n',
+    when: '!terminalFocus'
+  }, {
     command: 'dsh.addSelectionToThread',
     key: 'ctrl+l',
     mac: 'cmd+l',
     when: 'config.dsh.keybindings.ctrlL && editorTextFocus'
+  }, {
+    command: 'dsh.ctrlKEdit',
+    key: 'ctrl+k',
+    mac: 'cmd+k',
+    when: 'config.dsh.features.ctrl-k && editorTextFocus'
   }]);
-  assert.ok(
-    !manifest.contributes.keybindings.some((entry) => entry.command === 'dsh.ctrlKEdit'),
-    'D8 final verdict: Ctrl+K must not contribute a default keybinding'
+  const ctrlK = manifest.contributes.keybindings.find((entry) => entry.command === 'dsh.ctrlKEdit');
+  assert.ok(ctrlK, 'the synced manifest baseline contributes Ctrl+K');
+  assert.match(
+    ctrlK.when,
+    /config\.dsh\.features\.ctrl-k/,
+    'Ctrl+K is contributed only behind the feature switch'
+  );
+  assert.strictEqual(
+    manifest.contributes.configuration.properties['dsh.features.ctrl-k'].default,
+    false,
+    'the Ctrl+K gate defaults to off, so no default keybinding is active'
   );
   assert.ok(
     !manifest.contributes.keybindings.some((entry) => entry.command === 'dsh.ctrlIEdit'),
@@ -150,6 +172,7 @@ test('extension-host smoke expectations cover every contributed command id', () 
     'dsh.changes.focus',
     'dsh.changes.openDiff',
     'dsh.changes.refresh',
+    'dsh.changes.toggleScope',
     'dsh.changes.undo',
     'dsh.cleanupOrphans',
     'dsh.ctrlIEdit',
@@ -220,9 +243,12 @@ test('dsh.features.* configuration keys mirror the featureRegistry catalog (L1/L
   assert.strictEqual(properties['dsh.features.exports'].scope, 'machine', 'exports must be machine-scoped');
 });
 
-test('CH1 v3 method table freezes 32 methods including extensions/callExport', () => {
-  assert.strictEqual(METHODS_V3.length, 32);
+test('CH1 v3 method table freezes 35 methods including extensions/callExport', () => {
+  assert.strictEqual(METHODS_V3.length, 35);
   assert.ok(METHODS_V3.includes('vscode/extensions/callExport'));
+  for (const method of ['vscode/debug/listBreakpoints', 'vscode/debug/addBreakpoints', 'vscode/debug/removeBreakpoints']) {
+    assert.ok(METHODS_V3.includes(method), method + ' must be frozen in v3');
+  }
 });
 
 test('R23 language-model chat provider contribution and routing config are frozen', () => {

@@ -36,6 +36,8 @@
 npm install -g @deepseek-ai/dsh
 ```
 
+要求 dsh ≥ 0.1.5-rc.2（typert 线上协议）。
+
 VS Code 扩展市场搜索 **DSH**（发布者 Xizhi1024），或：
 
 ```bash

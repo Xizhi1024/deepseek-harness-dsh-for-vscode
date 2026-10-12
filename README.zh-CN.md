@@ -17,8 +17,10 @@
 | 项 | 要求 |
 |---|---|
 | VS Code | ≥ 1.106，仅桌面版；不支持远程 / 虚拟 / 不受信任工作区 |
-| DSH CLI | `npm i -g @deepseek-ai/dsh`，建议 ≥ 0.1.0-rc.7（更老的运行时会自动降级重试，但部分功能受限） |
+| DSH CLI | `npm i -g @deepseek-ai/dsh`，要求 ≥ 0.1.5-rc.2（typert 线上协议） |
 | Node.js | 自动发现；非标准位置设 `dsh.local.nodePath` |
+
+> **线上协议：** 运行时使用 typert 网关——斜杠式 JSON-RPC 端点（`POST /api/session/list`、`/api/session/prompt`……）与 `/api/remote.mux` WebSocket 事件流。本扩展硬编码该协议并要求 dsh ≥ 0.1.5-rc.2（无降级）；不再使用旧式 `session.list` / `session.export` / `events.mux` / `workspace.list` 端点，低于 0.1.5-rc.2 的 dsh 无法与本扩展配合。
 
 ## 📦 安装
 
@@ -58,6 +60,19 @@
 | `dsh.bridge.terminal` / `editorRead` / `ui` | false | 终端 / 编辑器读取 / UI 表面桥（同意开关） |
 
 完整键列表见 `package.json`；诊断用命令 **DSH: Diagnose**。
+
+## 🪟 多窗口与环境共享（`dsh.share.mode`）
+
+**`environment`（默认）**——同一 OS 环境的所有 VS Code 窗口收敛到**同一个** DSH 实例：
+
+- 由**第一个**窗口启动（该窗口持有所有权，按关闭策略停止）；其余窗口直接**复用**该实例，永不停止它。
+- 只要还有窗口附着，实例就保持运行。启动它的窗口退出时，实例为其余窗口保留；只有当属主与所有附着窗口都已退出，下次激活时的孤儿清理才会回收它。
+- **Windows 与 WSL 相互独立**：Remote-WSL 窗口的扩展宿主运行在 WSL 内，因此找到（或启动）的是 WSL 侧实例；Windows 窗口使用 Windows 侧实例。未显式设置 `dsh.port` 的 WSL 窗口使用自己的默认端口 **3081**，避免 WSL2 localhost 转发让两个环境误收养对方实例；显式配置的 `dsh.port` 则始终按原样使用。
+- 窗口内切换文件夹（multi-root）通过 DSH 工作区注册表重新绑定运行中的实例——不会杀掉子进程。
+
+**`window`（旧版行为）**——每个窗口探测配置端口，视任何占用者为他人服务，并在其后扫描空闲端口启动自己的专属实例。
+
+两种模式下 `dsh.autoStart = false` 都保持严格的用户自管语义：探测配置端口、复用、不启动、不停止。
 
 ## License
 

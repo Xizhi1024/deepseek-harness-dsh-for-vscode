@@ -227,6 +227,7 @@ function diagnosticSnapshot({
       port: cfg.port === undefined ? null : cfg.port,
       autoStart: cfg.autoStart === undefined ? null : cfg.autoStart,
       closePolicy: cfg.closePolicy === undefined ? null : cfg.closePolicy,
+      shareMode: cfg.shareMode === undefined ? null : cfg.shareMode,
       homeMode: cfg.homeMode === undefined ? null : cfg.homeMode,
       homePath: cfg.homePath === undefined ? null : cfg.homePath,
     },

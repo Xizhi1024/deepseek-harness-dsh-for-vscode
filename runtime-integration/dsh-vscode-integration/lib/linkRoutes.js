@@ -1,5 +1,7 @@
 import path from 'node:path';
 
+import { createRuntimeConfig } from './runtimeConfig.js';
+
 // ---------------------------------------------------------------------------
 // B3 (issue #6): DSH-side open-link route. The client plugin linkifies
 // file:/// URLs and workspace-relative paths inside rendered replies; a click
@@ -7,8 +9,9 @@ import path from 'node:path';
 // path against the DSH child's cwd (the VS Code workspace root) and opens it
 // through channels that already exist:
 //   - plain open  -> openThroughBridge (the textDocumentBridge mounted by the
-//     extension's L1 editor-links feature; its env is only present when the
-//     feature is on, so a disabled feature mounts no route at all), and
+//     extension's L1 editor-links feature; its endpoint/token come from the
+//     spawn env bootstrap or a later POST /api/vscode/configure push — see
+//     runtimeConfig.js), and
 //   - :line/:col  -> the versioned v3 bridge's vscode/editor/open method
 //     (workspace-gated, selection-aware) when a line was requested.
 // Cross-origin abuse is blocked by requiring a custom request header: a
@@ -220,13 +223,18 @@ function editorOpenViaBridge({ env = process.env, net = null, params, timeoutMs 
 /**
  * Mount the open-link WebRoute.
  *
- * The route is mounted ONLY when the textDocumentBridge env is present: that
- * env is injected by the extension's L1 editor-links feature (default on), so
- * dsh.features.editor-links=false removes both the opener and this route —
- * linkified clicks then 404 instead of bypassing the gate.
+ * The route is ALWAYS mounted (2026-09-19, known-issue #1 fix): the old
+ * mount-only-when-env-present behavior left linkified clicks dead on any
+ * instance whose spawn predated the editor-links env (adopted/shared
+ * instances, later toggles) with a bare "404 not found" from the /api fetch
+ * bridge. When no editor-links config is known (spawn env absent AND no
+ * configure push arrived), the mounted route answers 503
+ * editor-links-unavailable instead of bypassing the feature gate.
  *
  * @param {object} deps
- * @param {object} deps.env - env source (DSH_VSCODE_OPEN_URL/TOKEN).
+ * @param {object} deps.env - env source (DSH_VSCODE_OPEN_URL/TOKEN bootstrap).
+ * @param {object} [deps.config] - runtimeConfig store; when omitted one is
+ *   synthesized from env (bootstrap-only, no runtime reconfiguration).
  * @param {object} deps.ctx - DSH plugin context ({ webServer }).
  * @param {string|null} [deps.cwd] - workspace root for relative paths.
  * @param {Function} deps.openImpl - absolute-path opener (openThroughBridge).
@@ -236,6 +244,7 @@ function editorOpenViaBridge({ env = process.env, net = null, params, timeoutMs 
  */
 function createLinkRoutes({
   env = process.env,
+  config = null,
   ctx = null,
   cwd = process.cwd(),
   openImpl = null,
@@ -248,16 +257,7 @@ function createLinkRoutes({
   if (typeof openImpl !== 'function') {
     throw new TypeError('createLinkRoutes requires an openImpl function');
   }
-  const openUrl = env && typeof env.DSH_VSCODE_OPEN_URL === 'string' ? env.DSH_VSCODE_OPEN_URL : '';
-  const openToken = env && typeof env.DSH_VSCODE_OPEN_TOKEN === 'string' ? env.DSH_VSCODE_OPEN_TOKEN : ''; // allow-secret-scan (env read; ternary default '' false-matches the literal pattern)
-  if (openUrl.length === 0 || openToken.length === 0) {
-    return {
-      running: false,
-      reason: 'editor-links-disabled',
-      routes: [],
-      dispose() {},
-    };
-  }
+  const store = config || createRuntimeConfig({ env });
   const openWithSelection = editorOpenImpl === undefined ? null : editorOpenImpl;
   const disposers = [];
 
@@ -277,6 +277,15 @@ function createLinkRoutes({
       const marker = String(headers[LINKIFY_HEADER] || headers['X-DSH-VSCode-Linkify'] || '');
       if (marker !== '1') {
         writeJson(response, 403, { error: 'forbidden', message: 'linkify header required' });
+        return;
+      }
+      const links = store.links;
+      if (!links || typeof links.openUrl !== 'string' || links.openUrl.length === 0
+        || typeof links.openToken !== 'string' || links.openToken.length === 0) {
+        writeJson(response, 503, {
+          error: 'editor-links-unavailable',
+          message: 'Editor links are not enabled on this DSH instance: enable dsh.features.editor-links and restart the DSH server (command "dsh.restartServer"), or update the extension so it can configure the running instance',
+        });
         return;
       }
       let body;

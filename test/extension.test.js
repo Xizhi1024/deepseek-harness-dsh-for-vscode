@@ -27,6 +27,10 @@ function createFakeVscode(configOverrides = {}) {
     autoStart: false,
     closePolicy: 'onVscodeExit',
     'home.mode': 'isolated',
+    // Most extension tests were written against the legacy per-window
+    // semantics; opt into them explicitly so the environment-shared default
+    // (adoption, WSL port shift, adopter-aware stops) stays opt-in here.
+    'share.mode': 'window',
     ...configOverrides,
   };
   const api = {
@@ -455,13 +459,19 @@ test('autoStart resolves the configured runtime before spawn and hands it to Ser
     profileHome: path.join(context.globalStorageUri.fsPath, '.dsh', 'profiles', 'web'),
     profileName: 'web',
   }]);
-  assert.deepStrictEqual(ensureServerOptions, {
-    host: '127.0.0.1',
-    port: 3080,
-    autoStart: true,
-    cwd: null,
-    registryFile: path.join(context.globalStorageUri.fsPath, 'dsh-instances.json'),
-  });
+  assert.deepStrictEqual(
+    { ...ensureServerOptions, discoverDshWebPorts: undefined },
+    {
+      host: '127.0.0.1',
+      port: 3080,
+      autoStart: true,
+      cwd: null,
+      registryFile: path.join(context.globalStorageUri.fsPath, 'dsh-instances.json'),
+      shareMode: 'window',
+      discoverDshWebPorts: undefined,
+    }
+  );
+  assert.strictEqual(typeof ensureServerOptions.discoverDshWebPorts, 'function');
   assert.strictEqual(ensureRuntimeOptions.manifestUrl, '');
   assert.strictEqual(ensureRuntimeOptions.version, '');
   assert.strictEqual(ensureRuntimeOptions.platform, process.platform);
@@ -737,6 +747,97 @@ test('workspace rebind resolves through binding without stopping the owned child
   assert.strictEqual(ensureServerCalls, ensureServerCallsBeforeRebind, 'workspace switch must not re-ensure/reconnect');
 
   await deactivate();
+});
+
+test('a fenced runtime embeds through the loopback proxy while the browser link keeps the token URL', async () => {
+  const fake = createFakeVscode({ autoStart: true });
+  fake.api.workspace.workspaceFolders = [
+    { uri: { fsPath: 'D:\\a' }, name: 'a', index: 0 },
+  ];
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-extension-test-embed-proxy-${process.pid}`) },
+    subscriptions: [],
+  };
+  const fakeBinding = {
+    async resolve() { return 'sid-a'; },
+    async refresh() { return 'sid-a'; },
+    dispose() {},
+    state() {
+      return { state: 'bound', cwd: 'D:\\a', workspaceId: 'w-1', sessionId: 'sid-a', owned: true, error: null, at: 0 };
+    },
+  };
+  const serverHandle = {
+    url: 'http://127.0.0.1:3080',
+    host: '127.0.0.1',
+    port: 3080,
+    pid: 4242,
+    owned: true,
+    authToken: 'SECRET-TOKEN', // allow-secret-scan (test fixture)
+    authUrl: 'http://127.0.0.1:3080/?token=SECRET-TOKEN', // allow-secret-scan (test fixture)
+  };
+  const manager = {
+    setResolvedRuntime() {},
+    ensureServer() { return Promise.resolve(serverHandle); },
+    hasOwnedChild() { return true; },
+    cancelPending() {},
+    async stop() {},
+  };
+  const proxyCalls = [];
+  const fakeProxy = {
+    url: 'http://127.0.0.1:4999/?dsh_gate=embed-capability',
+    origin: 'http://127.0.0.1:4999',
+    port: 4999,
+    close() { proxyCalls.push('close'); },
+  };
+
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    async startTextDocumentBridge() { return { env: {}, async close() {} }; },
+    async startVersionedBridge() { return { env: {}, async close() {} }; },
+    createServerManager() { return manager; },
+    createWorkspaceBinding() { return fakeBinding; },
+    async ensureManagedRuntime() { return {}; },
+    async startEmbedProxy(options) {
+      proxyCalls.push(options);
+      return fakeProxy;
+    },
+  });
+
+  let viewHtml = '';
+  const view = {
+    webview: {
+      options: null,
+      onDidReceiveMessage() { return disposable(); },
+      set html(value) { viewHtml = value; },
+      get html() { return viewHtml; },
+    },
+    onDidDispose() { return disposable(); },
+  };
+  fake.registrations.webview.provider.resolveWebviewView(view);
+  await waitFor(() => viewHtml.includes('dsh_session=sid-a'));
+
+  assert.strictEqual(proxyCalls.length, 1, 'a fenced runtime must be proxied exactly once');
+  assert.strictEqual(proxyCalls[0].upstreamUrl, 'http://127.0.0.1:3080');
+  assert.strictEqual(proxyCalls[0].token, 'SECRET-TOKEN');
+  const frameSrc = /<iframe id="frame" src="([^"]+)"/.exec(viewHtml);
+  assert.ok(frameSrc, 'the frame page must embed an iframe');
+  assert.ok(
+    frameSrc[1].startsWith('http://127.0.0.1:4999/'),
+    `the iframe must load the proxy origin, got ${frameSrc[1]}`
+  );
+  assert.ok(!frameSrc[1].includes('token='), 'the launch token must never enter the iframe URL');
+  assert.ok(
+    frameSrc[1].includes('dsh_gate=embed-capability'),
+    `the embed capability must ride the iframe URL, got ${frameSrc[1]}`
+  );
+  assert.ok(frameSrc[1].includes('dsh_session=sid-a'), 'session markers still ride the proxy URL');
+  assert.ok(
+    viewHtml.includes('href="http://127.0.0.1:3080/?token=SECRET-TOKEN"'),
+    'the open-in-browser link must keep the direct tokened DSH URL'
+  );
+
+  await deactivate();
+  assert.ok(proxyCalls.includes('close'), 'deactivate must stop the embed proxy');
 });
 
 test('binding API failure renders error status page and does not keep the old iframe session', async () => {
@@ -2004,12 +2105,12 @@ test('call-export L2 feature is catalogued off by default and contributes no com
   );
 });
 
-test('C1 spawn env injection: heartbeat path + window id always; watchdog off only under closePolicy=never', async () => {
+test('C1 spawn env injection: heartbeat path + window id always; watchdog off under closePolicy=never or shared mode', async () => {
   const setSpawnEnvCalls = [];
   const setOwnerIdentityCalls = [];
 
-  async function activateWith(closePolicy) {
-    const fake = createFakeVscode({ closePolicy });
+  async function activateWith(closePolicy, configOverrides = {}) {
+    const fake = createFakeVscode({ closePolicy, ...configOverrides });
     const context = {
       globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-env-test-${process.pid}-${closePolicy}`) },
       subscriptions: [],
@@ -2040,10 +2141,11 @@ test('C1 spawn env injection: heartbeat path + window id always; watchdog off on
 
   await activateWith('onVscodeExit');
   await activateWith('never');
+  await activateWith('onVscodeExit', { 'share.mode': 'environment' });
 
   const first = setSpawnEnvCalls.filter((env) => env.DSH_VSCODE_WINDOW_ID && env.DSH_VSCODE_HEARTBEAT_PATH)
     .map((env) => JSON.parse(JSON.stringify(env)));
-  assert.ok(first.length >= 2, 'each activation injects the heartbeat + window identity');
+  assert.ok(first.length >= 3, 'each activation injects the heartbeat + window identity');
 
   const normal = first[0];
   assert.strictEqual(typeof normal.DSH_VSCODE_WINDOW_ID, 'string');
@@ -2054,8 +2156,15 @@ test('C1 spawn env injection: heartbeat path + window id always; watchdog off on
   const never = first[1];
   assert.strictEqual(never.DSH_VSCODE_WATCHDOG, 'off', 'closePolicy=never disables the DSH-side watchdog');
 
+  const shared = first[2];
+  assert.strictEqual(
+    shared.DSH_VSCODE_WATCHDOG,
+    'off',
+    'environment-shared mode disables the watchdog: the instance must outlive its spawning window'
+  );
+
   // Every activation stamps the registry owner identity (that the scan relies on).
-  assert.strictEqual(setOwnerIdentityCalls.length, 2);
+  assert.strictEqual(setOwnerIdentityCalls.length, 3);
   for (const identity of setOwnerIdentityCalls) {
     assert.strictEqual(identity.vscodePid, process.pid, 'owner vscodePid is this extension host');
     assert.ok(typeof identity.windowId === 'string' && identity.windowId.length > 0);
@@ -2132,3 +2241,55 @@ test('readMcpSources includes the remoteValue layer between user and workspace',
   assert.ok(sources[1].servers.some((server) => server.name === 'beta'));
 });
 
+
+test('deactivate leaves an owned child running while another window adopts it', async () => {
+  const fake = createFakeVscode({ autoStart: false, 'share.mode': 'environment' });
+  const context = {
+    globalStorageUri: { fsPath: path.join(os.tmpdir(), `dsh-adopt-deactivate-${process.pid}`) },
+    subscriptions: [],
+  };
+  const stopCalls = [];
+  const manager = {
+    setSpawnEnv() {},
+    setOwnerIdentity() {},
+    hasOwnedChild() { return true; },
+    cancelPending() {},
+    currentChildPid() { return 424242; },
+    async ownedChildHasLiveAdopters(registryFile) {
+      return typeof registryFile === 'string' && registryFile.endsWith('dsh-instances.json');
+    },
+    async stop() {
+      stopCalls.push('stop');
+      // Mirror the real manager: once stopped there is no owned child left.
+      manager.hasOwnedChild = () => false;
+    },
+  };
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    extensionHostStartMs: () => 2222,
+    async startTextDocumentBridge() { return { env: {}, async close() {} }; },
+    async startVersionedBridge() { return { env: {}, async close() {} }; },
+    createServerManager() { return manager; },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+
+  await deactivate();
+  assert.deepStrictEqual(stopCalls, [], 'a live adopter keeps the shared instance alive');
+
+  // Without the live adopter the same exit path stops the owned child.
+  manager.ownedChildHasLiveAdopters = async () => false;
+  await activateWithDependencies(context, {
+    vscode: fake.api,
+    extensionHostStartMs: () => 2222,
+    async startTextDocumentBridge() { return { env: {}, async close() {} }; },
+    async startVersionedBridge() { return { env: {}, async close() {} }; },
+    createServerManager() { return manager; },
+    async ensureManagedRuntime() {
+      throw new Error('autoStart=false must not resolve the managed runtime');
+    },
+  });
+  await deactivate();
+  assert.deepStrictEqual(stopCalls, ['stop'], 'no adopter → the owned child is stopped as before');
+});

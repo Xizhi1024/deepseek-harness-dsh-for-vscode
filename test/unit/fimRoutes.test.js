@@ -74,12 +74,20 @@ async function esm() {
   return mod.createFimRoutes;
 }
 
-test('createFimRoutes mounts nothing without a bridge token', async () => {
+test('createFimRoutes ALWAYS mounts; a tokenless instance answers 503 (not the old fallthrough 404)', async () => {
   const create = await esm();
   const ctx = makeCtx();
   const routes = create({ env: { DSH_FIM_BRIDGE_TOKEN: '' }, ctx, fetchImpl: async () => { throw new Error('never'); } });
-  assert.equal(routes.routes.length, 0);
-  assert.equal(ctx.registered.length, 0);
+  // Known-issue #1 fix: the route mounts even when the spawn env carried no
+  // FIM token — the old mount-nothing behavior let the /api fetch bridge
+  // answer a bare "404 not found", and a later configure push would have had
+  // nothing to reconfigure. The gate is per-request now.
+  assert.equal(routes.routes.length, 1);
+  assert.equal(ctx.registered.length, 1);
+  const res = makeResponse();
+  await ctx.registered[0].handler(makeRequest({ token: 'anything' }), res);
+  assert.equal(res.statusCode, 503);
+  assert.ok(res.body().includes('fim-not-configured'));
   routes.dispose();
 });
 

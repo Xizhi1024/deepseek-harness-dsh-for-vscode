@@ -317,16 +317,86 @@ window.__ModuleLoader__.load({
     // no official client consumes the param, so without this bridge the
     // sidebar keeps showing the previous workspace's conversation after the
     // switch. Wait for the target session to appear in the list mirror (the
-    // session list loads asynchronously), then route it through
-    // sessions.open() exactly like a user click on the session row.
+    // session list loads asynchronously), then route it through the app's
+    // session navigation exactly like a user click on the session row
+    // (0.1.7+: uiWorkspace.openSession(); older: sessions.open()).
     // Session-current watcher: a conversation switch performed INSIDE the
     // DSH web UI (session-row click) is invisible to the VS Code shell — the
     // shell only re-renders on its own navigation commands, so the changes
     // tree and the workspace binding kept pointing at the previous session
     // (live bug 2026-09-04: "switching conversations did not switch the
-    // changes view"). Poll the session-list mirror's `current` pointer and
+    // changes view"). Poll the app's current-session pointer (0.1.7:
+    // uiWorkspace.selection; older: the list mirror's `current`) and
     // announce every change to the shell; the shell relays the
     // dshSessionChanged message to the extension host.
+    // dsh 0.1.7 moved view selection OUT of the sessions controller (the
+    // ClientSessions header now reads "view selection remains outside the
+    // Controller"): the session-list snapshot lost its `current` field and
+    // `sessions.open()` is gone — both surfaces moved to the `uiWorkspace`
+    // service (`selection` snapshot store carrying `{ sessionId }` and
+    // `openSession(sessionId)`). Without adapting, the follow loop can no
+    // longer read the app's current session nor switch it, so the embedded
+    // sidebar silently stays on the app's own restore pick — the most
+    // recently updated workspace — which reads as "the plugin's workspace
+    // pointing is wrong" after a dsh update (live bug 2026-09-24).
+    //
+    // `uiWorkspace` is resolved lazily on every read (it may materialize
+    // after apply) and is deliberately NOT declared in module.exports.inject:
+    // a declared-but-missing inject pends forever on pre-0.1.7 runtimes and
+    // the whole bridge would never start (the same failure shape as the
+    // server-side apiProxy inject). The legacy sessions surface stays as the
+    // fallback so runtimes back to 0.1.5 keep working unchanged.
+    function resolveUiWorkspace(ctx) {
+      if (!ctx || typeof ctx.get !== 'function') return null;
+      try {
+        const ui = ctx.get('uiWorkspace');
+        if (ui && typeof ui === 'object') return ui;
+      } catch {
+        // service absent on pre-0.1.7 runtimes: the legacy path owns the read
+      }
+      return null;
+    }
+
+    /** The app's current session id, or null while nothing is selected. */
+    function readCurrentSessionId(ctx, snapshot) {
+      const ui = resolveUiWorkspace(ctx);
+      if (ui && ui.selection && typeof ui.selection.getSnapshot === 'function') {
+        try {
+          const selection = ui.selection.getSnapshot();
+          if (selection && typeof selection.sessionId === 'string' && selection.sessionId.length > 0) {
+            return selection.sessionId;
+          }
+        } catch {
+          // fall through to the legacy snapshot field
+        }
+      }
+      return snapshot && typeof snapshot.current === 'string' ? snapshot.current : null;
+    }
+
+    /** Route a session switch through the 0.1.7+ navigation, then the legacy face. */
+    const OPEN_NO_PATH = 0; // no navigation surface mounted yet — nothing was tried
+    const OPEN_ATTEMPTED = 1; // a surface was called (its throw, if any, waits for the next tick)
+    function openSessionTarget(ctx, target) {
+      const ui = resolveUiWorkspace(ctx);
+      if (ui && typeof ui.openSession === 'function') {
+        try {
+          ui.openSession(target);
+        } catch {
+          // the next tick retries (throttled by the open budget)
+        }
+        return OPEN_ATTEMPTED;
+      }
+      if (ctx && ctx.sessions && typeof ctx.sessions.open === 'function') {
+        try {
+          ctx.sessions.open(target);
+        } catch {
+          // the next tick retries
+        }
+        return OPEN_ATTEMPTED;
+      }
+      return OPEN_NO_PATH;
+    }
+
     function startSessionCurrentWatcher(ctx) {
       if (!ctx.sessions || !ctx.sessions.list || typeof ctx.sessions.list.getSnapshot !== 'function') {
         return () => {};
@@ -338,7 +408,7 @@ window.__ModuleLoader__.load({
         if (disposed) return;
         try {
           const snapshot = ctx.sessions.list.getSnapshot();
-          const current = snapshot && typeof snapshot.current === 'string' ? snapshot.current : null;
+          const current = readCurrentSessionId(ctx, snapshot);
           if (last === null) {
             last = current; // baseline: never announce the boot-time session
           } else if (current !== last) {
@@ -362,37 +432,103 @@ window.__ModuleLoader__.load({
       };
     }
 
+    // Follow timing. The budget is deliberately generous and the loop waits
+    // for the sessions service itself: this bridge is the only thing that
+    // makes the sidebar show the switched-to workspace, and giving up is
+    // INVISIBLE — the page simply keeps rendering the previous workspace's
+    // conversation. The old 50 x 100ms window silently expired whenever the
+    // list mirror took longer than five seconds (large instances, a cold
+    // workspace fetch) or whenever `ctx.sessions` was not mounted at apply
+    // time (the follow was then never started at all). Live bug 2026-09-18:
+    // "switching folders does not move the sidebar".
+    const followLimits = {
+      tickMs: 100,
+      slowTickMs: 500,
+      fastWindowMs: 5000,
+      budgetMs: 60000,
+      // Re-opening is throttled and capped: a list refresh can reset the
+      // selection back to the persisted session, and re-issuing open() forever
+      // would fight the app. Ten tries spans the first list loads; past that
+      // the next iframe reload (the shell re-sends dsh_session) picks it up.
+      openIntervalMs: 500,
+      maxOpens: 10,
+    };
+
     function startEmbeddedSessionFollow(ctx) {
       const target = new URLSearchParams(window.location.search).get('dsh_session');
       if (!target) return () => {};
-      if (!ctx.sessions || typeof ctx.sessions.open !== 'function') return () => {};
-      if (!ctx.sessions.list || typeof ctx.sessions.list.getSnapshot !== 'function') return () => {};
+      const startedAt = Date.now();
+      const deadline = startedAt + followLimits.budgetMs;
       let disposed = false;
       let timer = null;
-      const attempt = (remaining) => {
-        if (disposed) return;
-        let snapshot = null;
+      let opens = 0;
+      let lastOpenAt = 0;
+      let baseline = null;
+      let baselineSeen = false;
+
+      const snapshotNow = () => {
+        if (!ctx.sessions || !ctx.sessions.list || typeof ctx.sessions.list.getSnapshot !== 'function') {
+          return null; // sessions service not mounted yet: keep waiting for it
+        }
         try {
-          snapshot = ctx.sessions.list.getSnapshot();
+          return ctx.sessions.list.getSnapshot();
         } catch {
-          // A broken snapshot store must never break activation.
-          return;
-        }
-        if (snapshot && snapshot.byId && snapshot.byId[target] !== undefined) {
-          if (snapshot.current !== target) {
-            try {
-              ctx.sessions.open(target);
-            } catch {
-              // select() can race list refreshes; the next reload retries.
-            }
-          }
-          return;
-        }
-        if (remaining > 0) {
-          timer = setTimeout(() => attempt(remaining - 1), 100);
+          return null; // a broken snapshot store must never break activation
         }
       };
-      attempt(50);
+
+      const tick = () => {
+        if (disposed) return;
+        const snapshot = snapshotNow();
+        let done = false;
+        if (snapshot) {
+          const current = readCurrentSessionId(ctx, snapshot);
+          // A 'loading' snapshot still carries the PREVIOUS list, so neither
+          // the baseline nor a stand-down decision may be read from it.
+          const loaded = snapshot.phase === undefined || snapshot.phase !== 'loading';
+          // The baseline is the app's restore point: the session it selected
+          // on its own before this bridge ran. A null current is not a
+          // selection (the list has not restored one yet), so the baseline
+          // stays open until a real one appears — freezing null would make the
+          // restore itself look like a user click. The user cannot beat it
+          // either: clicking a row requires the list, which is loaded by then.
+          if (loaded && !baselineSeen && current !== null) {
+            baseline = current;
+            baselineSeen = true;
+          }
+          if (current === target) {
+            done = true; // followed — or the user picked it themselves
+          } else if (snapshot.byId && snapshot.byId[target] !== undefined) {
+            // Someone other than the restore-point chose a session: that is
+            // the user clicking a row (or the app moving on), and the follow
+            // must stand down instead of yanking the view back. 'Not yet in
+            // the list' is NOT that case — it is the list still loading.
+            if (loaded && baselineSeen && current !== baseline) {
+              done = true;
+            } else if (opens < followLimits.maxOpens
+              && Date.now() - lastOpenAt >= followLimits.openIntervalMs
+              && openSessionTarget(ctx, target) === OPEN_ATTEMPTED) {
+              // Only a real navigation attempt consumes the open budget: on
+              // 0.1.7+ the uiWorkspace service can mount after apply, and
+              // burning the budget on ticks with no navigation surface yet
+              // would strand the follow with its work never even tried.
+              opens += 1;
+              lastOpenAt = Date.now();
+            }
+          }
+        }
+        if (done) return;
+        if (Date.now() < deadline) {
+          const interval = Date.now() - startedAt < followLimits.fastWindowMs
+            ? followLimits.tickMs
+            : followLimits.slowTickMs;
+          timer = setTimeout(tick, interval);
+          // Node (tests): keep the poll off the event-loop keep-alive set so
+          // the host process can exit; browsers return a numeric handle.
+          if (timer && typeof timer.unref === 'function') timer.unref();
+        }
+      };
+      tick();
       return () => {
         disposed = true;
         if (timer) {
@@ -402,14 +538,29 @@ window.__ModuleLoader__.load({
       };
     }
 
-    // B3 (issue #6): reply-path linkify. Recognizes two clickable forms in
+    // B3 (issue #6): reply-path links. Recognizes two clickable forms in
     // rendered message text — file:/// URLs (including Windows drive form
     // file:///D:/...) and workspace-relative paths with an optional :line or
-    // :line:col suffix — wraps them in <a class="dsh-vscode-file-link">, and
-    // POSTs the parsed target to the same-origin /api/vscode/open-link route
-    // registered by this package's host side, which opens the file in the
-    // owning VS Code window. The pure extraction helpers are exposed on
-    // module.exports.__linkify for unit tests (no DOM required).
+    // :line:col suffix — and POSTs the chosen target to the same-origin
+    // /api/vscode/open-link route registered by this package's host side, which
+    // opens the file in the owning VS Code window. The pure extraction helpers
+    // are exposed on module.exports.__linkify for unit tests (no DOM required).
+    //
+    // READ-ONLY BY CONTRACT (live bug 2026-09-24, "the panel's final conclusion
+    // is invisible; it can only be copied out"): the first implementation
+    // wrapped each matched text node — parent.replaceChild(fragment, node) with
+    // an <a class="dsh-vscode-file-link"> per token. The DSH web UI renders
+    // messages with React, which keeps its own reference to every text node it
+    // created; replacing one DETACHES that reference, so the next
+    // reconciliation of the same message — the streaming → final markdown
+    // re-render that lands exactly when the answer is committed — inserts or
+    // removes against a node that is no longer a child and throws
+    // NotFoundError mid-commit. The aborted commit leaves the final answer
+    // unpainted while its text stays in the app's own store (readable only
+    // through its copy affordance). This module therefore NEVER creates,
+    // removes or rewrites a node the app rendered: the underline affordance is
+    // a CSS Custom Highlight over Ranges, and a click is resolved by
+    // hit-testing the caret position against the same pure extractor.
     const LINKIFY_EXTENSIONS = new Set([
       '.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.mts', '.cts', '.json', '.jsonc',
       '.md', '.markdown', '.mdx', '.py', '.pyi', '.rs', '.go', '.java', '.c', '.h',
@@ -425,6 +576,12 @@ window.__ModuleLoader__.load({
     const LINKIFY_MAX_NODES_PER_SCAN = 2000;
     const LINKIFY_SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'A', 'BUTTON', 'TEXTAREA', 'INPUT', 'SELECT', 'OPTION', 'NOSCRIPT']);
     const LINKIFY_OPEN_URL = '/api/vscode/open-link';
+    // Name of the CSS highlight carrying the underline; one registry slot per
+    // document, replaced (never duplicated) on re-install.
+    const LINKIFY_HIGHLIGHT_NAME = 'dsh-vscode-file-link';
+    // Paint/scan coalescing window: a streaming answer mutates the DOM many
+    // times per second and each batch only re-reads the nodes it touched.
+    const LINKIFY_FLUSH_MS = 120;
 
     function splitLineSuffix(token) {
       // Try the :line:col form first: a single greedy optional group would
@@ -499,46 +656,63 @@ window.__ModuleLoader__.load({
       return targets;
     }
 
-    function linkifyTextNode(node) {
-      const parent = node.parentNode;
-      if (!parent || typeof parent.replaceChild !== 'function') return;
-      // Never link text that already lives inside a link/button (this also
-      // stops the observer from re-wrapping our own anchors' text).
-      const owner = node.parentElement;
-      if (owner && typeof owner.closest === 'function' && owner.closest('a,button')) return;
-      const text = node.nodeValue;
-      const targets = extractLinkTargets(text);
-      if (targets.length === 0) return;
-      const fragment = document.createDocumentFragment();
-      let cursor = 0;
-      for (const target of targets) {
-        if (target.start > cursor) {
-          fragment.appendChild(document.createTextNode(text.slice(cursor, target.start)));
-        }
-        const anchor = document.createElement('a');
-        anchor.setAttribute('class', 'dsh-vscode-file-link');
-        anchor.setAttribute('role', 'link');
-        anchor.setAttribute('tabindex', '0');
-        anchor.setAttribute('data-dsh-link-path', target.path);
-        if (target.line !== undefined) anchor.setAttribute('data-dsh-link-line', String(target.line));
-        if (target.col !== undefined) anchor.setAttribute('data-dsh-link-col', String(target.col));
-        anchor.textContent = text.slice(target.start, target.end);
-        fragment.appendChild(anchor);
-        cursor = target.end;
+    /**
+     * Whether a rendered element may carry a link affordance. Text inside the
+     * app's own controls, links and editable surfaces keeps its native meaning
+     * (the legacy a[href] handler owns those elements).
+     *
+     * @param {Element|null} element - Element owning the text node.
+     * @returns {boolean}
+     */
+    function isLinkifyCandidate(element) {
+      if (!element || typeof element.closest !== 'function') return false;
+      try {
+        if (element.closest('a,button,textarea,input,select,option,noscript')) return false;
+        // Editable surfaces own their clicks, whether the attribute is
+        // contenteditable="true", the empty form (composers), or inherited from
+        // an ancestor (isContentEditable covers all three).
+        if (element.isContentEditable === true) return false;
+        if (element.closest('[contenteditable="true"],[contenteditable=""]')) return false;
+      } catch {
+        return false; // detached or exotic node: never claim the click
       }
-      if (cursor < text.length) {
-        fragment.appendChild(document.createTextNode(text.slice(cursor)));
-      }
-      parent.replaceChild(fragment, node);
+      return true;
     }
 
-    function scanElementTree(root) {
+    /**
+     * The link target a caret offset sits in, or null. Pure — shares the token
+     * rules with extractLinkTargets, and both boundaries are inclusive so a
+     * click landing just after "x.js" (the caret sits between two characters)
+     * still resolves the token the reader pointed at.
+     *
+     * @param {string} text - nodeValue of the text node under the caret.
+     * @param {number} offset - Caret offset inside that text node.
+     * @returns {object|null} `{ start, end, kind, path, line, col }` or null.
+     */
+    function tokenAtOffset(text, offset) {
+      if (typeof text !== 'string' || !Number.isInteger(offset) || offset < 0 || offset > text.length) {
+        return null;
+      }
+      for (const target of extractLinkTargets(text)) {
+        if (offset >= target.start && offset <= target.end) return target;
+      }
+      return null;
+    }
+
+    /**
+     * Visit every text node of a rendered subtree, read-only. Uses the same
+     * skip rules and node budget as the former wrapping scanner.
+     *
+     * @param {Node} root - Subtree root.
+     * @param {(node: Text) => void} visit - Called once per visited text node.
+     */
+    function visitLinkTextNodes(root, visit) {
       let budget = LINKIFY_MAX_NODES_PER_SCAN;
-      const visit = (node) => {
+      const walk = (node) => {
         if (budget <= 0) return;
         budget -= 1;
         if (node.nodeType === 3) {
-          linkifyTextNode(node);
+          visit(node);
           return;
         }
         if (node.nodeType !== 1) return;
@@ -549,60 +723,312 @@ window.__ModuleLoader__.load({
           } catch { /* attribute access is best-effort */ }
         }
         const children = node.childNodes || [];
-        for (let index = 0; index < children.length; index += 1) visit(children[index]);
+        for (let index = 0; index < children.length; index += 1) walk(children[index]);
       };
-      visit(root);
+      walk(root);
     }
 
-    function onLinkifyClick(event) {
-      if (event.defaultPrevented || event.button !== 0) return;
-      const target = event.target;
-      const element = target && typeof target.closest === 'function'
-        ? target.closest('a.dsh-vscode-file-link')
-        : null;
-      if (!element) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      const path = element.getAttribute('data-dsh-link-path') || '';
-      if (path.length === 0) return;
-      const line = Number(element.getAttribute('data-dsh-link-line')) || undefined;
-      const col = Number(element.getAttribute('data-dsh-link-col')) || undefined;
-      fetch(LINKIFY_OPEN_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-DSH-VSCode-Linkify': '1' },
-        body: JSON.stringify({ path, line, col }),
-      }).catch(() => {
-        // Opening is best-effort; a failed click must never break the page.
-      });
-    }
-
-    function installReplyLinkify() {
-      if (typeof document.createElement !== 'function') return () => {};
-      if (typeof document.createDocumentFragment !== 'function') return () => {};
-      if (!document.body || typeof window.MutationObserver !== 'function') return () => {};
-      if (typeof fetch !== 'function') return () => {};
+    /**
+     * Underline painter built on the CSS Custom Highlight API. Highlights are
+     * Ranges, so the affordance repaints without creating, removing or
+     * rewriting a single node the app owns. Returns null on runtimes without
+     * the API (pre-Chromium-105 engines): links keep working, they are simply
+     * not underlined.
+     *
+     * @returns {{track: Function, drop: Function, dispose: Function}|null}
+     */
+    function createLinkPainter() {
+      if (typeof Highlight !== 'function') return null;
+      if (typeof CSS === 'undefined' || !CSS || !CSS.highlights) return null;
+      if (typeof document.createElement !== 'function') return null;
+      if (typeof document.createRange !== 'function') return null;
+      let highlight;
+      try {
+        highlight = new Highlight();
+        CSS.highlights.set(LINKIFY_HIGHLIGHT_NAME, highlight);
+      } catch {
+        return null; // registry unavailable: degrade to click-only links
+      }
       const style = document.createElement('style');
-      style.textContent = 'a.dsh-vscode-file-link{cursor:pointer;text-decoration:underline;text-underline-offset:2px}a.dsh-vscode-file-link:hover{opacity:.85}';
+      style.textContent = `::highlight(${LINKIFY_HIGHLIGHT_NAME}){text-decoration:underline;text-underline-offset:2px}`;
       (document.head || document.body).appendChild(style);
-      // One initial pass over already-rendered messages; afterwards only new
-      // subtrees are post-processed (no whole-page rescans).
-      scanElementTree(document.body);
-      const observer = new window.MutationObserver((mutations) => {
-        for (const mutation of mutations) {
-          for (const node of mutation.addedNodes || []) {
-            if (node.nodeType === 3) linkifyTextNode(node);
-            else if (node.nodeType === 1) scanElementTree(node);
+      const rangesByNode = new WeakMap();
+      return {
+        /** Recompute one text node's ranges (drops whatever it had before). */
+        track(node) {
+          const previous = rangesByNode.get(node);
+          if (previous) {
+            for (const range of previous) highlight.delete(range);
+            rangesByNode.delete(node);
+          }
+          const ranges = [];
+          for (const target of extractLinkTargets(node.nodeValue)) {
+            const range = document.createRange();
+            try {
+              range.setStart(node, target.start);
+              range.setEnd(node, target.end);
+            } catch {
+              continue; // node mutated between scan and range creation
+            }
+            highlight.add(range);
+            ranges.push(range);
+          }
+          if (ranges.length > 0) rangesByNode.set(node, ranges);
+        },
+        /** Forget one text node's ranges (removed, or emptied, content). */
+        drop(node) {
+          const previous = rangesByNode.get(node);
+          if (!previous) return;
+          for (const range of previous) highlight.delete(range);
+          rangesByNode.delete(node);
+        },
+        /** Release the registry slot and the ::highlight() style tag. */
+        dispose() {
+          try { CSS.highlights.delete(LINKIFY_HIGHLIGHT_NAME); } catch { /* already gone */ }
+          if (style.parentNode && typeof style.parentNode.removeChild === 'function') {
+            style.parentNode.removeChild(style);
+          }
+        },
+      };
+    }
+
+    /**
+     * Caret position at viewport coordinates. `caretPositionFromPoint` is the
+     * standard; Chromium also exposes the legacy `caretRangeFromPoint`.
+     *
+     * @param {number} x - Viewport x.
+     * @param {number} y - Viewport y.
+     * @returns {{node: Node, offset: number}|null}
+     */
+    function caretPositionAtPoint(x, y) {
+      if (typeof document.caretPositionFromPoint === 'function') {
+        try {
+          const position = document.caretPositionFromPoint(x, y);
+          if (position) return { node: position.offsetNode, offset: position.offset };
+        } catch { /* fall through to the legacy call */ }
+      }
+      if (typeof document.caretRangeFromPoint === 'function') {
+        try {
+          const range = document.caretRangeFromPoint(x, y);
+          if (range) return { node: range.startContainer, offset: range.startOffset };
+        } catch { /* unresolved */ }
+      }
+      return null;
+    }
+
+    /**
+     * The link target under a viewport point, or null. Resolution is a pure
+     * hit-test, so the answer is always the text actually on screen at click
+     * time — no per-token state to go stale as the app re-renders.
+     *
+     * @param {number} x - Viewport x.
+     * @param {number} y - Viewport y.
+     * @returns {object|null} Link target from {@link tokenAtOffset}.
+     */
+    function linkTargetAtPoint(x, y) {
+      const position = caretPositionAtPoint(x, y);
+      if (!position || !position.node || position.node.nodeType !== 3) return null;
+      if (typeof position.node.nodeValue !== 'string') return null;
+      if (!isLinkifyCandidate(position.node.parentElement)) return null;
+      return tokenAtOffset(position.node.nodeValue, position.offset);
+    }
+
+    /**
+     * Install reply-path links: read-only underline painting, caret hit-test
+     * click resolution, and a pointer cursor hint over a resolvable token.
+     * Nothing here mutates the rendered DOM tree (see the READ-ONLY BY CONTRACT
+     * note above).
+     *
+     * @returns {() => void} disposer.
+     */
+    function installReplyLinkify() {
+      if (typeof document.addEventListener !== 'function') return () => {};
+      if (!document.body || typeof fetch !== 'function') return () => {};
+
+      const painter = createLinkPainter();
+      const pending = new Set();
+      const removed = new Set();
+      let flushTimer = null;
+      let pointerFrame = null;
+      let pointerFrameKind = null;
+      let pointerPoint = null;
+      let cursorClaim = null;
+      let disposed = false;
+
+      /** Repaint one text node when it is still in the document. */
+      const trackTextNode = (node) => {
+        if (!painter) return;
+        if (!node || node.nodeType !== 3) return;
+        if (typeof node.nodeValue !== 'string' || node.nodeValue.length === 0) return;
+        if (node.isConnected === false) return;
+        if (!isLinkifyCandidate(node.parentElement)) return;
+        painter.track(node);
+      };
+
+      const trackTree = (node) => {
+        visitLinkTextNodes(node, trackTextNode);
+      };
+
+      /**
+       * Forget ranges under a removed subtree. Walks EVERY node (the scan skip
+       * rules must not apply here, or a removed list item / control would leak
+       * its ranges into the highlight registry forever).
+       */
+      const dropTree = (node) => {
+        if (!painter || !node) return;
+        if (node.nodeType === 3) {
+          painter.drop(node);
+          return;
+        }
+        if (node.nodeType !== 1) return;
+        const children = node.childNodes || [];
+        for (let index = 0; index < children.length; index += 1) dropTree(children[index]);
+      };
+
+      const flush = () => {
+        flushTimer = null;
+        if (disposed) return;
+        for (const node of removed) dropTree(node);
+        removed.clear();
+        const nodes = [...pending];
+        pending.clear();
+        for (const node of nodes) {
+          if (node.nodeType === 3) trackTextNode(node);
+          else trackTree(node);
+        }
+      };
+
+      const scheduleFlush = () => {
+        if (flushTimer !== null) return;
+        flushTimer = setTimeout(flush, LINKIFY_FLUSH_MS);
+        // Node (tests): keep this timer off the event-loop keep-alive set.
+        if (flushTimer && typeof flushTimer.unref === 'function') flushTimer.unref();
+      };
+
+      const schedule = (node) => {
+        pending.add(node);
+        scheduleFlush();
+      };
+
+      // Initial pass over already-rendered content; afterwards only the nodes a
+      // mutation actually touched are re-read (no whole-page rescans while the
+      // answer streams).
+      trackTree(document.body);
+
+      let observer = null;
+      if (typeof window.MutationObserver === 'function' && painter) {
+        observer = new window.MutationObserver((mutations) => {
+          if (disposed) return;
+          for (const mutation of mutations) {
+            if (mutation.type === 'characterData') {
+              schedule(mutation.target);
+              continue;
+            }
+            for (const node of mutation.removedNodes || []) {
+              removed.add(node);
+              pending.delete(node);
+            }
+            for (const node of mutation.addedNodes || []) schedule(node);
+          }
+          if (removed.size > 0 || pending.size > 0) scheduleFlush();
+        });
+        observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+      }
+
+      const onLinkClick = (event) => {
+        if (disposed || event.defaultPrevented || event.button !== 0) return;
+        // Double/triple clicks are selection gestures, not navigation.
+        if (typeof event.detail === 'number' && event.detail > 1) return;
+        const target = linkTargetAtPoint(event.clientX, event.clientY);
+        if (!target) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        fetch(LINKIFY_OPEN_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-DSH-VSCode-Linkify': '1' },
+          body: JSON.stringify({ path: target.path, line: target.line, col: target.col }),
+        }).catch(() => {
+          // Opening is best-effort; a failed click must never break the page.
+        });
+      };
+
+      /**
+       * Pointer-cursor hint over resolvable tokens: the body owns the cursor
+       * while the pointer is on a link, and exactly the previous inline value
+       * is restored afterwards (the app's own cursor styles win inside its
+       * controls).
+       */
+      const setHoverCursor = (active) => {
+        const body = document.body;
+        if (!body || !body.style) return;
+        if (active) {
+          if (cursorClaim !== null) return;
+          cursorClaim = body.style.cursor || '';
+          body.style.cursor = 'pointer';
+        } else if (cursorClaim !== null) {
+          body.style.cursor = cursorClaim;
+          cursorClaim = null;
+        }
+      };
+
+      const applyPointerFrame = () => {
+        pointerFrame = null;
+        pointerFrameKind = null;
+        const point = pointerPoint;
+        pointerPoint = null;
+        if (disposed || !point) return;
+        setHoverCursor(linkTargetAtPoint(point.x, point.y) !== null);
+      };
+
+      const onPointerMove = (event) => {
+        if (disposed) return;
+        pointerPoint = { x: event.clientX, y: event.clientY };
+        if (pointerFrame !== null) return;
+        if (typeof requestAnimationFrame === 'function') {
+          pointerFrameKind = 'frame';
+          pointerFrame = requestAnimationFrame(applyPointerFrame);
+          return;
+        }
+        pointerFrameKind = 'timer';
+        pointerFrame = setTimeout(applyPointerFrame, 60);
+        // Node (tests): keep this timer off the event-loop keep-alive set.
+        if (pointerFrame && typeof pointerFrame.unref === 'function') pointerFrame.unref();
+      };
+
+      const releaseHover = () => {
+        pointerPoint = null;
+        setHoverCursor(false);
+      };
+
+      document.addEventListener('click', onLinkClick, true);
+      document.addEventListener('pointermove', onPointerMove, true);
+      document.addEventListener('mouseleave', releaseHover, true);
+      if (typeof window.addEventListener === 'function') window.addEventListener('blur', releaseHover);
+
+      return () => {
+        disposed = true;
+        if (flushTimer !== null) {
+          clearTimeout(flushTimer);
+          flushTimer = null;
+        }
+        if (pointerFrame !== null) {
+          if (pointerFrameKind === 'frame' && typeof cancelAnimationFrame === 'function') {
+            cancelAnimationFrame(pointerFrame);
+          } else {
+            clearTimeout(pointerFrame);
           }
         }
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-      document.addEventListener('click', onLinkifyClick, true);
-      return () => {
-        observer.disconnect();
-        document.removeEventListener('click', onLinkifyClick, true);
-        if (style.parentNode && typeof style.parentNode.removeChild === 'function') {
-          style.parentNode.removeChild(style);
-        }
+        pointerFrame = null;
+        pointerFrameKind = null;
+        pending.clear();
+        removed.clear();
+        releaseHover();
+        document.removeEventListener('click', onLinkClick, true);
+        document.removeEventListener('pointermove', onPointerMove, true);
+        document.removeEventListener('mouseleave', releaseHover, true);
+        if (typeof window.removeEventListener === 'function') window.removeEventListener('blur', releaseHover);
+        if (observer) observer.disconnect();
+        if (painter) painter.dispose();
       };
     }
 
@@ -664,13 +1090,19 @@ window.__ModuleLoader__.load({
     module.exports.inject = ['conversation', 'sessions'];
     module.exports.name = 'dsh-vscode-integration';
     // Pure linkify helpers exposed for unit tests (extract targets from plain
-    // text; no DOM involved). Not consumed by the DSH module loader.
+    // text and resolve the token under a caret; no DOM involved). Not consumed
+    // by the DSH module loader.
     module.exports.__linkify = {
       extractLinkTargets,
       parseFileUrlTarget,
       parseWorkspacePathTarget,
       splitLineSuffix,
+      tokenAtOffset,
     };
+    // Follow-loop timings, exposed so unit tests can shrink the budget instead
+    // of sleeping for it. Read on every tick, so a test may retune them after
+    // load. Not consumed by the DSH module loader.
+    module.exports.__sessionFollowLimits = followLimits;
     return module.exports;
   },
 });
