@@ -168,6 +168,7 @@ async function verifyElectronUi({ playwrightModulePath, port, readyPath, continu
         runtimeVersion: ack.runtimeVersion, adapterId: ack.adapterId, target, servedFileHashes: files, servedResponseHashes: responseHashes,
         byteComparison: 'Exact package bodies after excluding only official separator and revisioned source-map trailers',
         uiInputMethod: 'DOM-dispatched native controls and focused composer keyboard; pointer hit geometry is not certified',
+        viewportProfile: 'Maximized native VS Code auxiliary bar; optional changes-review view disabled',
         ordinaryMessageResponse: true, nativeIframeReopened: true, nativeTheme, pairedWindows, localDeterministicProvider: true, screenshot: 'installed-ui.png' };
     }
     // Resize the actual embedded iframe viewport inside the installed Code

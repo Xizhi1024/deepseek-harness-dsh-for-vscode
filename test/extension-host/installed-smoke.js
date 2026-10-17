@@ -67,6 +67,7 @@ async function main(profileFile = process.argv[2] || process.env.DSH_INSTALLED_A
       'dsh.runtime.version': runtimeVersion, 'dsh.profile': 'installed-acceptance', 'dsh.home.mode': 'isolated',
       'dsh.host': '127.0.0.1', 'dsh.port': await freePort(),
       'dsh.features.exports': true, 'git.enabled': false,
+      'dsh.features.changes-review': false,
       'workbench.colorTheme': profile.colorTheme || 'Default Dark Modern',
       'dsh.features.ctrl-i': true, 'dsh.features.ctrl-k': true,
       'dsh.closePolicy': 'onVscodeExit', 'telemetry.telemetryLevel': 'off', 'update.mode': 'none',

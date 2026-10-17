@@ -40,13 +40,14 @@ async function run() {
     assert.ok(fs.existsSync(expected.runtimeUi.continuePath), 'UI driver did not attach to the dedicated Code process');
     await vscode.workspace.getConfiguration('dsh').update('autoStart', true, vscode.ConfigurationTarget.Workspace);
     await vscode.commands.executeCommand('dsh.focusSidebar');
-    for (let index = 0; index < 3; index++) await vscode.commands.executeCommand('workbench.action.increaseViewWidth');
     await vscode.commands.executeCommand('dsh.newSession');
     await extension.exports.ask('UI search alpha', { signal: AbortSignal.timeout(30000) });
     await vscode.commands.executeCommand('dsh.newSession');
     await extension.exports.ask('UI search beta', { signal: AbortSignal.timeout(30000) });
     await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
     await vscode.commands.executeCommand('dsh.focusSidebar');
+    await vscode.commands.executeCommand('workbench.action.maximizeAuxiliaryBar');
+    await vscode.commands.executeCommand('notifications.clearAll');
     proof.runtimeStartupAndExports = { status: 'PASS', runtimeVersion: expected.runtimeUi.runtimeVersion, sessionsCreated: 2, localProviderResponses: 2, panelClosedAndReopened: true };
     saveProof();
     fs.writeFileSync(expected.runtimeUi.seededPath, 'seeded through installed exports');
