@@ -515,7 +515,8 @@ for (const version of [undefined, null, 'unknown', '0.3.0-rc.1']) {
   });
 }
 
-test('managed target in an empty window refuses launch without guessing an execution root', async (t) => {
+for (const runtimeVersion of ['0.2.1-rc.2', '0.2.1-rc.1', '0.2.0-rc.2', '0.2.0-rc.1']) {
+test(`managed target in an empty window refuses launch without guessing an execution root (${runtimeVersion})`, async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-empty-window-'));
   t.after(async () => { await deactivate(); fs.rmSync(root, { recursive: true, force: true }); });
   const fake = createFakeVscode({ autoStart: true, 'features.changes-review': false, 'features.chat-participant': false });
@@ -527,7 +528,7 @@ test('managed target in an empty window refuses launch without guessing an execu
     createServerManager() { return { cancelPending() {}, hasOwnedChild() { return false; }, async stop() {},
       setResolvedRuntime() { preparations++; }, setEmbedPatchPath() { preparations++; },
       async ensureServer() { launches++; throw new Error('Empty window must not launch'); } }; },
-    async ensureManagedRuntime() { return { dshVersion: '0.2.1-rc.2' }; },
+    async ensureManagedRuntime() { return { dshVersion: runtimeVersion }; },
   });
   const view = { webview: { html: '', onDidReceiveMessage() { return disposable(); } }, onDidDispose() { return disposable(); } };
   fake.registrations.webview.provider.resolveWebviewView(view);
@@ -535,6 +536,7 @@ test('managed target in an empty window refuses launch without guessing an execu
   assert.equal(launches, 0); assert.equal(preparations, 0);
   assert.equal(fs.existsSync(path.join(root, '.dsh', 'profiles')), false);
 });
+}
 
 test('failed target selection preserves legacy ownership for stop and deactivate', async () => {
   for (const action of ['stop', 'deactivate']) {

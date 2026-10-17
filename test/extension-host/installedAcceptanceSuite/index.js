@@ -29,7 +29,8 @@ async function run() {
   const proof = { extensionId: extension.id, version: extension.packageJSON.version, integrationVersion: integration.version,
     vscodeVersion: vscode.version, nodeVersion: process.version, extensionPath, testDriver: expected.testDriver,
     installationSource: 'isolated installed VSIX; only the empty acceptance driver uses extensionDevelopmentPath',
-    isActive: extension.isActive, verifiedFiles, vsixSha256: expected.vsixSha256, commands: expectedCommands.sort(), runtimeUiAcceptance: 'NOT_RUN' };
+    isActive: extension.isActive, verifiedFiles, vsixSha256: expected.vsixSha256, commands: expectedCommands.sort(), runtimeUiAcceptance: 'NOT_RUN',
+    extensionHostPid: process.pid, workspaceFolders: (vscode.workspace.workspaceFolders || []).map(folder => folder.uri.fsPath) };
   const saveProof = () => fs.writeFileSync(process.env.DSH_INSTALLED_ACCEPTANCE_PROOF, JSON.stringify(proof, null, 2));
   saveProof();
   if (expected.runtimeUi) {
@@ -39,13 +40,17 @@ async function run() {
     assert.ok(fs.existsSync(expected.runtimeUi.continuePath), 'UI driver did not attach to the dedicated Code process');
     await vscode.workspace.getConfiguration('dsh').update('autoStart', true, vscode.ConfigurationTarget.Workspace);
     await vscode.commands.executeCommand('dsh.focusSidebar');
+    for (let index = 0; index < 3; index++) await vscode.commands.executeCommand('workbench.action.increaseViewWidth');
     await vscode.commands.executeCommand('dsh.newSession');
     await extension.exports.ask('UI search alpha', { signal: AbortSignal.timeout(30000) });
     await vscode.commands.executeCommand('dsh.newSession');
     await extension.exports.ask('UI search beta', { signal: AbortSignal.timeout(30000) });
-    proof.runtimeStartupAndExports = { status: 'PASS', runtimeVersion: expected.runtimeUi.runtimeVersion, sessionsCreated: 2, localProviderResponses: 2 };
+    await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
+    await vscode.commands.executeCommand('dsh.focusSidebar');
+    proof.runtimeStartupAndExports = { status: 'PASS', runtimeVersion: expected.runtimeUi.runtimeVersion, sessionsCreated: 2, localProviderResponses: 2, panelClosedAndReopened: true };
     saveProof();
     fs.writeFileSync(expected.runtimeUi.seededPath, 'seeded through installed exports');
+    if (expected.runtimeUi.coordinationRoot) fs.writeFileSync(path.join(expected.runtimeUi.coordinationRoot, `${expected.runtimeUi.windowRole}-ready.json`), JSON.stringify({ proofPath: process.env.DSH_INSTALLED_ACCEPTANCE_PROOF, workspaceFolders: proof.workspaceFolders, extensionHostPid: process.pid }));
     while (!fs.existsSync(expected.runtimeUi.releasePath) && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 100));
     await vscode.commands.executeCommand('dsh.stopServer');
     proof.ownedRuntimeStopped = true;

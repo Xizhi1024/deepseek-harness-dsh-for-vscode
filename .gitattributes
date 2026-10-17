@@ -1,0 +1,2 @@
+# Preserve upstream declaration diff bytes while ignoring their context whitespace.
+evidence/sprint1/**/api.diff -whitespace

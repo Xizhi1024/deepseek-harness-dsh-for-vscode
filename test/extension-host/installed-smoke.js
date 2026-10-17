@@ -56,12 +56,18 @@ async function main(profileFile = process.argv[2] || process.env.DSH_INSTALLED_A
   if (profile.runtimePackageRoot) {
     assert.ok(path.isAbsolute(profile.runtimePackageRoot) && path.isAbsolute(profile.playwrightModulePath), 'UI acceptance needs explicit absolute runtime and Playwright package paths');
     runtimeUi = { readyPath: path.join(runRoot, 'ui-ready'), continuePath: path.join(runRoot, 'ui-continue'), seededPath: path.join(runRoot, 'ui-seeded'), releasePath: path.join(runRoot, 'ui-release'), port: await freePort(), runtimeVersion, scope: profile.uiScope || 'full' };
+    if (profile.coordinationRoot) {
+      assert.ok(path.isAbsolute(profile.coordinationRoot) && ['a', 'b'].includes(profile.windowRole));
+      fs.mkdirSync(profile.coordinationRoot, { recursive: true });
+      Object.assign(runtimeUi, { coordinationRoot: profile.coordinationRoot, windowRole: profile.windowRole });
+    }
     const userSettings = path.join(userDataDir, 'User'); fs.mkdirSync(userSettings, { recursive: true });
     fs.writeFileSync(path.join(userSettings, 'settings.json'), JSON.stringify({
       'dsh.autoStart': false, 'dsh.local.packageRoot': profile.runtimePackageRoot, 'dsh.local.nodePath': process.execPath,
       'dsh.runtime.version': runtimeVersion, 'dsh.profile': 'installed-acceptance', 'dsh.home.mode': 'isolated',
       'dsh.host': '127.0.0.1', 'dsh.port': await freePort(),
-      'dsh.features.exports': true,
+      'dsh.features.exports': true, 'git.enabled': false,
+      'workbench.colorTheme': profile.colorTheme || 'Default Dark Modern',
       'dsh.features.ctrl-i': true, 'dsh.features.ctrl-k': true,
       'dsh.closePolicy': 'onVscodeExit', 'telemetry.telemetryLevel': 'off', 'update.mode': 'none',
     }));
@@ -139,6 +145,7 @@ async function main(profileFile = process.argv[2] || process.env.DSH_INSTALLED_A
       throw new Error(`Installed UI acceptance blocked; partial evidence preserved at ${proofPath}`, { cause: uiError });
     }
     if (uiProof) { proof.runtimeUiAcceptance = uiProof; fs.writeFileSync(proofPath, JSON.stringify(proof, null, 2)); }
+    if (runtimeUi?.coordinationRoot) fs.writeFileSync(path.join(runtimeUi.coordinationRoot, `${runtimeUi.windowRole}-closed.json`), JSON.stringify({ proofPath, workspace, closedAt: new Date().toISOString(), extensionHostPid: proof.extensionHostPid }));
     console.log(JSON.stringify({ status: 'PASS', scope: uiProof ? 'installed identity, activation and actual runtime webview' : 'installed artifact identity and activation only', proofPath, ...proof }, null, 2));
     return proof;
   } finally {

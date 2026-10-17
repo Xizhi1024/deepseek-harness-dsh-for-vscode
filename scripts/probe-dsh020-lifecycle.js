@@ -1,7 +1,7 @@
 'use strict';
 
 // Real, isolated component acceptance. No installed VSIX/browser claim.
-// node scripts/probe-dsh020-lifecycle.js <package-root> <evidence-root> <steady|lifecycle>
+// node scripts/probe-dsh020-lifecycle.js <package-root> <evidence-root> <steady|lifecycle|reconnect>
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -69,7 +69,7 @@ async function main() {
   const { positional, target } = parseProbeArguments(process.argv.slice(2));
   const [packageRoot, outputRoot, mode] = positional;
   assert.ok(path.isAbsolute(packageRoot || '') && path.isAbsolute(outputRoot || ''));
-  assert.ok(['steady', 'lifecycle'].includes(mode));
+  assert.ok(['steady', 'lifecycle', 'reconnect'].includes(mode));
   const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
   assert.equal(manifest.name, '@deepseek-ai/dsh'); assert.equal(manifest.version, target || '0.2.0-rc.1');
   await verifyNodeRuntime(process.execPath);
@@ -129,7 +129,7 @@ async function main() {
   save();
   console.log(JSON.stringify({ status: 'STARTING', mode, evidence: evidencePath }));
   try {
-    if (mode === 'steady') {
+    if (mode === 'steady' || mode === 'reconnect') {
       const transportCuts = new Set();
       const fetchTracked = async (url, init) => {
         if (new URL(url).pathname !== '/api/vscode/v1/events') return fetch(url, init);
@@ -175,11 +175,12 @@ async function main() {
       assert.equal(metrics.opens, 1); assert.equal(hub.activeFeeds, 1);
       passed('two-consumers-one-real-sse', { ownedPid: pid });
       const started = Date.now();
-      const duration = 600000;
+      const duration = mode === 'steady' ? 600000 : 12000;
+      const cutTimes = mode === 'steady' ? [120000, 300000] : [2000, 5000];
       for (let sampleIndex = 0; ; sampleIndex++) {
         const elapsed = Date.now() - started;
         for (let i = 0; i < 20; i++) { subscribe().release(); metrics.churnRegistrations++; }
-        if ((elapsed >= 120000 && metrics.cuts.length === 0) || (elapsed >= 300000 && metrics.cuts.length === 1)) {
+        if (metrics.cuts.length < cutTimes.length && elapsed >= cutTimes[metrics.cuts.length]) {
           const previousEpochs = epochs.size;
           const cutStarted = Date.now();
           assert.equal(transportCuts.size, 1);
@@ -198,7 +199,7 @@ async function main() {
           consumers: metrics.consumers, retryTimers: retryTimers.snapshot().active, epochs: epochs.size });
         save(); console.log(JSON.stringify({ status: 'SAMPLING', mode, sample: sampleIndex, elapsedMs: Date.now() - started, cuts: metrics.cuts.length }));
         if (Date.now() - started >= duration) break;
-        await delay(Math.min(20000, duration - (Date.now() - started)));
+        await delay(Math.min(mode === 'steady' ? 20000 : 1000, duration - (Date.now() - started)));
       }
       assert.equal(metrics.cuts.length, 2); assert.equal(metrics.opens, 3); assert.equal(epochs.size, 3);
       assert.equal(metrics.activePeak, 1);
@@ -212,7 +213,7 @@ async function main() {
         runtimeRssStrictlyIncreasing: rss.every((value, index) => index === 0 || value > rss[index - 1]),
         configuredBounds: { frameBytes: LIMITS.frameBytes, projectionBytes: LIMITS.projectionBytes, maxFeeds: LIMITS.maxFeeds },
         queueMeasurement: 'Observed reconnect timers and synchronous consumer dispatch depth; internal upstream queue occupancy is not exposed by public ports.' };
-      passed('ten-minute-steady-two-real-disconnects', { samples: evidence.samples.length, cuts: metrics.cuts, ownedStarts: owner.counts.spawned });
+      passed(mode === 'steady' ? 'ten-minute-steady-two-real-disconnects' : 'two-real-disconnects-recover', { samples: evidence.samples.length, cuts: metrics.cuts, ownedStarts: owner.counts.spawned });
       passed('last-consumer-disposal', { transports: metrics.active, reconnectTimers: retryTimers.snapshot().active });
       await owner.supervisor.stop(op()); assert.ok(exited(pid));
       passed('steady-owned-pid-exit', { pid });
@@ -296,7 +297,7 @@ async function main() {
     }
     evidence.finishedAt = new Date().toISOString();
     evidence.limitations = ['Runtime component acceptance only; no installed VSIX or browser UI.',
-      'RSS samples describe this ten-minute workload without claiming a general absence of leaks.',
+      'RSS samples describe only this timed workload without claiming a general absence of leaks.',
       'Public ports expose no upstream queue depth; retry-timer peak and dispatch depth are the observed bounds.'];
     save(); console.log(JSON.stringify({ status: evidence.status, mode, cases: evidence.cases, evidence: evidencePath }));
   }
