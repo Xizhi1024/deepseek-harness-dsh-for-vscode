@@ -31,8 +31,36 @@ async function verifyElectronUi({ playwrightModulePath, port, readyPath, continu
       signal?.throwIfAborted();
       for (const page of context.pages()) for (const frame of page.frames()) {
         try {
+          // VS Code document-writes the product shell into active-frame. That
+          // same-origin child does not get CDP addInitScript callbacks.
+          await frame.evaluate(() => {
+            const child = document.getElementById('active-frame')?.contentWindow;
+            if (!child || child.__dshAcceptanceObserved) return;
+            child.__dshAcceptanceObserved = true;
+            child.addEventListener('message', event => {
+              const m = event.data;
+              if (m && m.channel === 'dsh-vscode-session' && ['hello-ack', 'targetChanged', 'result'].includes(m.type)) window.__dshAcceptanceEvents.push(m);
+            });
+          });
           const address = new URL(frame.url());
           if (address.searchParams.get('dsh_runtime') === runtimeVersion && ['127.0.0.1', 'localhost'].includes(address.hostname)) runtimeFrame = frame;
+          // Electron can expose a webview execution context before its Frame
+          // navigation metadata updates. Inspect the actual document as well.
+          const actualAddress = await frame.evaluate(() => location.href);
+          const actual = new URL(actualAddress);
+          if (actual.searchParams.get('dsh_runtime') === runtimeVersion && ['127.0.0.1', 'localhost'].includes(actual.hostname)) {
+            runtimeFrame = frame;
+            // The native preview consent and initial empty Session can defer
+            // the main conversation target; interact before requiring one.
+            const notice = frame.getByRole('button', { name: 'Continue', exact: true });
+            if (await notice.isVisible()) await notice.click({ timeout: 1000 });
+            if (fs.existsSync(seededPath)) {
+              const openSidebar = frame.getByRole('button', { name: 'Open sidebar', exact: true });
+              if (await openSidebar.isVisible()) await openSidebar.click({ timeout: 1000 });
+              const alpha = frame.getByRole('treeitem').filter({ hasText: 'UI search alpha' });
+              if (await alpha.isVisible()) await alpha.click({ timeout: 1000 });
+            }
+          }
           const observed = await frame.evaluate(() => (window.__dshAcceptanceEvents || []).filter(m => m.type === 'hello-ack' || m.type === 'targetChanged'));
           const foundAck = observed.find(m => m.type === 'hello-ack');
           const foundTarget = observed.findLast(m => m.type === 'targetChanged' && m.target.state === 'known');

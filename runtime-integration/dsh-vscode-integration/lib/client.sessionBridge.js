@@ -14,7 +14,8 @@ window.__ModuleLoader__.load({
     // Exact target adapter pairs the hello-ack may carry. Mirrors
     // TARGET_RUNTIME_IDENTITIES in lib/adapters/dsh020.js and the adapterId
     // enum in contracts/session-bridge-v1.json — the three must not drift.
-    const TARGET_ADAPTER_IDS = { '0.2.0-rc.1': 'dsh-0.2.0-rc.1', '0.2.0-rc.2': 'dsh-0.2.0-rc.2' };
+    const TARGET_ADAPTER_IDS = { '0.2.0-rc.1': 'dsh-0.2.0-rc.1', '0.2.0-rc.2': 'dsh-0.2.0-rc.2',
+      '0.2.1-rc.1': 'dsh-0.2.1-rc.1', '0.2.1-rc.2': 'dsh-0.2.1-rc.2' };
     const errorCodes = ['INVALID_ARGUMENT', 'UNAUTHENTICATED', 'FORBIDDEN', 'UNSUPPORTED_RUNTIME', 'CAPABILITY_UNAVAILABLE', 'NOT_READY', 'NOT_FOUND', 'CONFLICT', 'STALE_TARGET', 'CANCELLED', 'TIMEOUT', 'TRANSPORT_LOST', 'OUTCOME_UNKNOWN', 'BACKPRESSURE', 'RESYNC_REQUIRED', 'PROTOCOL_MISMATCH', 'INTERNAL'];
     function validTarget(value) {
       const fields = ['surfaceId', 'surfaceEpoch', 'selectionGeneration', 'state'];

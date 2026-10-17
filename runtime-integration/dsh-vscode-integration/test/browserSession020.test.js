@@ -173,7 +173,7 @@ test('missing public observation fails closed', async () => {
   adapter.dispose();
 });
 
-function bridgeFixture() {
+function bridgeFixture(runtimeVersion = '0.2.0-rc.1', adapterId = `dsh-${runtimeVersion}`) {
   const f = fixture();
   const sent = [];
   let receive;
@@ -182,7 +182,7 @@ function bridgeFixture() {
     addEventListener: (_, fn) => { receive = fn; }, removeEventListener() {},
   };
   const bridge = createSessionBridge({ ctx: f.ctx, createBrowserSessionAdapter, window: win,
-    runtimeIdentity: { runtimeVersion: '0.2.0-rc.1', adapterId: 'dsh-0.2.0-rc.1' }, nonce: 'a'.repeat(32) });
+    runtimeIdentity: { runtimeVersion, adapterId }, nonce: 'a'.repeat(32) });
   const emit = (message, overrides = {}) => receive({ source: win.parent, origin: 'null', data: message, ...overrides });
   const hello = { ...base, type: 'hello-init', nonce: 'a'.repeat(32) };
   const request = (requestId, method, params) => ({ ...base, type: 'request', requestId, method, params });
@@ -228,11 +228,22 @@ test('bridge shares same-id capture and cancels retained result before delivery'
 });
 
 for (const runtimeVersion of ['0.2.0-rc.1', '0.2.0-rc.2', '0.2.1-rc.1', '0.2.1-rc.2']) {
+test(`browser chunk emits its exact identity and rejects a mismatched adapter (${runtimeVersion})`, () => {
+  const f = bridgeFixture(runtimeVersion);
+  f.emit(f.hello);
+  const ack = f.sent.find(message => message.type === 'hello-ack');
+  assert.equal(ack.runtimeVersion, runtimeVersion);
+  assert.equal(ack.adapterId, `dsh-${runtimeVersion}`);
+  assert.equal(validateSessionMessage(ack, { direction: 'toHost' }), true);
+  f.bridge.dispose();
+  assert.throws(() => bridgeFixture(runtimeVersion, 'dsh-unknown'), /exact target runtime identity/);
+});
 test(`target entry uses chunks and never touches legacy current/open or the DOM observer (${runtimeVersion})`, async () => {
   const f = fixture();
   const listeners = new Set();
   const cleanups = [];
   const chunks = [];
+  const sent = [];
   let client;
   const win = {
     location: { search: `?dsh_embed=vscode&dsh_runtime=${runtimeVersion}&dsh_bridge_nonce=` + 'a'.repeat(32) },
@@ -243,6 +254,7 @@ test(`target entry uses chunks and never touches legacy current/open or the DOM 
     __ModuleLoader__: { load(entry) { client = entry.factory({ async: async (name) => { chunks.push(name); return loadChunk(name.slice(2)); } }); } },
   };
   win.parent = { postMessage(message) {
+    sent.push(message);
     if (message.type === 'dshWebviewHello') queueMicrotask(() => {
       for (const fn of listeners) fn({ source: win.parent, data: { type: 'dshWebviewReady', channel: message.channel, version: 1 } });
     });
@@ -257,6 +269,9 @@ test(`target entry uses chunks and never touches legacy current/open or the DOM 
     inject: (_, fn) => { const cleanup = fn(f.ctx); return { dispose: cleanup }; } });
   await tick();
   assert.deepEqual(chunks.sort(), ['./client.dsh020.js', './client.sessionBridge.js']);
+  for (const listener of listeners) listener({ source: win.parent, origin: 'null',
+    data: { ...base, type: 'hello-init', nonce: 'a'.repeat(32) } });
+  assert.ok(sent.some(message => message.type === 'hello-ack' && message.runtimeVersion === runtimeVersion), 'loaded browser entry must complete the real chunk handshake');
   for (const cleanup of cleanups) cleanup();
   assert.equal(listeners.size, 0);
 });
