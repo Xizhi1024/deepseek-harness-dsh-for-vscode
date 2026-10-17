@@ -1,3 +1,7 @@
+# Sprint 1 candidate: 1.2.2
+
+This candidate bundles integration 0.11.1 and adds exact adapters for DSH 0.2.1-rc.1 and 0.2.1-rc.2 while retaining 0.2.0-rc.1 / rc.2 and the existing legacy path. Managed target runtimes require an open workspace. The native DSH iframe remains the product surface. Version locks, API diffs and validation boundaries are recorded in [Sprint 1 evidence](evidence/sprint1/README.md). This is a local candidate, not a Marketplace release.
+
 # DeepSeek Harness (DSH) for VS Code
 
 [English](README.md) · [简体中文](README.zh-CN.md)

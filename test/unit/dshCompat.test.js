@@ -16,7 +16,7 @@ test('exact supported lines choose distinct transport contracts', () => {
   assert.deepEqual(deriveRuntimeAdapter('0.1.2-rc.1'), {
     known: true, line: 'session-controller', openPathService: 'sessionController', sessionRoutes: 'compat',
   });
-  for (const value of ['0.2.0-rc.1', '0.2.0-rc.2']) {
+  for (const value of ['0.2.0-rc.1', '0.2.0-rc.2', '0.2.1-rc.1', '0.2.1-rc.2']) {
     assert.deepEqual(deriveRuntimeAdapter(value), {
       known: true, line: `dsh-${value}`, openPathService: 'sessionController', sessionRoutes: 'vscode-facade-v1',
     });

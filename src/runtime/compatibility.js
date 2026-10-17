@@ -2,7 +2,7 @@
 
 const { execFile } = require('node:child_process');
 
-const TARGET_VERSION = '0.2.0-rc.2';
+const TARGET_VERSION = '0.2.1-rc.2';
 const LEGACY_VERSION = '0.1.2-rc.1';
 const NODE_RANGE = '^22.19.0 || >=24.0.0';
 
@@ -18,6 +18,8 @@ const RUNTIME_DESCRIPTORS = Object.freeze({
   '0.1.2-rc.1': Object.freeze({ adapterId: 'legacy-0.1.2-rc.1', line: 'legacy', profileSuffix: '' }),
   '0.2.0-rc.1': Object.freeze({ adapterId: 'dsh-0.2.0-rc.1', line: 'target', profileSuffix: '-dsh020rc1' }),
   '0.2.0-rc.2': Object.freeze({ adapterId: 'dsh-0.2.0-rc.2', line: 'target', profileSuffix: '-dsh020rc2' }),
+  '0.2.1-rc.1': Object.freeze({ adapterId: 'dsh-0.2.1-rc.1', line: 'target', profileSuffix: '-dsh021rc1' }),
+  '0.2.1-rc.2': Object.freeze({ adapterId: 'dsh-0.2.1-rc.2', line: 'target', profileSuffix: '-dsh021rc2' }),
 });
 
 const TARGET_VERSIONS = Object.freeze(Object.entries(RUNTIME_DESCRIPTORS)

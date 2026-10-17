@@ -12,6 +12,8 @@ const available = { state: 'available' };
 const runtimePairs = {
   '0.2.0-rc.1': 'dsh-0.2.0-rc.1',
   '0.2.0-rc.2': 'dsh-0.2.0-rc.2',
+  '0.2.1-rc.1': 'dsh-0.2.1-rc.1',
+  '0.2.1-rc.2': 'dsh-0.2.1-rc.2',
 };
 const ackFor = (version) => ({ ...base, type: 'hello-ack', runtimeVersion: version, adapterId: runtimePairs[version],
   capabilities: { navigation: available, targetObservation: available, insertion: available, theme: available, clipboard: available } });

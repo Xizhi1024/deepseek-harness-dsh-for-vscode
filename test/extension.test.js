@@ -515,6 +515,27 @@ for (const version of [undefined, null, 'unknown', '0.3.0-rc.1']) {
   });
 }
 
+test('managed target in an empty window refuses launch without guessing an execution root', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-empty-window-'));
+  t.after(async () => { await deactivate(); fs.rmSync(root, { recursive: true, force: true }); });
+  const fake = createFakeVscode({ autoStart: true, 'features.changes-review': false, 'features.chat-participant': false });
+  let launches = 0, preparations = 0;
+  await activateWithDependencies({ globalStorageUri: { fsPath: root }, subscriptions: [] }, {
+    vscode: fake.api,
+    async startTextDocumentBridge() { return { env: {}, async close() {} }; },
+    async startVersionedBridge() { return { env: {}, async close() {} }; },
+    createServerManager() { return { cancelPending() {}, hasOwnedChild() { return false; }, async stop() {},
+      setResolvedRuntime() { preparations++; }, setEmbedPatchPath() { preparations++; },
+      async ensureServer() { launches++; throw new Error('Empty window must not launch'); } }; },
+    async ensureManagedRuntime() { return { dshVersion: '0.2.1-rc.2' }; },
+  });
+  const view = { webview: { html: '', onDidReceiveMessage() { return disposable(); } }, onDidDispose() { return disposable(); } };
+  fake.registrations.webview.provider.resolveWebviewView(view);
+  await waitFor(() => view.webview.html.includes('Open a workspace before starting'));
+  assert.equal(launches, 0); assert.equal(preparations, 0);
+  assert.equal(fs.existsSync(path.join(root, '.dsh', 'profiles')), false);
+});
+
 test('failed target selection preserves legacy ownership for stop and deactivate', async () => {
   for (const action of ['stop', 'deactivate']) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-legacy-selection-'));
@@ -547,6 +568,7 @@ test('failed target selection preserves legacy ownership for stop and deactivate
       fake.registrations.webview.provider.resolveWebviewView(view);
       await waitFor(() => view.webview.html.includes('<iframe'));
       selectedVersion = '0.2.0-rc.1';
+      fake.api.workspace.workspaceFolders = [{ uri: { fsPath: root }, name: 'workspace', index: 0 }];
       receive({ type: 'retry' });
       await waitFor(() => view.webview.html.includes('owned by another runtime lifecycle'));
       assert.equal(stopCalls, 0, 'failed target acquisition leaves the legacy child running');
@@ -757,7 +779,8 @@ test('unverified external runtime stays browser-only and session commands perfor
   assert.ok(fake.errorMessages.every((message) => message.includes('verified integration handshake')));
 });
 
-for (const [targetVersion, targetAdapterId] of [['0.2.0-rc.1', 'dsh-0.2.0-rc.1'], ['0.2.0-rc.2', 'dsh-0.2.0-rc.2']]) {
+for (const [targetVersion, targetAdapterId] of [['0.2.0-rc.1', 'dsh-0.2.0-rc.1'], ['0.2.0-rc.2', 'dsh-0.2.0-rc.2'],
+  ['0.2.1-rc.1', 'dsh-0.2.1-rc.1'], ['0.2.1-rc.2', 'dsh-0.2.1-rc.2']]) {
 test(`repeated target connection preserves the existing iframe and surface epoch (${targetVersion})`, async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-target-reconnect-'));
   t.after(async () => { await deactivate(); fs.rmSync(root, { recursive: true, force: true }); });

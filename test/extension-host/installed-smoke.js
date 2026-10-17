@@ -33,9 +33,14 @@ async function main(profileFile = process.argv[2] || process.env.DSH_INSTALLED_A
   const profile = JSON.parse(fs.readFileSync(profileFile, 'utf8'));
   for (const key of ['isolationRoot', 'vsixPath', 'vscodeExecutablePath', 'expectedVSCodeVersion']) assert.ok(profile[key], `Missing acceptance profile ${key}`);
   for (const key of ['isolationRoot', 'vsixPath', 'vscodeExecutablePath']) assert.ok(path.isAbsolute(profile[key]), `${key} must be absolute`);
+  const runtimeVersion = profile.runtimeVersion || '0.2.0-rc.1';
+  if (profile.runtimePackageRoot) {
+    assert.equal(JSON.parse(fs.readFileSync(path.join(profile.runtimePackageRoot, 'package.json'), 'utf8')).version, runtimeVersion, 'Selected runtime package version mismatch');
+    assert.ok(require('../../src/runtime/compatibility').isTargetRuntimeVersion(runtimeVersion), 'Explicit supported target required');
+  }
   const code = codePaths(profile.vscodeExecutablePath);
   assert.equal(code.version, profile.expectedVSCodeVersion, 'VS Code executable version mismatch');
-  const expected = candidateManifest(profile.vsixPath, profile.expectedExtensionVersion || '1.2.1', profile.expectedIntegrationVersion || '0.11.0');
+  const expected = candidateManifest(profile.vsixPath, profile.expectedExtensionVersion || '1.2.2', profile.expectedIntegrationVersion || '0.11.1');
   if (profile.expectedVsixSha256) assert.equal(expected.vsixSha256, profile.expectedVsixSha256, 'Candidate VSIX changed');
   fs.mkdirSync(profile.isolationRoot, { recursive: true });
   const runRoot = fs.mkdtempSync(path.join(profile.isolationRoot, `installed-${code.version}-`));
@@ -50,11 +55,11 @@ async function main(profileFile = process.argv[2] || process.env.DSH_INSTALLED_A
   let runtimeUi;
   if (profile.runtimePackageRoot) {
     assert.ok(path.isAbsolute(profile.runtimePackageRoot) && path.isAbsolute(profile.playwrightModulePath), 'UI acceptance needs explicit absolute runtime and Playwright package paths');
-    runtimeUi = { readyPath: path.join(runRoot, 'ui-ready'), continuePath: path.join(runRoot, 'ui-continue'), seededPath: path.join(runRoot, 'ui-seeded'), releasePath: path.join(runRoot, 'ui-release'), port: await freePort() };
+    runtimeUi = { readyPath: path.join(runRoot, 'ui-ready'), continuePath: path.join(runRoot, 'ui-continue'), seededPath: path.join(runRoot, 'ui-seeded'), releasePath: path.join(runRoot, 'ui-release'), port: await freePort(), runtimeVersion, scope: profile.uiScope || 'full' };
     const userSettings = path.join(userDataDir, 'User'); fs.mkdirSync(userSettings, { recursive: true });
     fs.writeFileSync(path.join(userSettings, 'settings.json'), JSON.stringify({
       'dsh.autoStart': false, 'dsh.local.packageRoot': profile.runtimePackageRoot, 'dsh.local.nodePath': process.execPath,
-      'dsh.runtime.version': '0.2.0-rc.1', 'dsh.profile': 'installed-acceptance', 'dsh.home.mode': 'isolated',
+      'dsh.runtime.version': runtimeVersion, 'dsh.profile': 'installed-acceptance', 'dsh.home.mode': 'isolated',
       'dsh.host': '127.0.0.1', 'dsh.port': await freePort(),
       'dsh.features.exports': true,
       'dsh.features.ctrl-i': true, 'dsh.features.ctrl-k': true,
@@ -88,13 +93,16 @@ async function main(profileFile = process.argv[2] || process.env.DSH_INSTALLED_A
   if (runtimeUi) {
     const { ensureProfileScaffold, deriveRuntimeProfileName } = require(path.join(installed[0], 'src/profileScaffold'));
     const dshHome = path.join(safeEnvironment.DSH_VSCODE_STORAGE_ROOT, '.dsh');
-    const profileName = deriveRuntimeProfileName('installed-acceptance', '0.2.0-rc.1');
+    const profileName = deriveRuntimeProfileName('installed-acceptance', runtimeVersion);
     ensureProfileScaffold({ dshHome, profileName, donorProfileName: '' });
     const fixtureRoot = path.join(dshHome, 'profiles', profileName, 'node_modules', 'vscode-contract-provider');
     fs.mkdirSync(fixtureRoot, { recursive: true });
     fs.copyFileSync(path.resolve(__dirname, '../../scripts/fixtures/dsh020rc1-provider.mjs'), path.join(fixtureRoot, 'index.mjs'));
     fs.writeFileSync(path.join(fixtureRoot, 'package.json'), JSON.stringify({ name: 'vscode-contract-provider', version: '1.0.0', type: 'module', main: 'index.mjs' }));
-    const llmModule = pathToFileURL(path.join(path.dirname(profile.runtimePackageRoot), 'dsh-llm/lib/index.js')).href;
+    const llmFile = [path.join(path.dirname(profile.runtimePackageRoot), 'dsh-llm/lib/index.js'),
+      path.join(profile.runtimePackageRoot, 'node_modules/@deepseek-ai/dsh-llm/lib/index.js')].find(file => fs.existsSync(file));
+    assert.ok(llmFile, 'Selected runtime LlmAdapter must exist');
+    const llmModule = pathToFileURL(llmFile).href;
     fs.writeFileSync(path.join(dshHome, 'profiles', profileName, 'cordis.patch.yml'), [
       '- id: agent-default-model', '  config:', '    provider: vscode-contract-probe', '    model: deterministic',
       '- id: session-title-llm', '  disabled: true', '- insert:', '    - id: vscode-contract-provider',

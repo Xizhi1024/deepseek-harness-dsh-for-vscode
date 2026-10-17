@@ -11,6 +11,8 @@ import { installCompatSessionRoutes, installCompatWorkspaceRoutes } from './comp
 import { installRuntimeFacade } from './runtimeFacade.js';
 import { createDsh020rc1Adapter } from './adapters/dsh020rc1.js';
 import { createDsh020rc2Adapter } from './adapters/dsh020rc2.js';
+import { createDsh021rc1Adapter } from './adapters/dsh021rc1.js';
+import { createDsh021rc2Adapter } from './adapters/dsh021rc2.js';
 
 // Explicit selection table: one adapter factory per exact target version,
 // mirroring TARGET_RUNTIME_IDENTITIES in adapters/dsh020.js and the adapterId
@@ -18,6 +20,8 @@ import { createDsh020rc2Adapter } from './adapters/dsh020rc2.js';
 const TARGET_ADAPTER_FACTORIES = Object.freeze({
   '0.2.0-rc.1': createDsh020rc1Adapter,
   '0.2.0-rc.2': createDsh020rc2Adapter,
+  '0.2.1-rc.1': createDsh021rc1Adapter,
+  '0.2.1-rc.2': createDsh021rc2Adapter,
 });
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));

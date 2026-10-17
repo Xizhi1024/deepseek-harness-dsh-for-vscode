@@ -1182,6 +1182,9 @@ async function connectAttempt(context) {
         const effectiveProfile = deriveRuntimeProfileName(cfg.profile, resolvedRuntime.dshVersion);
         resolvedRuntime = bindRuntimeHome(resolvedRuntime, activeDshHome, effectiveProfile);
         const selectingTarget = descriptor.line === 'target';
+        if (selectingTarget && !cwd) {
+          throw createPortError('NOT_READY', 'Open a workspace before starting the managed DSH runtime');
+        }
         const adapter = deriveRuntimeAdapter(resolvedRuntime.dshVersion);
         appendDiagnostic(
           `[runtime] DSH ${resolvedRuntime.dshVersion || 'unknown'}; adapter=${adapter.line}; `

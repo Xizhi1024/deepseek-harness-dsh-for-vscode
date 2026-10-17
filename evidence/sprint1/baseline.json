@@ -1,0 +1,40 @@
+{
+  "sourceCommit": "f6d568ae35fb89b02b3a5399e18751991c73b2b3",
+  "originalBranch": "adapt/dsh-0.2.0-rc.2",
+  "originalWorktreeStatus": [
+    "M PLAN-FULL-IDE-EXPERIENCE.md",
+    " M PLAN-VSCODE-PROFILE-PLUGIN-CONTRACTS.md",
+    " M codemap.md",
+    "?? planning/2026-10-03-unified-ide/"
+  ],
+  "preservedWipHashes": {
+    "PLAN-FULL-IDE-EXPERIENCE.md": "e6d59431caa6c9e5aed092290b58937067371be282f1d4296873b2f1013d77c7",
+    "PLAN-VSCODE-PROFILE-PLUGIN-CONTRACTS.md": "d20fa37c8da9051f33ec3fcc1218fd644e7afc4104ef641c766cbb0464ac408d",
+    "codemap.md": "0955d3c9005a07de58d212e78ded71323da4a909a43c58aaaa1357ef9917c3cb"
+  },
+  "implementationBranch": "sprint1/native-four-runtime",
+  "worktree": "D:\\Coding\\DSH\\worktrees\\dsh-vscode-s1",
+  "extensionBaseline": "1.2.1",
+  "integrationBaseline": "0.11.0",
+  "baselineChecks": {
+    "hostPass": 884,
+    "hostSkipped": 1,
+    "hostFail": 0,
+    "package": "PASS",
+    "secrets": "PASS"
+  },
+  "communitySkills": [
+    {
+      "repo": "https://github.com/oh-my-dsh/dsh-plugin-upgrade-skill",
+      "sha": "ef075767b476e8000c716a18f848028eebcd5aef",
+      "path": "skills/plugin-upgrade/SKILL.md",
+      "corridor": "Unsupported after 0.2.0-rc.1; method and explicit planner gap only."
+    },
+    {
+      "repo": "https://github.com/william-jin-cmu/dsh-plugin-upgrade",
+      "sha": "9ea56c1340080dcec7e18934c18ddd33c39e814b",
+      "path": "SKILL.md",
+      "diff": "scripts/diff-api.sh; scripts/diff-runtime-api.js is the Windows equivalent with complete declaration/manifest differences."
+    }
+  ]
+}

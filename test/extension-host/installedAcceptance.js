@@ -51,7 +51,7 @@ function readVsix(file) {
   return { entries, sha256: sha256(bytes) };
 }
 
-function candidateManifest(vsixPath, extensionVersion = '1.2.1', integrationVersion = '0.11.0') {
+function candidateManifest(vsixPath, extensionVersion = '1.2.2', integrationVersion = '0.11.1') {
   const archive = readVsix(vsixPath);
   const manifest = JSON.parse(archive.entries.get('extension/package.json'));
   const integration = JSON.parse(archive.entries.get('extension/runtime-integration/dsh-vscode-integration/package.json'));
@@ -64,7 +64,7 @@ function candidateManifest(vsixPath, extensionVersion = '1.2.1', integrationVers
     const relative = name.slice('extension/'.length);
     if (relative !== 'package.json') files[relative] = sha256(data);
   }
-  for (const required of ['src/extension.js', 'src/session/browserProxy.js', 'runtime-integration/dsh-vscode-integration/lib/client.dsh020rc1.js',
+  for (const required of ['src/extension.js', 'src/session/browserProxy.js', 'runtime-integration/dsh-vscode-integration/lib/client.dsh020.js',
     'runtime-integration/dsh-vscode-integration/lib/client.sessionBridge.js', 'runtime-integration/dsh-vscode-integration/contracts/session-bridge-v1.json']) assert.ok(files[required], `Candidate omitted ${required}`);
   return { extensionId: manifest.publisher + '.' + manifest.name, extensionVersion, integrationVersion, vsixSha256: archive.sha256, manifest, files };
 }

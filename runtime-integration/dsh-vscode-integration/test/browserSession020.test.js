@@ -227,7 +227,7 @@ test('bridge shares same-id capture and cancels retained result before delivery'
   g.bridge.dispose();
 });
 
-for (const runtimeVersion of ['0.2.0-rc.1', '0.2.0-rc.2']) {
+for (const runtimeVersion of ['0.2.0-rc.1', '0.2.0-rc.2', '0.2.1-rc.1', '0.2.1-rc.2']) {
 test(`target entry uses chunks and never touches legacy current/open or the DOM observer (${runtimeVersion})`, async () => {
   const f = fixture();
   const listeners = new Set();

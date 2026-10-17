@@ -22,8 +22,9 @@ window.__ModuleLoader__.load({
 
     // Exact target-line versions the loader understands. Mirrors the
     // adapterId pairs in lib/adapters/dsh020.js and contracts/runtime-v1.json.
-    const TARGET_RUNTIME_VERSIONS = ['0.2.0-rc.1', '0.2.0-rc.2'];
-    const TARGET_ADAPTER_IDS = { '0.2.0-rc.1': 'dsh-0.2.0-rc.1', '0.2.0-rc.2': 'dsh-0.2.0-rc.2' };
+    const TARGET_RUNTIME_VERSIONS = ['0.2.0-rc.1', '0.2.0-rc.2', '0.2.1-rc.1', '0.2.1-rc.2'];
+    const TARGET_ADAPTER_IDS = { '0.2.0-rc.1': 'dsh-0.2.0-rc.1', '0.2.0-rc.2': 'dsh-0.2.0-rc.2',
+      '0.2.1-rc.1': 'dsh-0.2.1-rc.1', '0.2.1-rc.2': 'dsh-0.2.1-rc.2' };
     const runtimeVersion = () => new URLSearchParams(window.location.search).get('dsh_runtime');
     const targetRuntime = () => TARGET_RUNTIME_VERSIONS.includes(runtimeVersion());
 

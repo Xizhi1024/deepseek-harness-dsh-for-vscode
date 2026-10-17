@@ -1,0 +1,410 @@
+diff --git "a/D:\\Coding\\.codex-staging\\dsh-020rc1-runtime\\node_modules\\@deepseek-ai\\dsh-client-ui-workspace\\lib\\types\\client\\shortcuts.d.ts" "b/C:\\Users\\MSI\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\node_modules\\@deepseek-ai\\dsh-client-ui-workspace\\lib\\types\\client\\shortcuts.d.ts"
+index e296a77..5e6a2b8 100644
+--- "a/D:\\Coding\\.codex-staging\\dsh-020rc1-runtime\\node_modules\\@deepseek-ai\\dsh-client-ui-workspace\\lib\\types\\client\\shortcuts.d.ts"
++++ "b/C:\\Users\\MSI\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\node_modules\\@deepseek-ai\\dsh-client-ui-workspace\\lib\\types\\client\\shortcuts.d.ts"
+@@ -35,6 +35,7 @@ interface WorkspaceShortcutControls {
+ export declare function createWorkspaceShortcutControls(): WorkspaceShortcutControls;
+ /**
+  * Register navigation commands against the existing workspace owner.
++ * Rename requires a nonblank main Conversation with no modal obscuring it.
+  * @param ctx - plugin context with the shortcut, locale, and model services.
+  * @param navigation - session creation and forking from the pointer controls' navigation service.
+  * @param controls - browser-owned opening requests.
+diff --git "a/D:\\Coding\\.codex-staging\\dsh-020rc1-runtime\\node_modules\\@deepseek-ai\\dsh-client-ui-conversation\\lib\\types\\client\\locales.d.ts" "b/C:\\Users\\MSI\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\node_modules\\@deepseek-ai\\dsh-client-ui-conversation\\lib\\types\\client\\locales.d.ts"
+index 48e39d5..120a1e4 100644
+--- "a/D:\\Coding\\.codex-staging\\dsh-020rc1-runtime\\node_modules\\@deepseek-ai\\dsh-client-ui-conversation\\lib\\types\\client\\locales.d.ts"
++++ "b/C:\\Users\\MSI\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\node_modules\\@deepseek-ai\\dsh-client-ui-conversation\\lib\\types\\client\\locales.d.ts"
+@@ -283,6 +283,12 @@ export declare const zh: {
+     'command.attachmentsUnsupported': string;
+     'ask.rowTitle': string;
+     'ask.waiting': string;
++    'ask.pending': string;
++    'ask.pendingDetail': string;
++    'ask.reopen': string;
++    'ask.review': string;
++    'ask.closed': string;
++    'ask.closedDetail': string;
+     'ask.cancelled': string;
+     'ask.cancelledDetail': string;
+     'ask.interrupted': string;
+@@ -651,6 +657,12 @@ export declare const en: {
+     'command.attachmentsUnsupported': string;
+     'ask.rowTitle': string;
+     'ask.waiting': string;
++    'ask.pending': string;
++    'ask.pendingDetail': string;
++    'ask.reopen': string;
++    'ask.review': string;
++    'ask.closed': string;
++    'ask.closedDetail': string;
+     'ask.cancelled': string;
+     'ask.cancelledDetail': string;
+     'ask.interrupted': string;
+diff --git "a/D:\\Coding\\.codex-staging\\dsh-020rc1-runtime\\node_modules\\@deepseek-ai\\dsh-client-ui-sidebar-right\\lib\\types\\client\\index.d.ts" "b/C:\\Users\\MSI\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\node_modules\\@deepseek-ai\\dsh-client-ui-sidebar-right\\lib\\types\\client\\index.d.ts"
+index 522963d..0d64ad8 100644
+--- "a/D:\\Coding\\.codex-staging\\dsh-020rc1-runtime\\node_modules\\@deepseek-ai\\dsh-client-ui-sidebar-right\\lib\\types\\client\\index.d.ts"
++++ "b/C:\\Users\\MSI\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\node_modules\\@deepseek-ai\\dsh-client-ui-sidebar-right\\lib\\types\\client\\index.d.ts"
+@@ -6,7 +6,7 @@ export type { RightbarSeatProps, SidebarRightInjected, SidebarRightPresentation
+ export type { GuideBodyProps, GuideInjected } from './tabs/guide/GuideBody.tsx';
+ export type { ExpandButtonProps } from './shell/ExpandButton.tsx';
+ export type { SidebarRightState, SurfaceState } from './stores.ts';
+-export type { ISidebarRight, SidebarRightBinding, SidebarRightOpenResourceOptions, SidebarRightOpenTabOptions, SidebarRightPlacement, SidebarRightCloseHandler, SurfaceActions, } from './service.ts';
++export type { ISidebarRight, SidebarRightOpenResourceOptions, SidebarRightOpenTabOptions, SidebarRightPlacement, SidebarRightCloseHandler, SurfaceActions, } from './service.ts';
+ export type { SidebarRightGuideBox, SidebarRightGuideEntry, SidebarRightTabClaim, SidebarRightTabDefinition, SidebarRightTabPriority, } from './tab-registry.ts';
+ export type { SidebarRightTabInfo, SidebarRightTabInjected, UseSidebarRightTabInfo, SidebarRightTabActions, SidebarRightTabMenuOwnerProps, SidebarRightTabNavigation, SidebarRightTabPlacement, SidebarRightGuideEntryOwnerProps, } from './contract/slots.ts';
+ export type { SidebarRightNavigationParams, SidebarRightResourceParams, SidebarRightResourceParamsMap, SidebarRightTabParams, SidebarRightTabParamsFor, SidebarRightTabParamsMap, } from './contract/params.ts';
+diff --git "a/D:\\Coding\\.codex-staging\\dsh-020rc1-runtime\\node_modules\\@deepseek-ai\\dsh-client-ui-sidebar-right\\lib\\types\\client\\service.d.ts" "b/C:\\Users\\MSI\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\node_modules\\@deepseek-ai\\dsh-client-ui-sidebar-right\\lib\\types\\client\\service.d.ts"
+index 255322f..cbb1b76 100644
+--- "a/D:\\Coding\\.codex-staging\\dsh-020rc1-runtime\\node_modules\\@deepseek-ai\\dsh-client-ui-sidebar-right\\lib\\types\\client\\service.d.ts"
++++ "b/C:\\Users\\MSI\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\node_modules\\@deepseek-ai\\dsh-client-ui-sidebar-right\\lib\\types\\client\\service.d.ts"
+@@ -3,19 +3,22 @@
+  *
+  * The surface is per session and its state lives in that session's store
+  * instance, which the slot runtime mints per session and a root service cannot
+- * reach on its own. Two paths lead in. The mounted seat publishes its binding —
+- * session id, bound actions, its surface — for exactly as long as it is mounted,
+- * and every command on the public face goes through that binding; a command
+- * arriving with no seat mounted has no session to act on and fails loudly rather
+- * than writing into a surface nobody is drawing. `mounted` publishes that
+- * binding's session as an observable, so a consumer that wants to open content
+- * as soon as a seat is on screen subscribes to it instead of assuming one is
+- * bound when its own effect runs. And the plugin adopts each
+- * session's store instance as the runtime mints it, so the controller reaches
+- * any session's store by id and syncs the Tab domain from that store's commits.
++ * reach on its own. The plugin adopts each session's store instance as the
++ * runtime mints it, so the controller reaches any session's store by id and
++ * syncs the Tab domain from that store's commits, on screen or not.
++ *
++ * The plugin also names the Session on screen — the selected Session while the
++ * Conversation fills the main column — from the selection and the main panel,
++ * before React renders either change, and publishes it as `mounted`. Every
++ * command on the public face acts on that Session through its adopted store; a
++ * command with no Session on screen, or with one whose store the runtime has not
++ * minted, has nothing to act on and fails loudly rather than writing into a
++ * surface nobody is drawing. The seats never publish which Session they draw:
++ * they report only what they render with, the room their docking kit measured
++ * and the automatic fullscreen rule of their frame width.
+  *
+  * A tab's own actions (`tabActions`) aim at the session the tab is in, not at
+- * the mounted one: they run through that session's adopted store, so a callback
++ * the on-screen one: they run through that session's adopted store, so a callback
+  * fired after the user switched sessions still lands where its tab is, and they
+  * do nothing for a session whose store was never minted.
+  *
+@@ -27,8 +30,8 @@
+  * hand the store one settled intent and record the navigation in the Tab
+  * domain. Placement is the caller's option, never a type's property.
+  *
+- * The registration adopts Session stores and injects the mounted seat binding;
+- * callers use the service's navigation methods.
++ * The registration adopts Session stores, names the on-screen Session, and
++ * forwards the seats' reports; callers use the service's navigation methods.
+  */
+ import { type SidebarRightTarget } from './focus.ts';
+ import { type ObservableSnapshot } from '@deepseek-ai/dsh-client-store';
+@@ -37,7 +40,7 @@ import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots';
+ import type { SessionId } from '@deepseek-ai/dsh-session/types';
+ import type { SidebarRightResourceParams, SidebarRightTabParamsFor } from './contract/params.ts';
+ import type { SidebarRightTabRegistry } from './tab-registry.ts';
+-import { type SidebarRightState, type SurfaceState } from './stores.ts';
++import { type SidebarRightState } from './stores.ts';
+ import type { createSidebarRightStore } from './stores.ts';
+ import { TabDomain, type PinResource } from './tab-domain.ts';
+ import { SidebarTabInventory } from './tab-inventory.ts';
+@@ -54,41 +57,54 @@ interface Adoption {
+     readonly store: SidebarRightSurfaceStore;
+     readonly unsubscribe: () => void;
+ }
++/** The room rule's verdict for a docked pane, as a seat's docking kit last measured it: whether two working halves would fit. */
++type RoomRule = (paneId: PaneId) => boolean;
++/** Plugin-owned Session state the controller reads; the plugin writes it through the factory's callbacks. */
++interface SidebarRightSessions {
++    /** Each Session's latest adopted store. */
++    readonly adopted: ReadonlyMap<SessionId, Adoption>;
++    /** Each Session's room rule as its seat last reported it; a Session without one has room in every pane. */
++    readonly rooms: ReadonlyMap<SessionId, RoomRule>;
++    /** The Session the plugin names as on screen. */
++    readonly onScreen: ObservableSnapshot<SessionId | undefined>;
++    /** Open tab metadata across saved and adopted Sessions. */
++    readonly openTabs: SidebarTabInventory['source'];
++}
+ /**
+- * Create the public controller and the plugin-private store adoption callback.
++ * Create the public controller and the plugin-private Session callbacks.
+  * Adoption reconciles restored records before any seat renders, then follows commits.
+  * @param tabs - registered tab types.
+  * @param pin - resource retention for an occurrence's lifetime.
+- * @returns the controller and plugin-owned adoption and scope-removal callbacks.
++ * @param host - the viewport rule and focus continuity the commands use.
++ * @returns the controller; store adoption and scope removal; naming the on-screen Session; and recording a seat's room rule.
+  */
+-export declare function createSidebarRightController(tabs: SidebarRightTabRegistry, pin: PinResource): {
++export declare function createSidebarRightController(tabs: SidebarRightTabRegistry, pin: PinResource, host: SidebarRightHost): {
+     controller: SidebarRightController;
+     adopt: (sessionId: SessionId, store: SidebarRightSurfaceStore) => () => void;
+     forget: (sessionId: SessionId) => void;
++    show: (sessionId: SessionId | undefined) => void;
++    measure: (sessionId: SessionId, canSplitPane: RoomRule) => void;
+ };
+-/** Everything a command needs, as the mounted seat sees it. */
+-export interface SidebarRightBinding {
+-    /** The session the mounted seat is drawing. */
+-    readonly sessionId: SessionId;
+-    /** The seat's store's bound actions; every action names the session it acts on. */
+-    readonly actions: SurfaceActions;
++/** What the controller needs from the page around it: the viewport rule and focus continuity. */
++export interface SidebarRightHost {
+     /**
+-     * The seat's store surfaces as last committed, keyed by session id; the
+-     * mounted session's is `surfaces[sessionId]`, absent before the seat's first
+-     * open. The runtime mints one store per session, so this holds that session.
++     * Whether the viewport is narrow enough that an expanded panel is presented fullscreen.
++     * @returns the rule's verdict for the frame width the seats last rendered at.
+      */
+-    readonly surfaces: Readonly<Record<string, SurfaceState>>;
++    readonly autoFullscreen: () => boolean;
+     /**
+-     * The room rule's verdict for a docked pane, as the kit last measured it:
+-     * whether two working halves would fit. Unmeasured panes fit.
++     * Commit a page operation and focus the pane it selects.
++     * @param sessionId - the Session whose page is opening.
++     * @param open - the synchronous operation; returns the selected pane, or `undefined` when unchanged.
+      */
+-    readonly canSplitPane: (paneId: PaneId) => boolean;
+-    /** Commit a keyboard/menu close and retain focus on a surviving visible pane. */
+-    readonly closeWithFocus: (paneId: PaneId, close: () => void) => void;
+-    /** Commit a page operation and focus the pane it selects. */
+-    readonly openWithFocus: (open: () => PaneId | undefined) => void;
+-    /** Narrow viewports present an expanded panel fullscreen. */
+-    readonly autoFullscreen?: boolean;
++    readonly openWithFocus: (sessionId: SessionId, open: () => PaneId | undefined) => void;
++    /**
++     * Commit a keyboard/menu close and retain focus on a surviving visible pane.
++     * @param sessionId - the Session whose page is closing.
++     * @param paneId - the pane whose page is closing.
++     * @param close - the synchronous cleanup and removal.
++     */
++    readonly closeWithFocus: (sessionId: SessionId, paneId: PaneId, close: () => void) => void;
+ }
+ /** Where an open lands; every field is optional and the defaults are the common case. */
+ export interface SidebarRightPlacement {
+@@ -121,12 +137,13 @@ export type SidebarRightCloseHandler = (sessionId: SessionId, tab: TabRecord) =>
+ /** The outward right-Sidebar face (`ctx.sidebarRight`). */
+ export interface ISidebarRight {
+     /**
+-     * The session whose seat is mounted, or `undefined` while no seat is on
+-     * screen (a global panel is active, or no session is selected). Moves when a
+-     * seat binds or releases, so a component that opens content from its own
+-     * mount effect reads it through a bound hook and acts once it is defined:
+-     * the frame mounts the Conversation column ahead of the seat, and the seat
+-     * publishes its binding from a passive effect of the same commit.
++     * The Session on screen, or `undefined` while none is (a global panel fills
++     * the main column, or no Session is selected). It changes before React
++     * renders the selection or panel change that causes it, so every component
++     * rendered in that commit reads the arriving Session, and the commands act on
++     * it from that commit's effects: its seat mints its store in the same render.
++     * Moves only when the on-screen Session changes; the Session's own store
++     * commits are silent.
+      */
+     readonly mounted: ObservableSnapshot<SessionId | undefined>;
+     /**
+@@ -150,13 +167,13 @@ export interface ISidebarRight {
+      */
+     openTab<K extends string>(kind: K, options?: SidebarRightOpenTabOptions<K>): void;
+     /**
+-     * Close one tab of the mounted session; the sole docked guide remains open.
++     * Close one tab of the on-screen Session; the sole docked guide remains open.
+      * @param tabId - the tab to close.
+      */
+     close(tabId: TabId): void;
+     /**
+      * The active tab of the active pane.
+-     * @returns the record, or `undefined` when no seat is mounted.
++     * @returns the record, or `undefined` with no Session on screen.
+      */
+     active(): TabRecord | undefined;
+     /**
+@@ -195,13 +212,13 @@ export interface ISidebarRight {
+ /** Cross-plugin right-Sidebar face (ctx.sidebarRight). */
+ export declare class SidebarRightController implements ISidebarRight {
+     private readonly tabs;
+-    private readonly adopted;
++    private readonly host;
+     /** Open tab metadata across saved and adopted Sessions, independent of visible seats. */
+     readonly openTabs: SidebarTabInventory['source'];
+-    private readonly mountedSession;
+-    /** The mounted seat's session; see {@link ISidebarRight.mounted}. */
++    /** The on-screen Session; see {@link ISidebarRight.mounted}. */
+     readonly mounted: ObservableSnapshot<SessionId | undefined>;
+-    private binding;
++    private readonly adopted;
++    private readonly rooms;
+     private readonly closeHandlers;
+     /**
+      * Register resource cleanup before explicit removal. Failure preserves the tab.
+@@ -218,26 +235,16 @@ export declare class SidebarRightController implements ISidebarRight {
+     /**
+      * @param tabs - the tab-type registry consulted to claim an address.
+      * @param pin - `ctx.resources.pin`, which the Tab domain holds addresses with.
+-     * @param adopted - plugin-owned session stores used by occurrence actions.
+-     * @param openTabs - plugin-owned metadata source across saved and adopted layouts.
++     * @param host - the viewport rule and focus continuity the commands use.
++     * @param sessions - plugin-owned adopted stores, room rules, on-screen Session, and open tab metadata.
+      */
+-    constructor(tabs: SidebarRightTabRegistry, pin: PinResource, adopted?: Map<SessionId, Adoption>, openTabs?: SidebarTabInventory['source']);
++    constructor(tabs: SidebarRightTabRegistry, pin: PinResource, host: SidebarRightHost, sessions: SidebarRightSessions);
+     /**
+      * Read the committed tabs of a Session so providers can restore their content.
+      * @param sessionId - Session whose layout has been adopted.
+      * @returns its open records, or an empty list before adoption.
+      */
+     tabsIn(sessionId: SessionId): readonly TabRecord[];
+-    /**
+-     * Adopt the mounted seat's binding, replacing any previous one.
+-     *
+-     * Called from the seat while it is mounted, and released when it leaves.
+-     * @param binding - the mounted seat's session, actions, and the store's surfaces.
+-     * @returns a release callback that clears exactly this binding.
+-     */
+-    bind(binding: SidebarRightBinding): () => void;
+-    /** Publish the mounted session only when it changes; a republished binding for the same session is silent. */
+-    private publishMounted;
+     /**
+      * Open a resource: claim it, place it, reveal the column, record the navigation.
+      * @param address - a `dsh-resource://<type>/…` address.
+@@ -284,18 +291,18 @@ export declare class SidebarRightController implements ISidebarRight {
+     /** The steps both opens share: one store intent, and the navigation record for the tab it settles on. */
+     private place;
+     /**
+-     * Close one tab of the mounted session; the sole docked guide remains open.
++     * Close one tab of the on-screen Session; the sole docked guide remains open.
+      * @param tabId - the tab to close.
+      */
+     close(tabId: TabId): void;
+     /**
+      * The active tab of the active pane.
+-     * @returns the record, or `undefined` with no mounted surface.
++     * @returns the record, or `undefined` without an on-screen surface.
+      */
+     active(): TabRecord | undefined;
+     /**
+      * Whether the column is currently showing its panel.
+-     * @returns `true` while expanded; `false` while collapsed or with no mounted surface.
++     * @returns `true` while expanded; `false` while collapsed or without an on-screen surface.
+      */
+     isExpanded(): boolean;
+     /** Collapse the column, or expand it and focus its active dock pane after rendering. */
+@@ -312,9 +319,9 @@ export declare class SidebarRightController implements ISidebarRight {
+      */
+     focusedTarget(element?: Element | null): SidebarRightTarget | undefined;
+     /**
+-     * Choose a focused sidebar pane, or the mounted Session's active dock pane for an outside open.
++     * Choose a focused sidebar pane, or the on-screen Session's active dock pane for an outside open.
+      * @param element - live command input target; stale sidebar markup never falls back to another pane.
+-     * @returns captured target, or undefined without a mounted Session.
++     * @returns captured target, or undefined without an on-screen surface.
+      */
+     commandTarget(element?: Element | null): SidebarRightTarget | undefined;
+     /**
+@@ -339,7 +346,7 @@ export declare class SidebarRightController implements ISidebarRight {
+     /**
+      * Check a captured target before acting, including reopened records and intervening navigation.
+      * @param target - identity captured while resolving the input.
+-     * @returns whether the mounted Session, pane, tab lifetime and navigation still match.
++     * @returns whether the on-screen Session, pane, tab lifetime and navigation still match.
+      */
+     isTargetCurrent(target: SidebarRightTarget): boolean;
+     /**
+@@ -371,20 +378,27 @@ export declare class SidebarRightController implements ISidebarRight {
+      */
+     dock(paneId: PaneId): void;
+     /**
+-     * Step the mounted session's surface back one intent.
++     * Step the on-screen Session's surface back one intent.
+      *
+      * @internal Not part of the product: the sequence is an architectural fact
+      * with no user-facing control yet. Kept reachable for tests.
+      */
+     _undo(): void;
+     /**
+-     * Step the mounted session's surface forward one intent.
++     * Step the on-screen Session's surface forward one intent.
+      *
+      * @internal See `_undo`.
+      */
+     _redo(): void;
+-    /** The mounted session's surface; `undefined` without a seat or before its first open. */
++    /**
++     * The on-screen Session and its committed surface; `undefined` with no Session
++     * on screen, before the runtime mints its store, or before its first open.
++     */
++    private screen;
++    /** The on-screen Session's surface; see {@link SidebarRightController.screen}. */
+     private mountedSurface;
++    /** Whether a Session's docked pane has room for two working halves, as its seat last measured; unmeasured panes do. */
++    private canSplitPane;
+     /**
+      * The store actions a tab's own action on `sessionId` runs through: that
+      * session's adopted store. `undefined` — nothing to act on — for a session
+diff --git "a/D:\\Coding\\.codex-staging\\dsh-020rc1-runtime\\node_modules\\@deepseek-ai\\dsh-client-ui-sidebar-right\\lib\\types\\client\\shell\\SidebarRight.d.ts" "b/C:\\Users\\MSI\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\node_modules\\@deepseek-ai\\dsh-client-ui-sidebar-right\\lib\\types\\client\\shell\\SidebarRight.d.ts"
+index d1f7429..9279a2d 100644
+--- "a/D:\\Coding\\.codex-staging\\dsh-020rc1-runtime\\node_modules\\@deepseek-ai\\dsh-client-ui-sidebar-right\\lib\\types\\client\\shell\\SidebarRight.d.ts"
++++ "b/C:\\Users\\MSI\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\node_modules\\@deepseek-ai\\dsh-client-ui-sidebar-right\\lib\\types\\client\\shell\\SidebarRight.d.ts"
+@@ -33,27 +33,21 @@ export interface SidebarRightInjected {
+      */
+     readonly syncPresentation: (presentation: SidebarRightPresentation) => void;
+     /**
+-     * Publish this seat's session, actions, and the store's surfaces to `ctx.sidebarRight`.
++     * Record this seat's room rule for `ctx.sidebarRight`'s splits, replacing its previous one.
+      *
+-     * The service is root-scoped and cannot read a per-entry store, so the only
+-     * honest source is the mounted seat. Held for as long as the seat is mounted;
+-     * the service publishes the bound session through `ctx.sidebarRight.mounted`.
+-     * @param binding - what a command needs to act on this session, and what a tab's own action needs to act on its.
+-     * @returns a release callback.
++     * The docking kit measures its panes after it renders; the seat forwards each
++     * reading, and the service applies it when it splits this seat's Session.
++     * @param canSplitPane - whether two working halves of a docked pane would fit; unmeasured panes fit.
+      */
+-    readonly bindService: (binding: {
+-        sessionId: SessionId;
+-        actions: Store['actions'];
+-        /** Every session's surface as last committed; the mounted one is `surfaces[sessionId]`. */
+-        surfaces: Readonly<Record<string, SurfaceState>>;
+-        /** The room rule's verdict for a docked pane, as the kit last measured it. */
+-        canSplitPane: (paneId: PaneId) => boolean;
+-        /** Commit a keyboard/menu close and retain focus on a surviving visible pane. */
+-        closeWithFocus: (paneId: PaneId, close: () => void) => void;
+-        /** Commit a page operation and focus the pane it selects. */
+-        openWithFocus: (open: () => PaneId | undefined) => void;
+-        autoFullscreen?: boolean;
+-    }) => () => void;
++    readonly measureRoom: (canSplitPane: (paneId: PaneId) => boolean) => void;
++    /**
++     * Record whether the frame width this seat renders at presents an expanded panel fullscreen automatically.
++     *
++     * The fullscreen command reads the latest report: while it holds, the command
++     * closes the panel instead of switching its recorded mode.
++     * @param autoFullscreen - whether the frame is narrower than the automatic fullscreen width.
++     */
++    readonly reportAutoFullscreen: (autoFullscreen: boolean) => void;
+     /**
+      * The navigation face's `openTab`, for the strip's add control: a new tab is
+      * the guide opened by kind, through the same path as every other open.
+@@ -110,10 +104,11 @@ interface PanelProps {
+ export declare function intentsFor(sessionId: SessionId, actions: Store['actions'], openTab: PanelProps['openTab'], closeTab?: PanelProps['closeTab'], splitPane?: PanelProps['splitPane']): DockIntents;
+ /**
+  * The right column's occupant: stable tab containers, docked or floating.
+- * It is also where the
+- * frame learns the panel's presentation, and where `ctx.sidebarRight` learns
+- * which session it is acting on, because this is the seat that knows both.
++ * It is also where the frame learns the panel's presentation, because this is
++ * the seat that knows it. `ctx.sidebarRight` names the on-screen Session
++ * itself; this seat reports only what it renders with: the room its kit
++ * measured and the automatic fullscreen rule of its frame width.
+  */
+-export declare function RightbarSeat({ sessionId, width, viewportWidth, canShow, useStore, actions, t, renderSlot, syncPresentation, bindService, openTab, closeTab, useTabTypes, useTabNavigation, occurrence, retainTab, active, useShortcuts, splitPane, toggleFullscreen, }: RightbarSeatProps): ReactNode;
++export declare function RightbarSeat({ sessionId, width, viewportWidth, canShow, useStore, actions, t, renderSlot, syncPresentation, measureRoom, reportAutoFullscreen, openTab, closeTab, useTabTypes, useTabNavigation, occurrence, retainTab, active, useShortcuts, splitPane, toggleFullscreen, }: RightbarSeatProps): ReactNode;
+ export {};
+ //# sourceMappingURL=SidebarRight.d.ts.map
+\ No newline at end of file

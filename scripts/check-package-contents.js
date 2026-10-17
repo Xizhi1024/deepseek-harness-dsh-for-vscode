@@ -107,6 +107,8 @@ for (const required of [
   'runtime-integration/dsh-vscode-integration/lib/adapters/dsh020.js',
   'runtime-integration/dsh-vscode-integration/lib/adapters/dsh020rc1.js',
   'runtime-integration/dsh-vscode-integration/lib/adapters/dsh020rc2.js',
+  'runtime-integration/dsh-vscode-integration/lib/adapters/dsh021rc1.js',
+  'runtime-integration/dsh-vscode-integration/lib/adapters/dsh021rc2.js',
   'runtime-integration/dsh-vscode-integration/contracts/runtime-v1.json',
   'runtime-integration/dsh-vscode-integration/contracts/session-bridge-v1.json',
   'runtime-integration/dsh-vscode-integration/contracts/validate.cjs',

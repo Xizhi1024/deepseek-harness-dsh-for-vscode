@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-Integration **0.11.0**, bundled with extension **1.2.1 candidate**, supplies the DSH host plugin and embedded browser client. Host files are plain ESM with no npm dependencies. Browser files register flat chunks with the upstream module loader. Exact targets: DSH `0.2.0-rc.1` and `0.2.0-rc.2` (adapter factory shared in `adapters/dsh020.js`); separate legacy adapter: `0.1.2-rc.1`.
+Integration **0.11.1**, bundled with extension **1.2.2 candidate**, supplies the DSH host plugin and embedded browser client. Host files are plain ESM with no npm dependencies. Browser files register flat chunks with the upstream module loader. Exact targets: DSH `0.2.0-rc.1`, `0.2.0-rc.2`, `0.2.1-rc.1` and `0.2.1-rc.2` (adapter factory shared in `adapters/dsh020.js`); separate legacy adapter: `0.1.2-rc.1`.
 
 Package entries remain `lib/index.js` and `lib/client.js`. The client descriptor injects the public session controller, session UI, layout, workspace and Conversation packages. `src/dshIntegration.js` synchronizes all declared files into the selected runtime profile before startup.
 
@@ -50,3 +50,5 @@ Target profiles add `-dsh020rc1`/`-dsh020rc2`, separating plugin/patch configura
 - Real runtime/browser evidence includes 60 search cycles at three widths plus IME, prompt/cancel/read/write/edit, 601-second steady-state and ten start/stop cycles.
 - Installed-VSIX validation is ongoing; A07 partial, non-text upload/FIM/full optional matrix unverified. No Marketplace publication or daily installation is implied.
 - [Architecture contracts](../../PLAN-1.2.0-ARCHITECTURE-CONTRACTS.md), [host mapping evidence](../../HANDOFF-1.2.0-HOST-CONTRACTS.md), [final validation](../../HANDOFF-1.2.0-VALIDATION.md).
+
+Sprint 1 (2026-10-17): exact RC window and source/package hashes are in `evidence/sprint1/release-window.json`; API declaration diffs and real runtime probes are in `evidence/sprint1/`. Installation/UI results are reported separately from runtime contract probes.

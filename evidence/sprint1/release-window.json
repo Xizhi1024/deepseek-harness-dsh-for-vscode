@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "verifiedDate": "2026-10-17",
+  "selection": "User-confirmed RC channel, descending publication order; alpha/beta/dev excluded; four exact versions including T0.",
+  "distTagsAtInspection": {
+    "latest": "0.2.0-rc.2",
+    "alpha": "0.2.1-alpha.5",
+    "next": "0.2.1-rc.2"
+  },
+  "versions": [
+    {
+      "position": "T0",
+      "version": "0.2.1-rc.2",
+      "publishedAt": "2026-10-17T08:36:31.655Z",
+      "tag": "dsh-v0.2.1-rc.2",
+      "sourceSha": "687f282e8625c6b8d11ff58211a90524be2e4317",
+      "release": "https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.1-rc.2",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.2.1-rc.2.tgz",
+      "integrity": "sha512-tvY+yhfKRifthbqPe/OK0AYxM5ZkvqfYq/jMYgJcEUxiRRL1Vwra3Ti5TB6AXgSWQdiPHYh/Vp6SJa9yHwMNuw==",
+      "shasum": "a502d1551aabc881020e3cb7961c38901565731a"
+    },
+    {
+      "position": "T1",
+      "version": "0.2.1-rc.1",
+      "publishedAt": "2026-10-17T03:17:24.154Z",
+      "tag": "dsh-v0.2.1-rc.1",
+      "sourceSha": "1600d8a1e140dcde43a1a0941940a0480712c011",
+      "release": "https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.1-rc.1",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.2.1-rc.1.tgz",
+      "integrity": "sha512-ce+4rnRuhkheK8++2EGm0CjHKVfF7IjUk4DO/NydRS8inAM8A0GFGQmX3cWKM4OzzbT+diIMyOiDuA1wYAZioA==",
+      "shasum": "e5302a7dfc7e8afac1f7e287263f4e3073cbbc00"
+    },
+    {
+      "position": "T2",
+      "version": "0.2.0-rc.2",
+      "publishedAt": "2026-09-29T09:56:27.792Z",
+      "tag": "dsh-v0.2.0-rc.2",
+      "sourceSha": "639ed015397290b3745d163aafe02ffee4aa3f84",
+      "release": "https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.0-rc.2",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.2.0-rc.2.tgz",
+      "integrity": "sha512-EAJ3gPNcVt/uv8X19PMm9NkVhWgT7xXNMk0UKCVm+IQ5rpSQOcsMUa0HWlnYYVybKMsccjcRB21vVVsaXQ6IdA==",
+      "shasum": "dfc8f7e09cfa96b854d6f0cf3a973ce7f2948925"
+    },
+    {
+      "position": "T3",
+      "version": "0.2.0-rc.1",
+      "publishedAt": "2026-09-28T12:34:03.181Z",
+      "tag": "dsh-v0.2.0-rc.1",
+      "sourceSha": "4878cdabd87d4041bdaff61d04c966883b9fd07a",
+      "release": "https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.0-rc.1",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.2.0-rc.1.tgz",
+      "integrity": "sha512-F6hKNVoGgBDIzSiyRaIlobq4UD6cwxUjh+nwXqcDmufDh87TE1izsYzs8L5cZNpF2JmPnFM1mXRNnRJ0cs43ng==",
+      "shasum": "205c35227b6e923956dc767a02e2605f7d5fe840"
+    }
+  ]
+}

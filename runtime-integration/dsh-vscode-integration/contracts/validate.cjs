@@ -26,6 +26,8 @@ const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 const ADAPTER_BY_RUNTIME = Object.freeze({
   '0.2.0-rc.1': 'dsh-0.2.0-rc.1',
   '0.2.0-rc.2': 'dsh-0.2.0-rc.2',
+  '0.2.1-rc.1': 'dsh-0.2.1-rc.1',
+  '0.2.1-rc.2': 'dsh-0.2.1-rc.2',
   '0.1.2-rc.1': 'legacy-0.1.2-rc.1',
 });
 

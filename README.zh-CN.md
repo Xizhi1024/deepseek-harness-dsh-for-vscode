@@ -1,3 +1,7 @@
+# Sprint 1 候选版：1.2.2
+
+本候选版内置 integration 0.11.1，新增 DSH 0.2.1-rc.1 / rc.2 精确适配，保留 0.2.0-rc.1 / rc.2 和原有 legacy 路径。受管目标版本要求先打开工作区；界面继续使用原生 DSH iframe。固定版本、API diff 和各层验证结果见 [Sprint 1 证据](evidence/sprint1/README.md)。这是本地候选制品，尚未发布 Marketplace。
+
 # DeepSeek Harness (DSH) for VS Code
 
 [简体中文](README.zh-CN.md) · [English](README.md)

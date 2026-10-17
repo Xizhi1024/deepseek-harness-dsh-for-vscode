@@ -1,0 +1,1105 @@
+{
+  "from": "0.2.0-rc.2",
+  "to": "0.2.1-rc.1",
+  "packages": [
+    {
+      "name": "@deepseek-ai/dsh-api-session-controller",
+      "declarations": [
+        {
+          "file": "lib/typert.remote-client.d.ts",
+          "beforeSha256": "e6f7d2b5a6b35d7b1a28edf3afe10dbf73289775622f326c104d1855f9342fc3",
+          "afterSha256": "d14d3c79f4924cd5471e6991f40f5d98c117e7b90311ad6ae7ad6bf2996b81f2"
+        },
+        {
+          "file": "lib/types/agent.d.ts",
+          "beforeSha256": "9c0c629d74772da7d5c943de95f0fe4f5e4d3ae707bd8ff03f2d4b06d1ac0050",
+          "afterSha256": "6bd69ce751b965b3effcd45113cf32b7395a0da014bfa89d6bc0b730f654e612"
+        },
+        {
+          "file": "lib/types/client/contract/sessions.d.ts",
+          "beforeSha256": "e1761a563cfe12dcad0d1165067ce796d9e49a22cbd058309eaa69d4abea37ad",
+          "afterSha256": "1f43eefde62eeff8137ef57427fbfa9ca55a58391db0618ff1ec61f4f9470dc6"
+        },
+        {
+          "file": "lib/types/client/sessions/lineage.d.ts",
+          "beforeSha256": "01dba3772f092138ae7ee1cf11280d86052cf49af675ffc7f95ea26f3c8ef2f5",
+          "afterSha256": "1b8a3ed7d1d23a6b822b52e63b5b7460b2a910495a4aa8a8bb2aff931d003b56"
+        },
+        {
+          "file": "lib/types/client/sessions/manager.d.ts",
+          "beforeSha256": "463c00c80b81d0468dfed792ebae30346ad92fb16974ddb40313572e29c85e2e",
+          "afterSha256": "e07ab2a3628c0b35ee470350be41c32fb78e20cde65253176cb9a8627a580969"
+        },
+        {
+          "file": "lib/types/client/sessions/projection-store.d.ts",
+          "beforeSha256": "ac1fb3bc3890ddf1fdd17b3c551544ef5163ecabf5671976e892bc12c7565101",
+          "afterSha256": "7ea5d7ec5484a29e49eb029a296c3d1d6bbac319c22dea1a5d3c7cd144573b57"
+        },
+        {
+          "file": "lib/types/client/sessions/service.d.ts",
+          "beforeSha256": "772cad31a6c6514b9aa4bc91dfececfca35bd070d030691ca2a202483e51f537",
+          "afterSha256": "853fcd24850820122261efe6c86a281d09629f7428103f20d526a46e39d4ba2f"
+        },
+        {
+          "file": "lib/types/commands.d.ts",
+          "beforeSha256": "7014e7237c339edc7a94588859f625da590c7efb5dfbf688f5ff307b7e9890e3",
+          "afterSha256": "48023ce2a2845d6ab626167eb287400bf297f1a2b77549c7b1adedd49be080fb"
+        },
+        {
+          "file": "lib/types/index.d.ts",
+          "beforeSha256": "2ef63ce19073dde402bfeb9b4d95d8b04e9fc3e5bc4235afe4c9629e6a69d895",
+          "afterSha256": "add6ff54e3060811e94c79bb6a82e7d16b3e14cad98c658ea811fb025aaadde4"
+        },
+        {
+          "file": "lib/types/list.d.ts",
+          "beforeSha256": "fd4121a8e740a18409db1986e9c0b8f7f65547c2940aa98f5efc4c6952e9525a",
+          "afterSha256": "e2a701f855444c51a7ce6294b2f59660b1aa24184b11ed8f078efaa858d94750"
+        },
+        {
+          "file": "lib/types/types.d.ts",
+          "beforeSha256": "1b4d81ed8f89ccd5d3c477a38fe2ab8c993f24af0e21539d0e0b7d22d7c2e7b8",
+          "afterSha256": "81017e58e95b3a58d62e0c3d540bd6286b645686ed3d208acac1dd2a206bea27"
+        }
+      ],
+      "beforeManifest": {
+        "exports": {
+          ".": {
+            "types": "./lib/types/index.d.ts",
+            "default": "./lib/index.js"
+          },
+          "./types": {
+            "types": "./lib/types/types.d.ts",
+            "default": "./lib/types/types.js"
+          },
+          "./remote-events": {
+            "types": "./lib/types/remote-events.d.ts",
+            "default": "./lib/types/remote-events.js"
+          },
+          "./client": {
+            "types": "./lib/types/client/index.d.ts",
+            "default": "./lib/client.js"
+          },
+          "./typert": {
+            "types": "./lib/typert.host.d.ts",
+            "default": "./lib/typert.host.js"
+          },
+          "./remote": {
+            "types": "./lib/typert.remote-client.d.ts",
+            "default": "./lib/typert.remote-client.js"
+          },
+          "./src/*": "./src/*",
+          "./package.json": "./package.json"
+        },
+        "peerDependencies": {
+          "@deepseek-ai/dsh-agent": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-agent-default-model": "0.2.0-rc.2",
+          "@deepseek-ai/cordis": "~4.0.4",
+          "@deepseek-ai/dsh-agent-preset-registry": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-api-gateway": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-attachment": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-client-connection": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-client-file-upload": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-commands": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-fs": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-native-command": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-scope": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-session": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-session-persistence": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-session-projection": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-session-projection-cache": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-session-title": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-settings": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-session-query": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-skill": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-subagent": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-typert-protocol": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-typert-registry": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-util-time": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-util-values": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-credentials": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-file-reference": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-workspace": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-util-workspace-path": "0.2.0-rc.2"
+        },
+        "dependencies": {
+          "mime-types": "^3.0.2",
+          "zod": "^4.4.3",
+          "@deepseek-ai/dsh-brand": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-deque": "0.2.0-rc.2",
+          "@deepseek-ai/schemastery": "~3.18.4"
+        },
+        "dsh": {
+          "client": {
+            "external": [
+              "@deepseek-ai/dsh-api-gateway/client"
+            ],
+            "inject": [
+              "@deepseek-ai/dsh-api-gateway",
+              "@deepseek-ai/dsh-client-file-upload"
+            ],
+            "platform": "web"
+          }
+        }
+      },
+      "afterManifest": {
+        "exports": {
+          ".": {
+            "types": "./lib/types/index.d.ts",
+            "default": "./lib/index.js"
+          },
+          "./types": {
+            "types": "./lib/types/types.d.ts",
+            "default": "./lib/types/types.js"
+          },
+          "./remote-events": {
+            "types": "./lib/types/remote-events.d.ts",
+            "default": "./lib/types/remote-events.js"
+          },
+          "./client": {
+            "types": "./lib/types/client/index.d.ts",
+            "default": "./lib/client.js"
+          },
+          "./typert": {
+            "types": "./lib/typert.host.d.ts",
+            "default": "./lib/typert.host.js"
+          },
+          "./remote": {
+            "types": "./lib/typert.remote-client.d.ts",
+            "default": "./lib/typert.remote-client.js"
+          },
+          "./src/*": "./src/*",
+          "./package.json": "./package.json",
+          "./locale/*.json": "./locale/*.json"
+        },
+        "peerDependencies": {
+          "@deepseek-ai/cordis": "~4.0.5",
+          "@deepseek-ai/dsh-agent": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-agent-default-model": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-agent-preset-registry": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-api-gateway": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-attachment": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-client-connection": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-client-file-upload": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-commands": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-credentials": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-file-reference": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-fs": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-llm": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-native-command": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-scope": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-session": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-session-persistence": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-session-projection": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-session-projection-cache": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-session-query": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-session-title": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-settings": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-skill": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-subagent": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-typert-registry": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-util-time": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-util-values": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-util-workspace-path": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-workspace": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-working-directory": "0.2.1-rc.1"
+        },
+        "dependencies": {
+          "@deepseek-ai/dsh-brand": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-deque": "0.2.1-rc.1",
+          "@deepseek-ai/schemastery": "~3.18.5",
+          "mime-types": "^3.0.2",
+          "zod": "4.4.3"
+        },
+        "dsh": {
+          "client": {
+            "external": [
+              "@deepseek-ai/dsh-api-gateway/client"
+            ],
+            "inject": [
+              "@deepseek-ai/dsh-api-gateway",
+              "@deepseek-ai/dsh-client-file-upload"
+            ],
+            "platform": "web"
+          }
+        }
+      }
+    },
+    {
+      "name": "@deepseek-ai/dsh-api-workspace-controller",
+      "declarations": [
+        {
+          "file": "lib/typert.remote-client.d.ts",
+          "beforeSha256": "3ac5bbac576d57ce93b75b40d1cbec0710fd9952580f97bcaa7e1d6ce0635c26",
+          "afterSha256": "37d710b976c91709ad772f9145d53b6611131d8d0ee9e771058313371a42d692"
+        },
+        {
+          "file": "lib/types/feed.d.ts",
+          "beforeSha256": "4b98ae4736e04ea70847279dcad556bb3c990fb28cbe0e81e2e5b1a10b18f068",
+          "afterSha256": "ef045e7fe5ab7db413a01f8c6ee0f2f50f5efc1be6e36a6cccdd0feb7013ba1c"
+        },
+        {
+          "file": "lib/types/index.d.ts",
+          "beforeSha256": "56928cdbd937055c396f20c05c4cd1b12c9448bcbc813ebe3cd79e52382405aa",
+          "afterSha256": "e08ce6184fc6d1d43c4d476f2f75f502d93e8f607d3230abef2470eab6816cf1"
+        },
+        {
+          "file": "lib/types/types.d.ts",
+          "beforeSha256": "b8e0395bfcaf05acf6e0e045839c1b6c124418312de2ef70fd49448656422021",
+          "afterSha256": "6d4e00a8eb4954ef46d084dcfb4ad2e1998b77a282ca0e07dda4285c334a861a"
+        }
+      ],
+      "beforeManifest": {
+        "exports": {
+          ".": {
+            "types": "./lib/types/index.d.ts",
+            "default": "./lib/index.js"
+          },
+          "./types": {
+            "types": "./lib/types/types.d.ts",
+            "default": "./lib/types/types.js"
+          },
+          "./client": {
+            "types": "./lib/types/client/index.d.ts",
+            "default": "./lib/client.js"
+          },
+          "./default-workspace": {
+            "types": "./lib/types/default-workspace.d.ts",
+            "default": "./lib/types/default-workspace.js"
+          },
+          "./typert": {
+            "types": "./lib/typert.host.d.ts",
+            "default": "./lib/typert.host.js"
+          },
+          "./remote": {
+            "types": "./lib/typert.remote-client.d.ts",
+            "default": "./lib/typert.remote-client.js"
+          },
+          "./src/*": "./src/*",
+          "./package.json": "./package.json"
+        },
+        "peerDependencies": {
+          "@deepseek-ai/cordis": "~4.0.4",
+          "@deepseek-ai/dsh-session": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-storage-domain": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-typert-protocol": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-workspace": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-api-gateway": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-client-connection": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-host-directory-picker": "0.2.0-rc.2"
+        },
+        "dependencies": {
+          "zod": "^4.4.3",
+          "@deepseek-ai/dsh-deque": "0.2.0-rc.2",
+          "@deepseek-ai/schemastery": "~3.18.4",
+          "@deepseek-ai/dsh-native-command": "0.2.0-rc.2"
+        },
+        "dsh": {
+          "client": {
+            "external": [
+              "@deepseek-ai/dsh-api-gateway/client"
+            ],
+            "inject": [
+              "@deepseek-ai/dsh-api-gateway",
+              "@deepseek-ai/dsh-client-connection"
+            ],
+            "platform": "web"
+          }
+        }
+      },
+      "afterManifest": {
+        "exports": {
+          ".": {
+            "types": "./lib/types/index.d.ts",
+            "default": "./lib/index.js"
+          },
+          "./types": {
+            "types": "./lib/types/types.d.ts",
+            "default": "./lib/types/types.js"
+          },
+          "./client": {
+            "types": "./lib/types/client/index.d.ts",
+            "default": "./lib/client.js"
+          },
+          "./default-workspace": {
+            "types": "./lib/types/default-workspace.d.ts",
+            "default": "./lib/types/default-workspace.js"
+          },
+          "./typert": {
+            "types": "./lib/typert.host.d.ts",
+            "default": "./lib/typert.host.js"
+          },
+          "./remote": {
+            "types": "./lib/typert.remote-client.d.ts",
+            "default": "./lib/typert.remote-client.js"
+          },
+          "./src/*": "./src/*",
+          "./package.json": "./package.json",
+          "./locale/*.json": "./locale/*.json"
+        },
+        "peerDependencies": {
+          "@deepseek-ai/cordis": "~4.0.5",
+          "@deepseek-ai/dsh-api-gateway": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-client-connection": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-host-directory-picker": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-session": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-storage-domain": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-workspace": "0.2.1-rc.1"
+        },
+        "dependencies": {
+          "@deepseek-ai/dsh-deque": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-native-command": "0.2.1-rc.1",
+          "@deepseek-ai/schemastery": "~3.18.5",
+          "zod": "4.4.3"
+        },
+        "dsh": {
+          "client": {
+            "external": [
+              "@deepseek-ai/dsh-api-gateway/client"
+            ],
+            "inject": [
+              "@deepseek-ai/dsh-api-gateway",
+              "@deepseek-ai/dsh-client-connection"
+            ],
+            "platform": "web"
+          }
+        }
+      }
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-workspace",
+      "declarations": [
+        {
+          "file": "lib/types/client/contract/slots.d.ts",
+          "beforeSha256": "19a439254f942ccfa51b2fb922dd3b43be30de9b0820cac3e14ca814612e1ebe",
+          "afterSha256": "56e92c29cc0e32b01ba2783ec28f58089c9ade2189e2812bc81c47dfbfa38232"
+        },
+        {
+          "file": "lib/types/client/contract/toast.d.ts",
+          "beforeSha256": null,
+          "afterSha256": "76b6c04bf15a3093211269ea40320bb29baea2123319223fcbe338f4f5d4ef37"
+        },
+        {
+          "file": "lib/types/client/index.d.ts",
+          "beforeSha256": "a778fa5e14efd0d7af658c421a183ce3b453de3f3a689a254916b812cbbafb51",
+          "afterSha256": "d00027f7bfe37a276f73883618399780de6baa1ba0ee838ebea797dcdf6ab1d7"
+        },
+        {
+          "file": "lib/types/client/locales.d.ts",
+          "beforeSha256": "edba6c555e383353840366baa4eea92488ada0bb21992496de900bb44b464b23",
+          "afterSha256": "26d72a2088da63e8458fa3bf3508d368f493337eb21801354191e8c334cbbf1f"
+        },
+        {
+          "file": "lib/types/client/navigation.d.ts",
+          "beforeSha256": "b4a357efd40f3cb61d649edaeb4265621d5b6ec4cdcbe8cce1a5394ea7ffa44e",
+          "afterSha256": "3e387fd767d6cc715f4566b98819efa6b5d7e2e2eac8514085f360f13a5aa414"
+        },
+        {
+          "file": "lib/types/client/rows/WorkspaceBrowser.d.ts",
+          "beforeSha256": "44c34750f922fd9211b1f114e68f5d0ca674ad7ecbf59656ea4ef827486069e6",
+          "afterSha256": "65e999076c0dad3ff2e4bc32c03af1239cd79d223e92a0717b93aac35d0dc7c3"
+        },
+        {
+          "file": "lib/types/client/session-actions/ForkSession.d.ts",
+          "beforeSha256": "dd1ff448c1d5094d2ae38cfadd27d85d762a68640ade64e4814c9ba0a462bcd8",
+          "afterSha256": "08263b94f3b6acb48c191ea6c1a44bd9cbb5542e7bf2bf2b7105d9d5f32421a6"
+        },
+        {
+          "file": "lib/types/client/session-actions/RowActionToast.d.ts",
+          "beforeSha256": "6f98c415eeb8e45cdfb298422e7a587a873736b51ec2e82d475f2f09c12ba267",
+          "afterSha256": "ebd8d1714c3e7d0bdf6c3ac5ba68d333c8f9a13610530f17a09bdbdff11d049f"
+        },
+        {
+          "file": "lib/types/client/session-actions/SessionId.d.ts",
+          "beforeSha256": null,
+          "afterSha256": "40b4e312267a7b66cbd046e4b2e393d95b575bd87bf0b4e1e7bf909250c9a1cf"
+        },
+        {
+          "file": "lib/types/client/shortcuts.d.ts",
+          "beforeSha256": "52ea6fad7e05732fa703e027fb37fb32c2ae711f1d4b511a7f4e75d25c9df8eb",
+          "afterSha256": "28971ad72e992ad92f53da71a4fee4934d17b7313512f0b3a0f41c35dd579d0e"
+        },
+        {
+          "file": "lib/types/client/toast/Toast.d.ts",
+          "beforeSha256": null,
+          "afterSha256": "156ff840ba48ef6e4d557b45ec9699aa3284964b34fdcd29eb8a897790cb9396"
+        },
+        {
+          "file": "lib/types/client/toast/register.d.ts",
+          "beforeSha256": null,
+          "afterSha256": "b62b326727b646eeaa03a29d3179f69841fd05a74af4fe612165a212cc509461"
+        }
+      ],
+      "beforeManifest": {
+        "exports": {
+          ".": {
+            "types": "./lib/types/index.d.ts",
+            "default": "./lib/index.js"
+          },
+          "./client": {
+            "types": "./lib/types/client/index.d.ts",
+            "default": "./lib/client.js"
+          },
+          "./src/*": "./src/*",
+          "./package.json": "./package.json"
+        },
+        "peerDependencies": {
+          "@deepseek-ai/cordis": "~4.0.4"
+        },
+        "dsh": {
+          "client": {
+            "inject": [
+              "@deepseek-ai/dsh-api-remotes",
+              "@deepseek-ai/dsh-api-session-controller",
+              "@deepseek-ai/dsh-api-workspace-controller",
+              "@deepseek-ai/dsh-client-connection",
+              "@deepseek-ai/dsh-client-locale",
+              "@deepseek-ai/dsh-client-shortcuts",
+              "@deepseek-ai/dsh-client-ui-conversation",
+              "@deepseek-ai/dsh-client-ui-layout",
+              "@deepseek-ai/dsh-client-ui-renderer",
+              "@deepseek-ai/dsh-client-ui-session",
+              "@deepseek-ai/dsh-client-ui-sidebar"
+            ],
+            "platform": "web"
+          }
+        }
+      },
+      "afterManifest": {
+        "exports": {
+          ".": {
+            "types": "./lib/types/index.d.ts",
+            "default": "./lib/index.js"
+          },
+          "./client": {
+            "types": "./lib/types/client/index.d.ts",
+            "default": "./lib/client.js"
+          },
+          "./src/*": "./src/*",
+          "./package.json": "./package.json",
+          "./locale/*.json": "./locale/*.json"
+        },
+        "peerDependencies": {
+          "@deepseek-ai/cordis": "~4.0.5"
+        },
+        "dsh": {
+          "client": {
+            "inject": [
+              "@deepseek-ai/dsh-api-remote-access",
+              "@deepseek-ai/dsh-api-remotes",
+              "@deepseek-ai/dsh-api-session-controller",
+              "@deepseek-ai/dsh-api-workspace-controller",
+              "@deepseek-ai/dsh-client-connection",
+              "@deepseek-ai/dsh-client-locale",
+              "@deepseek-ai/dsh-client-shortcuts",
+              "@deepseek-ai/dsh-client-ui-conversation",
+              "@deepseek-ai/dsh-client-ui-layout",
+              "@deepseek-ai/dsh-client-ui-renderer",
+              "@deepseek-ai/dsh-client-ui-session",
+              "@deepseek-ai/dsh-client-ui-sidebar"
+            ],
+            "platform": "web"
+          }
+        }
+      }
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-session",
+      "declarations": [
+        {
+          "file": "lib/types/client/index.d.ts",
+          "beforeSha256": "555e167b5de7a29d6f0f10bfac4674dbbbb8b8b26a7579b525b53a1aedb33c61",
+          "afterSha256": "da31a243e378f6cc7982fe9b03d1fcfcf460f42977a0c2d8547197f15e2f60fe"
+        }
+      ],
+      "beforeManifest": {
+        "exports": {
+          ".": {
+            "types": "./lib/types/index.d.ts",
+            "default": "./lib/index.js"
+          },
+          "./client": {
+            "types": "./lib/types/client/index.d.ts",
+            "default": "./lib/client.js"
+          },
+          "./src/*": "./src/*",
+          "./package.json": "./package.json"
+        },
+        "peerDependencies": {
+          "@deepseek-ai/cordis": "~4.0.4"
+        },
+        "dsh": {
+          "client": {
+            "inject": [
+              "@deepseek-ai/dsh-api-remotes",
+              "@deepseek-ai/dsh-api-session-controller",
+              "@deepseek-ai/dsh-client-ui-renderer"
+            ],
+            "platform": "web"
+          }
+        }
+      },
+      "afterManifest": {
+        "exports": {
+          ".": {
+            "types": "./lib/types/index.d.ts",
+            "default": "./lib/index.js"
+          },
+          "./client": {
+            "types": "./lib/types/client/index.d.ts",
+            "default": "./lib/client.js"
+          },
+          "./src/*": "./src/*",
+          "./package.json": "./package.json",
+          "./locale/*.json": "./locale/*.json"
+        },
+        "peerDependencies": {
+          "@deepseek-ai/cordis": "~4.0.5"
+        },
+        "dsh": {
+          "client": {
+            "inject": [
+              "@deepseek-ai/dsh-api-remote-access",
+              "@deepseek-ai/dsh-api-remotes",
+              "@deepseek-ai/dsh-api-session-controller",
+              "@deepseek-ai/dsh-client-ui-renderer"
+            ],
+            "platform": "web"
+          }
+        }
+      }
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-layout",
+      "declarations": [
+        {
+          "file": "lib/types/client/AppFrame.d.ts",
+          "beforeSha256": "109b6b634b27781181692b4e68f8bbd22f88ff2500e86010575c00565af9fabb",
+          "afterSha256": "a89f4facf28aa96457d3da5b6babfce79a4cab2169fa57c5bdda05ec0cc6944d"
+        },
+        {
+          "file": "lib/types/client/index.d.ts",
+          "beforeSha256": "195106dc8a9aa413cb5e41834798f62555fef20fe7eae719c9ac32b69a525f2e",
+          "afterSha256": "de04ea7bb5e1c0d44dc87c31eb6565786c4cc629f4eefd92064e1b3142817260"
+        },
+        {
+          "file": "lib/types/client/theme-presenter.d.ts",
+          "beforeSha256": "3229b1261ca4a82b752128d3fae7d6df76456c38fcbfa564ec45ae3167625b85",
+          "afterSha256": "1428d964c091180c31cfa1efd9486464cc40c515b0c47b58c7c6b6e5b2aa6c08"
+        }
+      ],
+      "beforeManifest": {
+        "exports": {
+          ".": {
+            "types": "./lib/types/index.d.ts",
+            "default": "./lib/index.js"
+          },
+          "./client": {
+            "types": "./lib/types/client/index.d.ts",
+            "default": "./lib/client.js"
+          },
+          "./src/*": "./src/*",
+          "./package.json": "./package.json"
+        },
+        "peerDependencies": {
+          "@deepseek-ai/cordis": "~4.0.4"
+        },
+        "dsh": {
+          "client": {
+            "inject": [
+              "@deepseek-ai/dsh-client-locale",
+              "@deepseek-ai/dsh-client-ui-renderer",
+              "@deepseek-ai/dsh-client-ui-session",
+              "@deepseek-ai/dsh-client-ui-theme",
+              "@deepseek-ai/dsh-client-shortcuts"
+            ],
+            "platform": "web"
+          }
+        }
+      },
+      "afterManifest": {
+        "exports": {
+          ".": {
+            "types": "./lib/types/index.d.ts",
+            "default": "./lib/index.js"
+          },
+          "./client": {
+            "types": "./lib/types/client/index.d.ts",
+            "default": "./lib/client.js"
+          },
+          "./src/*": "./src/*",
+          "./package.json": "./package.json",
+          "./locale/*.json": "./locale/*.json"
+        },
+        "peerDependencies": {
+          "@deepseek-ai/cordis": "~4.0.5"
+        },
+        "dsh": {
+          "client": {
+            "inject": [
+              "@deepseek-ai/dsh-client-locale",
+              "@deepseek-ai/dsh-client-ui-renderer",
+              "@deepseek-ai/dsh-client-ui-session",
+              "@deepseek-ai/dsh-client-ui-theme",
+              "@deepseek-ai/dsh-client-shortcuts"
+            ],
+            "platform": "web"
+          }
+        }
+      }
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-conversation",
+      "declarations": [
+        {
+          "file": "lib/types/client/contract/conversation.d.ts",
+          "beforeSha256": "9885945c635437075fbacb283a13ecc6f3a6b30bf871358a930d2ab947dbc11f",
+          "afterSha256": "4c087fc2a8458799188e76120d83684c5858daf3a08b763b84c390dbb95643b4"
+        },
+        {
+          "file": "lib/types/client/contract/draft-editor.d.ts",
+          "beforeSha256": "a99b7bbe1742f25beb095774c1e88002889d9a356ad9f3002a80e7776a459d79",
+          "afterSha256": "3397e3224506a8f448901c4ae3eb1932dabe3fa257b9ba9c5186efd2ad918375"
+        },
+        {
+          "file": "lib/types/client/contract/input.d.ts",
+          "beforeSha256": "937595f0c9f2722fa70fae3ea9fa742c34907f3cd6f14053be5a30921573ab04",
+          "afterSha256": "c213d129d588f858a48828c1bcc28d64d4d1146c68cb6956f4d6b7c22ba239d5"
+        },
+        {
+          "file": "lib/types/client/contract/records.d.ts",
+          "beforeSha256": "cbf5d7bf6531a32236a1011623e7a5b8065b65a0703fb3e9834e518b6970a471",
+          "afterSha256": "45c4ed6bf851c21b70faaa84b85a15b4c18e74dace52996cf659e563828f5f72"
+        },
+        {
+          "file": "lib/types/client/contract/request-inspection.d.ts",
+          "beforeSha256": "dfdb1f2756ea6be327230886c412b9aaba8d4b4339fadfafa2a8ff150cdef2c5",
+          "afterSha256": "36c9186100464f9b83be915855dee128784c1ffe39528697899e9a8c14d4ca8c"
+        },
+        {
+          "file": "lib/types/client/contract/slots.d.ts",
+          "beforeSha256": "e02c4d3fc25097f5ef4a426241e0f401d41f381e2474b7571e28fb4f2a07c6e6",
+          "afterSha256": "8102cad50bd596dc6fadd9e6a38b7aa478fe28a8f7848215cbc5db95a11382e7"
+        },
+        {
+          "file": "lib/types/client/contract/user-text.d.ts",
+          "beforeSha256": null,
+          "afterSha256": "7ef5d67def3df6cef3c1127b52e12f7fec753e7c813ddc63794e50026b8ed292"
+        },
+        {
+          "file": "lib/types/client/contract/views.d.ts",
+          "beforeSha256": "48c1c3432fcb6ff24497fdb0432747f8dfba0e4eaedd3a759d8e027cf782284d",
+          "afterSha256": "06cb00178d1313e63534acae7917c38127fe77e6b9b1a1e4528607c6db48a690"
+        },
+        {
+          "file": "lib/types/client/conversation/assembler.d.ts",
+          "beforeSha256": "a4d28bed8ddfb62d4dd4451d574c5aa0a354124276518fb84efc36509c55c38c",
+          "afterSha256": "c9205971295dd5ffd0bc2ec242affdb26bd4c4b371f67b37de1c229ed2ef006b"
+        },
+        {
+          "file": "lib/types/client/conversation/assembly.d.ts",
+          "beforeSha256": "0dd1bfb33ad38ea83a6a2ed375d4017ca7927c01a26fb87fef296d043d74b6f8",
+          "afterSha256": "2803b2f855791e6b37a2d9df163ad61a20e5c7332ddd0e0970ed061d4947d3a7"
+        },
+        {
+          "file": "lib/types/client/conversation/event-registry.d.ts",
+          "beforeSha256": "97cd0d02f0f33677a567ed49bc7ade0d15b3658159be36925a21f611e63cdd12",
+          "afterSha256": "5c39b92ad6dbfd8b7728e86bada0d456036dfde89a950d24e5265933d0e025b4"
+        },
+        {
+          "file": "lib/types/client/conversation/location-index.d.ts",
+          "beforeSha256": "22e5645744cd3d62b859caf70751e3bb9ab56ef1226711f730588f2b2429314b",
+          "afterSha256": "d3e9707c0bf1121d6ee3bd81ac98818eae4a47e880bee1bc7632f36bc130ce12"
+        },
+        {
+          "file": "lib/types/client/conversation/user-text-document.d.ts",
+          "beforeSha256": null,
+          "afterSha256": "c631eccef2d9597b00bdbd26169aed8374e53703497a032ad6b9c8aaf5ff0532"
+        },
+        {
+          "file": "lib/types/client/conversation/user-text-registry.d.ts",
+          "beforeSha256": null,
+          "afterSha256": "e119c1bb80a82f904e893eded53c22b617c8c9718507d5cf1eefabe89798ee3a"
+        },
+        {
+          "file": "lib/types/client/draft.d.ts",
+          "beforeSha256": null,
+          "afterSha256": "d8881b3b518e738d90268c3cd16a59ea2a64b1adcbaeed69ed85ef47ca627040"
+        },
+        {
+          "file": "lib/types/client/index.d.ts",
+          "beforeSha256": "11686f714fa966e028417554cdb9254194535b51691d0f16c435b2622e5b9dca",
+          "afterSha256": "e6dc178cb09fff2d58d898a41cfdb25d17f784edc132355e5215aaa9855d82ff"
+        },
+        {
+          "file": "lib/types/client/input/decorations.d.ts",
+          "beforeSha256": "e29068977469664308adbd97e7478f17a10d7bd0c54c7b2d8a517cc9efb218c4",
+          "afterSha256": "02eb202108b5cc3c678c3aaf3022edb8fada37f7920393da7017890d74ab410a"
+        },
+        {
+          "file": "lib/types/client/input/editor/CommandChip.d.ts",
+          "beforeSha256": null,
+          "afterSha256": "e93f81f8918147d92049da1caded1a365937282d4748fd09ca6da6e1bf6cac82"
+        },
+        {
+          "file": "lib/types/client/input/editor/claim-decor.d.ts",
+          "beforeSha256": "b6f8ed2b5df35a61e68834db5ccb83277807078930104f70ded4a7ff37e18cdd",
+          "afterSha256": null
+        },
+        {
+          "file": "lib/types/client/input/editor/command-chip-node.d.ts",
+          "beforeSha256": null,
+          "afterSha256": "bd0bb27a4781577afbe474843d9afa70eec8a8f821fda1ba01b071e0546edd2b"
+        },
+        {
+          "file": "lib/types/client/input/editor/command-chip-selection.d.ts",
+          "beforeSha256": null,
+          "afterSha256": "1eec31b5eaaa249d5c03d37091c3e9f8a4fcef89104a5b050f161418a2aa5a94"
+        },
+        {
+          "file": "lib/types/client/input/editor/projection.d.ts",
+          "beforeSha256": "a0b029c87173ac31e982115816e8d06769d169873e870c46e4365f66cc6b744e",
+          "afterSha256": "78c15c550b3b4469015778f562e0a4c80010aaf15c9e3594fe13a64a695798de"
+        },
+        {
+          "file": "lib/types/client/input/editor/runtime.d.ts",
+          "beforeSha256": "5a1e9080ee5b9f5ca163f71e4d2ab13b5240026d09039e6f0fb30313c1e65262",
+          "afterSha256": "eb56190cd8de22be323378a21809da9c00bedfe2cdf355e606b35a41bf94a6d9"
+        },
+        {
+          "file": "lib/types/client/input/editor/text-ref.d.ts",
+          "beforeSha256": "cfe038062d338f317e0f7777a5bb2470647b23f6f36cb50f340a7162649e3b7f",
+          "afterSha256": "eaef0e6dbd1af1ee9c001aded077cff86e2f34edea5e910731bdb5a542f0a6d0"
+        },
+        {
+          "file": "lib/types/client/input/facade.d.ts",
+          "beforeSha256": "c37ca76a0011684ea5c9f13b929da7fd2b3de069960ff7f6a59161c6db5ffdf3",
+          "afterSha256": "9c5cb507667612b58adba51ae16d63123b1c6112227c70d0920d233dc96a189d"
+        },
+        {
+          "file": "lib/types/client/input/hub.d.ts",
+          "beforeSha256": "8480586fae2c732950667ba56e1cd486702f8701bbcb7e591a55377a6cc1d699",
+          "afterSha256": "da6d0adb3edcfa7f477b19382805c7420630a8207a3d9529a617966de53d3aec"
+        },
+        {
+          "file": "lib/types/client/input/machine.d.ts",
+          "beforeSha256": "c7bd888ac324304d33edf5b17035c342d1eb11607f18fe3c82d324835326db49",
+          "afterSha256": "5297551e75f152c5118db8772482044991e770c98797581d362adcb0add7769d"
+        },
+        {
+          "file": "lib/types/client/locales.d.ts",
+          "beforeSha256": "412d5fe6aaa7a84d2b3b0e1ee25ac90139d51c04f8fcbc265a975463773343c8",
+          "afterSha256": "937ed2c7740d5d6e1f3b09809ca806194157af70138f0e8cf34ba3f30599f759"
+        },
+        {
+          "file": "lib/types/client/queue/QueueDock.d.ts",
+          "beforeSha256": "1662a567a0d7c71de650510ba53c1cbcd3dace442a85d9c8b5eea0e81c571e76",
+          "afterSha256": "fc2d46019b1f231fdab450a13d054ab4fc4d7626eafd546d10383c853da5743e"
+        },
+        {
+          "file": "lib/types/client/skeleton/DefaultConversationViews.d.ts",
+          "beforeSha256": "b554ddf4ffd60acc5a3f03af15d3781eba64efa282bf3fcc5f77e83ac2454461",
+          "afterSha256": "c6953dd7885ee2ea2517e619b5ea1792436c38c0993a5d4da6228e446514be07"
+        },
+        {
+          "file": "lib/types/client/stores.d.ts",
+          "beforeSha256": "5c669f22142dbd87a7643e7c59566b06a8a67a0ee4cfd2b225a03bec30a88912",
+          "afterSha256": "a618ab64cae1a90c95eb4849d71350fc2df718e7c672582c4c056fd7d97ff604"
+        },
+        {
+          "file": "lib/types/client/user-text/UserText.d.ts",
+          "beforeSha256": null,
+          "afterSha256": "e3080f417e93d72723bfaf650df58c73e0df169b4cfe3b3509413b945cb8e789"
+        },
+        {
+          "file": "lib/types/client/user-text/session-reference-rule.d.ts",
+          "beforeSha256": null,
+          "afterSha256": "2d56dc9e4969dfc7a145e569f6a62001a0dc0f0177d6c48534c4c3528d03e74e"
+        },
+        {
+          "file": "lib/types/client/user-text/whitespace-rules.d.ts",
+          "beforeSha256": null,
+          "afterSha256": "8ae1075672022001026b401b1a0d20d7fa2f24543d7f0928d4d3a9773d9e1143"
+        }
+      ],
+      "beforeManifest": {
+        "exports": {
+          ".": {
+            "types": "./lib/types/index.d.ts",
+            "default": "./lib/index.js"
+          },
+          "./client": {
+            "types": "./lib/types/client/index.d.ts",
+            "default": "./lib/client.js"
+          },
+          "./src/*": "./src/*",
+          "./package.json": "./package.json"
+        },
+        "peerDependencies": {
+          "@deepseek-ai/cordis": "~4.0.4"
+        },
+        "dependencies": {
+          "@deepseek-ai/schemastery": "~3.18.4"
+        },
+        "dsh": {
+          "client": {
+            "inject": [
+              "@deepseek-ai/dsh-api-session-controller",
+              "@deepseek-ai/dsh-client-file-upload",
+              "@deepseek-ai/dsh-client-locale",
+              "@deepseek-ai/dsh-client-ui-layout",
+              "@deepseek-ai/dsh-client-ui-renderer",
+              "@deepseek-ai/dsh-client-ui-session",
+              "@deepseek-ai/dsh-client-ui-settings",
+              "@deepseek-ai/dsh-client-ui-workspace"
+            ],
+            "platform": "web"
+          }
+        }
+      },
+      "afterManifest": {
+        "exports": {
+          ".": {
+            "types": "./lib/types/index.d.ts",
+            "default": "./lib/index.js"
+          },
+          "./client": {
+            "types": "./lib/types/client/index.d.ts",
+            "default": "./lib/client.js"
+          },
+          "./src/*": "./src/*",
+          "./package.json": "./package.json",
+          "./locale/*.json": "./locale/*.json"
+        },
+        "peerDependencies": {
+          "@deepseek-ai/cordis": "~4.0.5"
+        },
+        "dependencies": {
+          "@deepseek-ai/schemastery": "~3.18.5"
+        },
+        "dsh": {
+          "client": {
+            "inject": [
+              "@deepseek-ai/dsh-api-session-controller",
+              "@deepseek-ai/dsh-client-file-upload",
+              "@deepseek-ai/dsh-client-locale",
+              "@deepseek-ai/dsh-client-ui-layout",
+              "@deepseek-ai/dsh-client-ui-renderer",
+              "@deepseek-ai/dsh-client-ui-session",
+              "@deepseek-ai/dsh-client-ui-settings",
+              "@deepseek-ai/dsh-client-ui-workspace"
+            ],
+            "platform": "web"
+          }
+        }
+      }
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-sidebar-right",
+      "declarations": [],
+      "beforeManifest": {
+        "exports": {
+          ".": {
+            "types": "./lib/types/index.d.ts",
+            "default": "./lib/index.js"
+          },
+          "./client": {
+            "types": "./lib/types/client/index.d.ts",
+            "default": "./lib/client.js"
+          },
+          "./src/*": "./src/*",
+          "./package.json": "./package.json"
+        },
+        "peerDependencies": {
+          "@deepseek-ai/cordis": "~4.0.4"
+        },
+        "dsh": {
+          "client": {
+            "inject": [
+              "@deepseek-ai/dsh-api-session-controller",
+              "@deepseek-ai/dsh-client-resources",
+              "@deepseek-ai/dsh-client-ui-conversation",
+              "@deepseek-ai/dsh-client-ui-layout",
+              "@deepseek-ai/dsh-client-ui-session",
+              "@deepseek-ai/dsh-client-shortcuts"
+            ],
+            "platform": "web"
+          }
+        }
+      },
+      "afterManifest": {
+        "exports": {
+          ".": {
+            "types": "./lib/types/index.d.ts",
+            "default": "./lib/index.js"
+          },
+          "./client": {
+            "types": "./lib/types/client/index.d.ts",
+            "default": "./lib/client.js"
+          },
+          "./src/*": "./src/*",
+          "./package.json": "./package.json",
+          "./locale/*.json": "./locale/*.json"
+        },
+        "peerDependencies": {
+          "@deepseek-ai/cordis": "~4.0.5"
+        },
+        "dsh": {
+          "client": {
+            "inject": [
+              "@deepseek-ai/dsh-api-session-controller",
+              "@deepseek-ai/dsh-client-resources",
+              "@deepseek-ai/dsh-client-ui-conversation",
+              "@deepseek-ai/dsh-client-ui-layout",
+              "@deepseek-ai/dsh-client-ui-session",
+              "@deepseek-ai/dsh-client-shortcuts"
+            ],
+            "platform": "web"
+          }
+        }
+      }
+    },
+    {
+      "name": "@deepseek-ai/dsh-llm",
+      "declarations": [
+        {
+          "file": "lib/typert.remote-client.d.ts",
+          "beforeSha256": "915dbdeff4f5da8cdd9baecf7052681a7814653a294d869f36eb817fd8ef6da1",
+          "afterSha256": "d6deeb10ab6d7edb5ba6857efd28614df7ea69986ade836ba6d7dd23b8d92fe9"
+        },
+        {
+          "file": "lib/types/attribution.d.ts",
+          "beforeSha256": "79439e449466a5ae16e4875388a75f8bdc0525d4780445e9dcae7bca303d2cab",
+          "afterSha256": "d076c35cccae45cc0db194a24bdf99688b0725fb0bf68dab919b8f8285aec2d7"
+        },
+        {
+          "file": "lib/types/call-config.d.ts",
+          "beforeSha256": "48a4a04965d22c77f95833cdbf54dd9c0438a50af6abf1d1169b40869f4afd46",
+          "afterSha256": "29434a5694aea2cd639641338f1aef668d37bad0dcc44c97d8369169dff00ff9"
+        },
+        {
+          "file": "lib/types/error.d.ts",
+          "beforeSha256": "a21bfb0e15730fce572e973103e3c51756fe1f59d1519f4e0c757e6152f0469b",
+          "afterSha256": "faeeb5e1d7b303a52d842a6e964bc9aaad1fcd94f1a838c4fb2d5822fc4f84c4"
+        },
+        {
+          "file": "lib/types/index.d.ts",
+          "beforeSha256": "c5e3c6d92c7c2cf1529ff34eeaf0af92ccee56f2e5ae0f06c36f8548736f9c55",
+          "afterSha256": "895a2d357b3da2d2ec18eada1271274d43169acaa6591d57bb6e84878e1b88fe"
+        },
+        {
+          "file": "lib/types/invariant.d.ts",
+          "beforeSha256": "f72eacc749766760623c080f216a8f9d858cd48e496f8de94556a28acc9adbaf",
+          "afterSha256": null
+        },
+        {
+          "file": "lib/types/types.d.ts",
+          "beforeSha256": "6b7f5b81f6b680b1bf33346950f43e1cb760182f14d54cb71f5f0c1f2ce20352",
+          "afterSha256": "f07f8f22ba299522421716e5abcf2d3ed4147a9ffc500b14d943701ee40d6ee8"
+        }
+      ],
+      "beforeManifest": {
+        "exports": {
+          ".": {
+            "types": "./lib/types/index.d.ts",
+            "default": "./lib/index.js"
+          },
+          "./invariant": {
+            "types": "./lib/types/invariant.d.ts",
+            "default": "./lib/invariant.js"
+          },
+          "./types": {
+            "types": "./lib/types/types.d.ts",
+            "default": "./lib/types/types.js"
+          },
+          "./brand": {
+            "types": "./lib/types/brand.d.ts",
+            "default": "./lib/types/brand.js"
+          },
+          "./message": {
+            "types": "./lib/types/message.d.ts",
+            "default": "./lib/types/message.js"
+          },
+          "./assistant-stream": {
+            "types": "./lib/types/assistant-stream.d.ts",
+            "default": "./lib/types/assistant-stream.js"
+          },
+          "./typert": {
+            "types": "./lib/typert.host.d.ts",
+            "default": "./lib/typert.host.js"
+          },
+          "./remote": {
+            "types": "./lib/typert.remote-client.d.ts",
+            "default": "./lib/typert.remote-client.js"
+          },
+          "./src/*": "./src/*",
+          "./package.json": "./package.json"
+        },
+        "peerDependencies": {
+          "@deepseek-ai/cordis": "~4.0.4"
+        },
+        "dependencies": {
+          "zod": "^4.4.3",
+          "@deepseek-ai/dsh-util-crypto": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-timeout": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-brand": "0.2.0-rc.2",
+          "@deepseek-ai/schemastery": "~3.18.4",
+          "@deepseek-ai/dsh-typert-protocol": "0.2.0-rc.2",
+          "@deepseek-ai/dsh-util-values": "0.2.0-rc.2"
+        }
+      },
+      "afterManifest": {
+        "exports": {
+          ".": {
+            "types": "./lib/types/index.d.ts",
+            "default": "./lib/index.js"
+          },
+          "./types": {
+            "types": "./lib/types/types.d.ts",
+            "default": "./lib/types/types.js"
+          },
+          "./brand": {
+            "types": "./lib/types/brand.d.ts",
+            "default": "./lib/types/brand.js"
+          },
+          "./message": {
+            "types": "./lib/types/message.d.ts",
+            "default": "./lib/types/message.js"
+          },
+          "./assistant-stream": {
+            "types": "./lib/types/assistant-stream.d.ts",
+            "default": "./lib/types/assistant-stream.js"
+          },
+          "./typert": {
+            "types": "./lib/typert.host.d.ts",
+            "default": "./lib/typert.host.js"
+          },
+          "./remote": {
+            "types": "./lib/typert.remote-client.d.ts",
+            "default": "./lib/typert.remote-client.js"
+          },
+          "./src/*": "./src/*",
+          "./package.json": "./package.json",
+          "./locale/*.json": "./locale/*.json"
+        },
+        "peerDependencies": {
+          "@deepseek-ai/cordis": "~4.0.5"
+        },
+        "dependencies": {
+          "@deepseek-ai/dsh-util-crypto": "0.2.1-rc.1",
+          "@deepseek-ai/schemastery": "~3.18.5",
+          "zod": "4.4.3",
+          "@deepseek-ai/dsh-timeout": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-brand": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-util-values": "0.2.1-rc.1",
+          "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.1"
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "Declaration and manifest differences require semantic review and real runtime/UI verification."
+  ]
+}

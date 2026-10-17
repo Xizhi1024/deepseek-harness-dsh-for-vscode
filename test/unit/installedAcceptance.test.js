@@ -12,7 +12,7 @@ const { candidateManifest, readVsix, verifyInstalled } = require('../extension-h
 const requiredFiles = [
   'src/extension.js',
   'src/session/browserProxy.js',
-  'runtime-integration/dsh-vscode-integration/lib/client.dsh020rc1.js',
+  'runtime-integration/dsh-vscode-integration/lib/client.dsh020.js',
   'runtime-integration/dsh-vscode-integration/lib/client.sessionBridge.js',
   'runtime-integration/dsh-vscode-integration/contracts/session-bridge-v1.json',
 ];
@@ -90,9 +90,9 @@ function fixture(t) {
   };
 }
 
-function candidateEntries({ manifest = {}, integrationVersion = '0.11.0' } = {}) {
+function candidateEntries({ manifest = {}, integrationVersion = '0.11.1' } = {}) {
   return [
-    { name: 'extension/package.json', data: JSON.stringify({ publisher: 'Xizhi1024', name: 'dsh-vs-sidebar', version: '1.2.1', ...manifest }) },
+    { name: 'extension/package.json', data: JSON.stringify({ publisher: 'Xizhi1024', name: 'dsh-vs-sidebar', version: '1.2.2', ...manifest }) },
     { name: `extension/${integrationManifest}`, data: JSON.stringify({ name: 'dsh-vscode-integration', version: integrationVersion }) },
     ...requiredFiles.map((name, index) => ({ name: `extension/${name}`, data: `fixture artifact ${index}\n`, method: index % 2 ? 8 : 0 })),
     { name: '[Content_Types].xml', data: '<Types />' },
@@ -117,8 +117,8 @@ test('candidate records versions and hashes the exact VSIX and every extension a
   const run = fixture(t), entries = candidateEntries(), bytes = zip(entries);
   const expected = candidateManifest(run.write(bytes));
   assert.equal(expected.extensionId, 'Xizhi1024.dsh-vs-sidebar');
-  assert.equal(expected.extensionVersion, '1.2.1');
-  assert.equal(expected.integrationVersion, '0.11.0');
+  assert.equal(expected.extensionVersion, '1.2.2');
+  assert.equal(expected.integrationVersion, '0.11.1');
   assert.equal(expected.vsixSha256, digest(bytes));
   assert.equal(Object.keys(expected.files).length, requiredFiles.length + 1);
   assert.equal(expected.files['package.json'], undefined);

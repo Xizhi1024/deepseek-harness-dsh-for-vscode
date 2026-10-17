@@ -2,7 +2,7 @@
 
 ## Scope and status
 
-Plain CommonJS extension host, zero npm dependencies, VS Code desktop ≥ 1.106. Extension **1.2.1 candidate** bundles **dsh-vscode-integration 0.11.0**. Runtime selection is exact: target DSH `0.2.0-rc.1` and `0.2.0-rc.2` (per-version adapters from one descriptor table in `src/runtime/compatibility.js`), legacy `0.1.2-rc.1`; unknown versions do not inherit integration support.
+Plain CommonJS extension host, zero npm dependencies, VS Code desktop ≥ 1.106. Extension **1.2.2 candidate** bundles **dsh-vscode-integration 0.11.1**. Runtime selection is exact: target DSH `0.2.0-rc.1`, `0.2.0-rc.2`, `0.2.1-rc.1` and `0.2.1-rc.2` (per-version adapters from one descriptor table in `src/runtime/compatibility.js`), legacy `0.1.2-rc.1`; unknown versions do not inherit integration support.
 
 The candidate includes the 1.1.8 watcher, focus and search fixes. Runtime/browser probes have passed search/IME, prompt/cancel/tools, 601-second steady-state and ten start/stop cycles. Installed-VSIX validation is in progress; [final validation handoff](HANDOFF-1.2.0-VALIDATION.md) controls acceptance claims.
 
@@ -52,3 +52,5 @@ DI factories, frozen values, bounded queues, fail-closed validation and explicit
 - `npm run check:w0`: lint, unit tests, package and secrets gates; `scripts/probe-dsh020.js --target <version>` exercises an isolated real runtime.
 - [Architecture contracts](PLAN-1.2.0-ARCHITECTURE-CONTRACTS.md), [implementation plan](PLAN-1.2.0-DSH-0.2.0-rc.1.md), [host mapping evidence](HANDOFF-1.2.0-HOST-CONTRACTS.md), [final validation](HANDOFF-1.2.0-VALIDATION.md); rc.2 adaptation evidence: `evidence/dsh020rc2/` and [HANDOFF-1.2.1-DSH-0.2.0-rc.2.md](HANDOFF-1.2.1-DSH-0.2.0-rc.2.md).
 - Non-text file/image prompt upload, FIM and the complete optional-feature matrix are not certified. Candidate builds and installed-state tests do not imply Marketplace publication or replacement of the user's daily installation.
+
+Sprint 1 (2026-10-17): exact RC window and source/package hashes are in `evidence/sprint1/release-window.json`; API declaration diffs and real runtime probes are in `evidence/sprint1/`. Installation/UI results are reported separately from runtime contract probes.

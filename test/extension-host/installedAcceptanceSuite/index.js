@@ -43,7 +43,7 @@ async function run() {
     await extension.exports.ask('UI search alpha', { signal: AbortSignal.timeout(30000) });
     await vscode.commands.executeCommand('dsh.newSession');
     await extension.exports.ask('UI search beta', { signal: AbortSignal.timeout(30000) });
-    proof.runtimeStartupAndExports = { status: 'PASS', runtimeVersion: '0.2.0-rc.1', sessionsCreated: 2, localProviderResponses: 2 };
+    proof.runtimeStartupAndExports = { status: 'PASS', runtimeVersion: expected.runtimeUi.runtimeVersion, sessionsCreated: 2, localProviderResponses: 2 };
     saveProof();
     fs.writeFileSync(expected.runtimeUi.seededPath, 'seeded through installed exports');
     while (!fs.existsSync(expected.runtimeUi.releasePath) && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 100));

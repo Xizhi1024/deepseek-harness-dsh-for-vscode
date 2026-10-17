@@ -15,6 +15,8 @@ const workspaceSummary = (item) => ({ id: item.workspaceId, rootPath: item.path,
 export const TARGET_RUNTIME_IDENTITIES = Object.freeze({
   '0.2.0-rc.1': 'dsh-0.2.0-rc.1',
   '0.2.0-rc.2': 'dsh-0.2.0-rc.2',
+  '0.2.1-rc.1': 'dsh-0.2.1-rc.1',
+  '0.2.1-rc.2': 'dsh-0.2.1-rc.2',
 });
 
 /** Expand only the compact record vocabulary published by the pinned dsh-llm. */
@@ -60,8 +62,8 @@ function recordFor(event, toolCalls) {
 }
 
 /**
- * Shared target-line host adapter for exact DSH 0.2.0 runtimes. The per-version
- * entry points (dsh020rc1.js / dsh020rc2.js) freeze the identity pair; this
+ * Shared host adapter for the audited exact DSH 0.2.0 and 0.2.1 RC runtimes. The per-version
+ * entry points freeze the identity pair; this
  * factory never guesses one and rejects any (runtimeVersion, adapterId) pair
  * that is not in TARGET_RUNTIME_IDENTITIES.
  */

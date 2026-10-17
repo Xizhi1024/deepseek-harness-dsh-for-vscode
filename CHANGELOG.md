@@ -1,3 +1,10 @@
+# 1.2.2 candidate — Sprint 1
+
+- Add exact DSH 0.2.1-rc.1 / rc.2 Host and browser identities, version-specific profiles and packaged adapter entry points; retain existing adapters.
+- Refuse managed target startup in an empty window before preparing a profile or inheriting an execution directory.
+- Bundle integration 0.11.1 with an explicit DSH engine range; add published declaration/manifest diff tooling and version locks.
+- Make installed-VSIX acceptance select and verify the actual runtime version and current browser chunk name. Runtime probes and installed UI evidence remain separate.
+
 # Changelog / 更新日志
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
@@ -769,4 +776,3 @@ Merges 0.9.4 (view fix + recommended preset + showcase-first READMEs) with featu
 
 - **安全的实例清理**：关闭 VS Code 时只清理本扩展自行启动的进程（Windows 用 `taskkill /T` 树级清理）；注册表清理只删除已死进程的条目，绝不杀死其他窗口复用的存活实例。
   Safe instance cleanup: on VS Code close only processes this extension spawned are stopped (tree-kill via `taskkill /T` on Windows); registry cleanup deletes only dead entries and never kills live instances reused by other windows.
-

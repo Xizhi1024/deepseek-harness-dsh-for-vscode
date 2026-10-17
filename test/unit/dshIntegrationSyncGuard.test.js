@@ -27,6 +27,8 @@ const DEV_FILES = [
   'lib/adapters/dsh020.js',
   'lib/adapters/dsh020rc1.js',
   'lib/adapters/dsh020rc2.js',
+  'lib/adapters/dsh021rc1.js',
+  'lib/adapters/dsh021rc2.js',
   'contracts/runtime-v1.json',
   'contracts/session-bridge-v1.json',
   'contracts/validate.cjs',

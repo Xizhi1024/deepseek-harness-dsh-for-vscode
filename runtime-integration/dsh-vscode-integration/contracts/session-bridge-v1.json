@@ -225,7 +225,9 @@
         "adapterId": {
           "enum": [
             "dsh-0.2.0-rc.1",
-            "dsh-0.2.0-rc.2"
+            "dsh-0.2.0-rc.2",
+            "dsh-0.2.1-rc.1",
+            "dsh-0.2.1-rc.2"
           ]
         },
         "capabilities": {

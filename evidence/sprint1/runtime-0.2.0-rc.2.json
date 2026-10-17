@@ -1,0 +1,187 @@
+{
+  "runtimeVersion": "0.2.0-rc.2",
+  "integrationVersion": "0.11.0",
+  "extensionVersion": "1.2.1",
+  "nodeVersion": "v24.11.1",
+  "platform": "win32",
+  "arch": "x64",
+  "runtimeManifestSha256": "0a85203e3e907dd2e3bec34324a2494758ca6cdee234b07090a7c8df0b11acac",
+  "isolated": {
+    "home": true,
+    "workspace": true,
+    "profile": true,
+    "providerEnvironment": true
+  },
+  "cases": [
+    {
+      "id": "startup",
+      "status": "PASS",
+      "owned": true,
+      "authenticatedHealth": true
+    },
+    {
+      "id": "cookie-only",
+      "status": "PASS"
+    },
+    {
+      "id": "wrong-token",
+      "status": "PASS"
+    },
+    {
+      "id": "browser-origin",
+      "status": "PASS"
+    },
+    {
+      "id": "capabilities",
+      "status": "PASS",
+      "features": {
+        "workspaces": {
+          "state": "available"
+        },
+        "sessions": {
+          "state": "available"
+        },
+        "prompt": {
+          "state": "available"
+        },
+        "follow": {
+          "state": "available"
+        },
+        "cancelSession": {
+          "state": "available"
+        },
+        "toolObservation": {
+          "state": "available"
+        },
+        "lmRoute": {
+          "state": "unverified",
+          "reason": "Optional LM routing requires separate provider validation"
+        },
+        "fim": {
+          "state": "unverified",
+          "reason": "Optional FIM requires separate provider validation"
+        }
+      }
+    },
+    {
+      "id": "workspace-create-list-reuse",
+      "status": "PASS"
+    },
+    {
+      "id": "session-create-list-rename",
+      "status": "PASS"
+    },
+    {
+      "id": "follow-opening-snapshot-return-reopen",
+      "status": "PASS"
+    },
+    {
+      "id": "cancel-idle-session",
+      "status": "PASS",
+      "limitation": "Active turn cancellation requires a model-backed probe."
+    },
+    {
+      "id": "same-owned-pid",
+      "status": "PASS"
+    },
+    {
+      "id": "local-provider-stream",
+      "status": "PASS",
+      "chunks": 2,
+      "assistantRecords": 1,
+      "terminal": "completed"
+    },
+    {
+      "id": "local-provider-active-cancel",
+      "status": "PASS",
+      "terminal": "cancelled"
+    },
+    {
+      "id": "local-provider-real-tools",
+      "status": "PASS",
+      "tools": [
+        "read",
+        "write",
+        "edit"
+      ],
+      "dispatch": [
+        "read",
+        "write",
+        "edit"
+      ],
+      "confirmedObservations": 2,
+      "terminal": "completed"
+    }
+  ],
+  "integrationFiles": {
+    "package.json": "4be958cd7ef6fb9648414085489319b310626828b0760f56ccaf9a9a86af18f0",
+    "lib/adapters/dsh020.js": "364e1dc1890b39c9705f83a576feea0e6fd0cf80b1b0762fa39ac5508db3ce9a",
+    "lib/adapters/dsh020rc1.js": "48ca307c4aa85cd4112ff38629a8a2ce97ed36f9b262798f37687cb2922f7b5f",
+    "lib/adapters/dsh020rc2.js": "9486aa8bb6c5c9b0f6fc429132b5d2c4ed131bb5290b6c5b7be4fa1e1d4e6674",
+    "lib/adapters/dsh021rc1.js": "464061ca5f3c337c5d939f5273e5c85070dde84c21231fb03fdf6a9b18f5a466",
+    "lib/adapters/dsh021rc2.js": "bbb5b2253a42c7f8da40bdda55eb398cbe88dcef2d8f241c1449d8b27c3f25a9",
+    "lib/client.dsh020.js": "0c2fd60cd37aa40eb4496ab2502da5ce9d0203381c1cc8e4846609d6cf9185f8",
+    "lib/client.js": "a045ed6cab36bbc0d8eecfde5074a462c796ff5e7076a939228b656edca9ef4e",
+    "lib/client.sessionBridge.js": "7ba5b940c6843d3a47ad3631ab1cdb050e8d5e4f70bc131e1ccdb62d87153dff",
+    "lib/compatSessionRoutes.js": "6488759682c0faff94c0a1861dd4fc280cf37f1acae1d57f13e7201cdc867142",
+    "lib/editObserver.js": "d45d2990afd290a054b69503e7c241be2b990113536751be93d4efa73bdf2736",
+    "lib/fimRoutes.js": "a01a561e17c1bb5be3d263b1ea992aa596828d9e278ef106fc2c3ad0569ecebe",
+    "lib/index.js": "d5e8be274eb9df363c8eff8bfae9103514f851a569ff6766319e67915fe8761b",
+    "lib/linkRoutes.js": "40d34d5ff1709d347ad5a20c4e9d1de54beac8d5e85069e2d8fdc87ab1fedb6b",
+    "lib/lmRoute.js": "4d015871f0879d92db25901c4bb0b307fe02b2a74482428e8bf45ad6692c2fb2",
+    "lib/runtimeFacade.js": "9326ee32b9106bcdd6b903a3bafac53df97d947a7dfc1ceb947a783d798b5ea6",
+    "lib/tools.js": "4c2fb34913997abe783f20656738800e07d1e43609432f6f95b2dc67a747c9cb",
+    "contracts/runtime-v1.json": "1f84dc9a184c86c7ef511ca1690ecddebf5cd48888d44acf709097bc285be7f9",
+    "contracts/session-bridge-v1.json": "e22d33d965a33e8c5013daed4a250c2ac96b4f8f1c88f58c860c1468391b8f18",
+    "contracts/validate.cjs": "5d3c392036631d0c70dc112b5d3d82ecc4bec214a071cb73bd5cd6ffc56103dd"
+  },
+  "toolProbe": [
+    {
+      "tool": {
+        "callId": "probe-call-0",
+        "name": "read",
+        "state": "succeeded"
+      },
+      "content": [
+        {
+          "kind": "text",
+          "text": "<path>D:\\Coding\\DSH\\sprint1-runtime\\probes\\020rc2\\run-SRMy8u\\workspace\\probe-tool.txt</path>\n<type>file</type>\n<content>\n1: before\n\n(End of file - total 1 lines)\n</content>"
+        }
+      ]
+    },
+    {
+      "tool": {
+        "callId": "probe-call-1",
+        "name": "write",
+        "state": "succeeded"
+      },
+      "content": [
+        {
+          "kind": "text",
+          "text": "<path>D:\\Coding\\DSH\\sprint1-runtime\\probes\\020rc2\\run-SRMy8u\\workspace\\probe-tool.txt</path>\n<type>file</type>\n<content>\nUpdated file\n</content>"
+        }
+      ]
+    },
+    {
+      "tool": {
+        "callId": "probe-call-2",
+        "name": "edit",
+        "state": "succeeded"
+      },
+      "content": [
+        {
+          "kind": "text",
+          "text": "The file D:\\Coding\\DSH\\sprint1-runtime\\probes\\020rc2\\run-SRMy8u\\workspace\\probe-tool.txt has been updated successfully."
+        }
+      ]
+    }
+  ],
+  "status": "PASS",
+  "ownedChildAfterStop": false,
+  "ownedPidExited": true,
+  "limitations": [
+    "No installed VSIX or browser UI exercised.",
+    "Deterministic local LlmAdapter backend used; no production model, provider network, Changes accept/undo UI or CH1 notification delivery certified."
+  ],
+  "evidenceOrigin": "D:\\Coding\\DSH\\sprint1-runtime\\probes\\020rc2\\run-SRMy8u\\evidence.json"
+}

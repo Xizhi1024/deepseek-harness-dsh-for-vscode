@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-The CommonJS extension host for 1.2.1 candidate: `extension.js` assembles exact runtime selection, shared session services, webview surfaces, commands and optional features. No npm runtime dependencies. Target DSH is exactly `0.2.0-rc.1` or `0.2.0-rc.2` (descriptor table in `runtime/compatibility.js`); legacy `0.1.2-rc.1` remains a separate path.
+The CommonJS extension host for 1.2.2 candidate: `extension.js` assembles exact runtime selection, shared session services, webview surfaces, commands and optional features. No npm runtime dependencies. Target DSH is exactly `0.2.0-rc.1`, `0.2.0-rc.2`, `0.2.1-rc.1` or `0.2.1-rc.2` (descriptor table in `runtime/compatibility.js`); legacy `0.1.2-rc.1` remains a separate path.
 
 ## Runtime modules
 
@@ -61,3 +61,5 @@ The target iframe uses flat integration client chunks and public DSH UI services
 Target: `/api/vscode/v1/capabilities`, `/api/vscode/v1/rpc`, session-follow SSE; shared schemas live in the integration package's `contracts/`. Legacy: `/api/session.*`, `/api/events.mux`, `/api/workspace.*`. CH1 and browser protocols retain separate channel identities.
 
 Use `node:test` with injected facade/fetch/timers and `npm run check:w0`. [Host mapping](../HANDOFF-1.2.0-HOST-CONTRACTS.md) explains stream normalization and tool evidence. [Final validation](../HANDOFF-1.2.0-VALIDATION.md) records candidate acceptance: installed-state testing is ongoing, A07 partial, non-text prompt upload/FIM/full optional matrix unverified.
+
+Sprint 1 (2026-10-17): exact RC window and source/package hashes are in `evidence/sprint1/release-window.json`; API declaration diffs and real runtime probes are in `evidence/sprint1/`. Installation/UI results are reported separately from runtime contract probes.

@@ -152,7 +152,7 @@ function applyClient(shim) {
   return client;
 }
 
-for (const runtime of ['0.2.0-rc.1', '0.2.0-rc.2']) {
+for (const runtime of ['0.2.0-rc.1', '0.2.0-rc.2', '0.2.1-rc.1', '0.2.1-rc.2']) {
 test(`0.2 contenteditable chord is normalized to Shift-only for the native editor (${runtime})`, () => {
   const shim = createShim();
   shim.window.location.search += `&dsh_runtime=${runtime}`;
