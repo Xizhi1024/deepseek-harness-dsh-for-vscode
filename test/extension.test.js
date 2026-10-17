@@ -790,6 +790,9 @@ test(`repeated target connection preserves the existing iframe and surface epoch
   fs.mkdirSync(packageRoot);
   fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: targetVersion }));
   const fake = createFakeVscode({ autoStart: true, 'features.changes-review': false, 'features.chat-participant': false });
+  const statusItems = [];
+  const createStatusItem = fake.api.window.createStatusBarItem;
+  fake.api.window.createStatusBarItem = (...args) => { const item = createStatusItem(...args); statusItems.push(item); return item; };
   const workspaceRoot = path.join(root, 'workspace');
   fake.api.workspace.workspaceFolders = [{ uri: { fsPath: workspaceRoot }, name: 'workspace', index: 0 }];
   const context = { globalStorageUri: { fsPath: path.join(root, 'storage') }, subscriptions: [] };
@@ -845,6 +848,9 @@ test(`repeated target connection preserves the existing iframe and surface epoch
   const readyHtml = view.webview.html;
   const readyWrites = writes.length;
   const priorCapabilities = capabilityCalls;
+  const indicator = statusItems.find(item => item.command === 'dsh.focusSidebar');
+  const readyStatus = indicator.text;
+  assert.ok(readyStatus.includes('3080'));
   assert.ok(readyHtml.includes('dsh-vscode-session'), 'the target session bridge is enabled');
   receive({ type: 'retry' });
   await waitFor(() => capabilityCalls > priorCapabilities);
@@ -852,6 +858,7 @@ test(`repeated target connection preserves the existing iframe and surface epoch
   assert.equal(ensureCalls, 1, 'a ready target is health-checked without spawning again');
   assert.equal(writes.length, readyWrites, 'a repeated ensure must not replace the iframe with Connecting or another frame');
   assert.equal(view.webview.html, readyHtml, 'the shell surface identity and search state remain intact');
+  assert.equal(indicator.text, readyStatus, 'rechecking a live target must not strand its indicator on Connecting');
 
   const liveInstanceId = spawnEnv.DSH_VSCODE_RUNTIME_INSTANCE_ID;
   resolvedVersion = null;

@@ -855,8 +855,8 @@ function themeFromColorThemeKind(theme) {
  * The directory the DSH server should treat as its workspace root.
  * Defaults to the current VS Code workspace: in multi-root setups the
  * workspace of the active editor wins, otherwise the first folder.
- * Returns null when no workspace is open — the spawned process then
- * inherits the extension host's cwd (no forced fallback to a home dir).
+ * Returns null when no workspace is open. Managed target releases refuse
+ * that state before launch; legacy releases retain their inherited cwd.
  */
 /**
  * In remote scenarios (WSL / Remote-SSH) the server runs on the remote side
@@ -1067,8 +1067,10 @@ async function connectAttempt(context) {
     const cwd = hostContext.workspaceCwd();
     const preserveLiveTarget = Boolean(targetLease && currentView
       && targetSurfaces.has(currentView.webview) && manager.hasOwnedChild());
-    setStatusBar("$(radio-tower) " + loc("DSH: connecting…"));
-    if (!preserveLiveTarget) render(statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail: "", lang: vscode.env.language }));
+    if (!preserveLiveTarget) {
+      setStatusBar("$(radio-tower) " + loc("DSH: connecting…"));
+      render(statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail: "", lang: vscode.env.language }));
+    }
 
     let server = null;
     // autoStart uses the locally installed official DSH package by default and
