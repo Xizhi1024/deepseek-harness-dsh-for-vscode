@@ -1,0 +1,108 @@
+{
+  "status": "PASS",
+  "gate": "G1",
+  "scope": "Windows x64 / VS Code 1.133.0 / explicit core acceptance profile",
+  "date": "2026-10-17T10:15:15.749Z",
+  "implementationHead": "372ee107d7d661268099bc253950825791dcde01",
+  "branch": "sprint1/native-four-runtime",
+  "worktree": "D:/Coding/DSH/worktrees/dsh-vscode-s1",
+  "artifact": {
+    "path": "D:\\Coding\\DSH\\sprint1-runtime\\dsh-vs-sidebar-1.2.2-sprint1.vsix",
+    "sha256": "d106db6fe6002da176503b016a91dc16cbcb64cf0189a165ce265bc3fa91de2e",
+    "bytes": 1827994,
+    "archiveEntries": 139,
+    "extensionVersion": "1.2.2",
+    "integrationVersion": "0.11.1",
+    "verifiedInstalledFiles": 136,
+    "exactSourceFileBodies": 134,
+    "transformedDocumentation": [
+      "readme.md",
+      "changelog.md"
+    ],
+    "packagePathMapping": {
+      "LICENSE.txt": "LICENSE"
+    },
+    "manifestComparison": "semantic equality; installed __metadata excluded",
+    "allPackagedCodeBodiesMatchSource": true
+  },
+  "checks": {
+    "host": {
+      "tests": 894,
+      "pass": 893,
+      "skipped": 1,
+      "fail": 0
+    },
+    "integration": {
+      "pass": 181,
+      "fail": 0
+    },
+    "lint": "PASS: 208 JavaScript / 6 JSON",
+    "package": "PASS: 137 package files",
+    "secrets": "PASS",
+    "preservedOriginalWip": "PASS"
+  },
+  "tasks": {
+    "B01": "DONE",
+    "B02": "DONE",
+    "B03": "DONE",
+    "B04": "DONE"
+  },
+  "matrix": [
+    {
+      "runtimeVersion": "0.2.1-rc.2",
+      "E01": "PASS",
+      "E02": "PASS",
+      "G1": "PASS",
+      "runtime": "runtime-0.2.1-rc.2.json",
+      "lifecycle": "lifecycle-0.2.1-rc.2.json",
+      "reconnect": "reconnect-0.2.1-rc.2.json",
+      "installedPair": "paired-0.2.1-rc.2.json"
+    },
+    {
+      "runtimeVersion": "0.2.1-rc.1",
+      "E01": "PASS",
+      "E02": "PASS",
+      "G1": "PASS",
+      "runtime": "runtime-0.2.1-rc.1.json",
+      "lifecycle": "lifecycle-0.2.1-rc.1.json",
+      "reconnect": "reconnect-0.2.1-rc.1.json",
+      "installedPair": "paired-0.2.1-rc.1.json"
+    },
+    {
+      "runtimeVersion": "0.2.0-rc.2",
+      "E01": "PASS",
+      "E02": "PASS",
+      "G1": "PASS",
+      "runtime": "runtime-0.2.0-rc.2.json",
+      "lifecycle": "lifecycle-0.2.0-rc.2.json",
+      "reconnect": "reconnect-0.2.0-rc.2.json",
+      "installedPair": "paired-0.2.0-rc.2.json"
+    },
+    {
+      "runtimeVersion": "0.2.0-rc.1",
+      "E01": "PASS",
+      "E02": "PASS",
+      "G1": "PASS",
+      "runtime": "runtime-0.2.0-rc.1.json",
+      "lifecycle": "lifecycle-0.2.0-rc.1.json",
+      "reconnect": "reconnect-0.2.0-rc.1.json",
+      "installedPair": "paired-0.2.0-rc.1.json"
+    }
+  ],
+  "evidenceBoundaries": {
+    "E01": "Real installed VSIX, panel close/reopen, iframe reload, exact browser identity, native composer response, light/dark theme; deterministic local LlmAdapter",
+    "E02": "Actual paired installed windows and survivor response after peer Code exits; real component start/stop/failure/reconnect gates; four-version empty-window/no-spawn DI Host tests",
+    "viewport": "Maximized native auxiliary bar; optional changes-review pane disabled in acceptance fixtures only",
+    "input": "DOM-dispatched native controls and focused composer keyboard; pointer geometry and narrow-sidebar usability are not certified",
+    "diff": "Full declaration/manifest diff for eight consumed packages; this is not a full upstream implementation diff"
+  },
+  "notClaimed": [
+    "Production model provider acceptance",
+    "S2 selection-link feature / G2",
+    "S3 Node or Renode/STM32 debug / G3",
+    "S4 compact/default narrow sidebar/Agent workflow / G4",
+    "macOS/Linux/Remote certification",
+    "Marketplace publication or daily-user installation"
+  ],
+  "next": "S2 V01; G1 passes only for the recorded Windows core configuration"
+}

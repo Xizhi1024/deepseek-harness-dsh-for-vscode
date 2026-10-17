@@ -1,0 +1,201 @@
+{
+  "status": "PASS",
+  "mode": "reconnect",
+  "startedAt": "2026-10-17T10:07:16.239Z",
+  "runtimeVersion": "0.2.0-rc.2",
+  "integrationVersion": "0.11.1",
+  "nodeVersion": "v24.11.1",
+  "cases": [
+    {
+      "id": "two-consumers-one-real-sse",
+      "status": "PASS",
+      "ownedPid": 23872
+    },
+    {
+      "id": "two-real-disconnects-recover",
+      "status": "PASS",
+      "samples": 6,
+      "cuts": [
+        {
+          "elapsedMs": 3402,
+          "recoveryMs": 1008
+        },
+        {
+          "elapsedMs": 6096,
+          "recoveryMs": 2019
+        }
+      ],
+      "ownedStarts": 1
+    },
+    {
+      "id": "last-consumer-disposal",
+      "status": "PASS",
+      "transports": 0,
+      "reconnectTimers": 0
+    },
+    {
+      "id": "steady-owned-pid-exit",
+      "status": "PASS",
+      "pid": 23872
+    }
+  ],
+  "samples": [
+    {
+      "elapsedMs": 11,
+      "pid": 23872,
+      "runtimeRss": 258494464,
+      "probeRss": 67051520,
+      "activeHubKeys": 1,
+      "activeTransports": 1,
+      "totalTransportOpens": 1,
+      "consumers": 2,
+      "retryTimers": 0,
+      "epochs": 1
+    },
+    {
+      "elapsedMs": 1728,
+      "pid": 23872,
+      "runtimeRss": 259915776,
+      "probeRss": 67166208,
+      "activeHubKeys": 1,
+      "activeTransports": 1,
+      "totalTransportOpens": 1,
+      "consumers": 2,
+      "retryTimers": 0,
+      "epochs": 1
+    },
+    {
+      "elapsedMs": 4416,
+      "pid": 23872,
+      "runtimeRss": 261537792,
+      "probeRss": 64733184,
+      "activeHubKeys": 1,
+      "activeTransports": 1,
+      "totalTransportOpens": 2,
+      "consumers": 2,
+      "retryTimers": 0,
+      "epochs": 2
+    },
+    {
+      "elapsedMs": 8123,
+      "pid": 23872,
+      "runtimeRss": 151379968,
+      "probeRss": 65114112,
+      "activeHubKeys": 1,
+      "activeTransports": 1,
+      "totalTransportOpens": 3,
+      "consumers": 2,
+      "retryTimers": 0,
+      "epochs": 3
+    },
+    {
+      "elapsedMs": 9823,
+      "pid": 23872,
+      "runtimeRss": 152293376,
+      "probeRss": 65728512,
+      "activeHubKeys": 1,
+      "activeTransports": 1,
+      "totalTransportOpens": 3,
+      "consumers": 2,
+      "retryTimers": 0,
+      "epochs": 3
+    },
+    {
+      "elapsedMs": 11507,
+      "pid": 23872,
+      "runtimeRss": 152854528,
+      "probeRss": 65830912,
+      "activeHubKeys": 1,
+      "activeTransports": 1,
+      "totalTransportOpens": 3,
+      "consumers": 2,
+      "retryTimers": 0,
+      "epochs": 3
+    }
+  ],
+  "sourceHashes": {
+    "src/runtime/supervisor.js": "32db1536ccfcba0b32ab0ba290a3593c61927bd0fda132414c6c7f1294f6e696",
+    "src/runtime/client.js": "c8d7ce52bdae7cf8afc37125e420a1c7a5764438810c794f91ff07a6a0ae5160",
+    "src/session/feedHub.js": "dc9303fa5bc7dec2cac6455ef290600d3e17c650bb3c3995ba5c7c1b17e04e6d",
+    "src/serverManager.js": "bcfa5134b123ba0e04f71a46c043dd6a8dd5ad097fc19f2e80db7fe26336d465"
+  },
+  "integrationHashes": {
+    "package.json": "3f979ff84babfc5a3085f651331908e0f9b9d4d60c433ed5990c208d49241f81",
+    "lib/index.js": "d5e8be274eb9df363c8eff8bfae9103514f851a569ff6766319e67915fe8761b",
+    "lib/client.js": "a045ed6cab36bbc0d8eecfde5074a462c796ff5e7076a939228b656edca9ef4e",
+    "lib/client.dsh020.js": "0c2fd60cd37aa40eb4496ab2502da5ce9d0203381c1cc8e4846609d6cf9185f8",
+    "lib/client.sessionBridge.js": "9a267a50a93e7cfa7e268d4a2c8e490b27af6464d3f0a00f6a01c1715bc94694",
+    "lib/runtimeFacade.js": "9326ee32b9106bcdd6b903a3bafac53df97d947a7dfc1ceb947a783d798b5ea6",
+    "lib/adapters/dsh020.js": "f2c06a499fb7d27e731f0653c7b46184c4d6b8872187d62709de1e7cf7b4dc96",
+    "lib/adapters/dsh020rc1.js": "48ca307c4aa85cd4112ff38629a8a2ce97ed36f9b262798f37687cb2922f7b5f",
+    "lib/adapters/dsh020rc2.js": "9486aa8bb6c5c9b0f6fc429132b5d2c4ed131bb5290b6c5b7be4fa1e1d4e6674",
+    "lib/adapters/dsh021rc1.js": "464061ca5f3c337c5d939f5273e5c85070dde84c21231fb03fdf6a9b18f5a466",
+    "lib/adapters/dsh021rc2.js": "bbb5b2253a42c7f8da40bdda55eb398cbe88dcef2d8f241c1449d8b27c3f25a9",
+    "contracts/runtime-v1.json": "1f84dc9a184c86c7ef511ca1690ecddebf5cd48888d44acf709097bc285be7f9",
+    "contracts/session-bridge-v1.json": "e22d33d965a33e8c5013daed4a250c2ac96b4f8f1c88f58c860c1468391b8f18",
+    "contracts/validate.cjs": "5d3c392036631d0c70dc112b5d3d82ecc4bec214a071cb73bd5cd6ffc56103dd",
+    "lib/tools.js": "4c2fb34913997abe783f20656738800e07d1e43609432f6f95b2dc67a747c9cb",
+    "lib/lmRoute.js": "4d015871f0879d92db25901c4bb0b307fe02b2a74482428e8bf45ad6692c2fb2",
+    "lib/fimRoutes.js": "a01a561e17c1bb5be3d263b1ea992aa596828d9e278ef106fc2c3ad0569ecebe",
+    "lib/linkRoutes.js": "40d34d5ff1709d347ad5a20c4e9d1de54beac8d5e85069e2d8fdc87ab1fedb6b",
+    "lib/compatSessionRoutes.js": "6488759682c0faff94c0a1861dd4fc280cf37f1acae1d57f13e7201cdc867142",
+    "lib/editObserver.js": "d45d2990afd290a054b69503e7c241be2b990113536751be93d4efa73bdf2736"
+  },
+  "isolation": {
+    "freshHomes": true,
+    "freshWorkspaces": true,
+    "allowlistedChildEnvironment": true,
+    "personalKeys": false
+  },
+  "resourceSummary": {
+    "durationMs": 12201,
+    "opens": 3,
+    "active": 0,
+    "activePeak": 1,
+    "closes": 3,
+    "dispatchDepth": 0,
+    "dispatchPeak": 1,
+    "maxUpdateBytes": 283,
+    "consumers": 0,
+    "consumerPeak": 3,
+    "churnRegistrations": 120,
+    "terminalErrors": [],
+    "cuts": [
+      {
+        "elapsedMs": 3402,
+        "recoveryMs": 1008
+      },
+      {
+        "elapsedMs": 6096,
+        "recoveryMs": 2019
+      }
+    ],
+    "retryTimers": {
+      "active": 0,
+      "peak": 1
+    },
+    "runtimeRssMin": 151379968,
+    "runtimeRssMax": 261537792,
+    "runtimeRssFirst": 258494464,
+    "runtimeRssLast": 152854528,
+    "runtimeRssStrictlyIncreasing": false,
+    "configuredBounds": {
+      "frameBytes": 1048576,
+      "projectionBytes": 4194304,
+      "maxFeeds": 32
+    },
+    "queueMeasurement": "Observed reconnect timers and synchronous consumer dispatch depth; internal upstream queue occupancy is not exposed by public ports."
+  },
+  "cleanup": [
+    {
+      "pid": 23872,
+      "clean": true
+    }
+  ],
+  "finishedAt": "2026-10-17T10:07:31.680Z",
+  "limitations": [
+    "Runtime component acceptance only; no installed VSIX or browser UI.",
+    "RSS samples describe only this timed workload without claiming a general absence of leaks.",
+    "Public ports expose no upstream queue depth; retry-timer peak and dispatch depth are the observed bounds."
+  ]
+}

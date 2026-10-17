@@ -1,0 +1,81 @@
+{
+  "extensionId": "Xizhi1024.dsh-vs-sidebar",
+  "version": "1.2.2",
+  "integrationVersion": "0.11.1",
+  "vscodeVersion": "1.133.0",
+  "nodeVersion": "v24.18.0",
+  "extensionPath": "D:\\Coding\\DSH\\sprint1-runtime\\paired-release\\0.2.1-rc.1\\pair-DWsb1c\\b\\installed-1.133.0-ROPJZb\\extensions\\xizhi1024.dsh-vs-sidebar-1.2.2",
+  "testDriver": {
+    "id": "local-test.dsh-installed-acceptance-driver",
+    "path": "D:\\Coding\\DSH\\sprint1-runtime\\paired-release\\0.2.1-rc.1\\pair-DWsb1c\\b\\installed-1.133.0-ROPJZb\\test-driver"
+  },
+  "installationSource": "isolated installed VSIX; only the empty acceptance driver uses extensionDevelopmentPath",
+  "isActive": true,
+  "verifiedFiles": 136,
+  "vsixSha256": "d106db6fe6002da176503b016a91dc16cbcb64cf0189a165ce265bc3fa91de2e",
+  "commands": [
+    "dsh.addFileToThread",
+    "dsh.ctrlIEdit",
+    "dsh.ctrlKEdit",
+    "dsh.focusSidebar",
+    "dsh.newSession",
+    "dsh.restartServer",
+    "dsh.stopServer",
+    "dsh.switchSession"
+  ],
+  "runtimeUiAcceptance": {
+    "status": "PASS",
+    "scope": "S1 installed native iframe, exact handshake, packaged chunks and ordinary UI message/response",
+    "runtimeVersion": "0.2.1-rc.1",
+    "adapterId": "dsh-0.2.1-rc.1",
+    "target": {
+      "surfaceId": "sidebar",
+      "surfaceEpoch": 1,
+      "selectionGeneration": 2,
+      "state": "known",
+      "sessionId": "session-53db857a-a2f3-4099-9676-e68853d78bca"
+    },
+    "servedFileHashes": {
+      "client.js": "a045ed6cab36bbc0d8eecfde5074a462c796ff5e7076a939228b656edca9ef4e",
+      "client.dsh020.js": "0c2fd60cd37aa40eb4496ab2502da5ce9d0203381c1cc8e4846609d6cf9185f8",
+      "client.sessionBridge.js": "9a267a50a93e7cfa7e268d4a2c8e490b27af6464d3f0a00f6a01c1715bc94694"
+    },
+    "servedResponseHashes": {
+      "client.js": "b428b12ab11ffbd71a718ab2ed330f7a7e7cbf668892d7c7f7de3a4eccc3ee94",
+      "client.dsh020.js": "22e022641ce974e6e87ae0b78a8fc4879a6a7032f442ce8581a10d0d170457ed",
+      "client.sessionBridge.js": "b2cb212b00d0f044e5de7c637092f79cdd8155b231369b649a6728856a54a798"
+    },
+    "byteComparison": "Exact package bodies after excluding only official separator and revisioned source-map trailers",
+    "uiInputMethod": "DOM-dispatched native controls and focused composer keyboard; pointer hit geometry is not certified",
+    "viewportProfile": "Maximized native VS Code auxiliary bar; optional changes-review view disabled",
+    "ordinaryMessageResponse": true,
+    "nativeIframeReopened": true,
+    "nativeTheme": {
+      "source": "dark",
+      "expected": "dark",
+      "origin": "http://127.0.0.1:1492"
+    },
+    "pairedWindows": {
+      "role": "b",
+      "separateWorkspacesAndProcesses": true,
+      "separateSessions": true,
+      "responseAfterPeerWindowClosed": true
+    },
+    "localDeterministicProvider": true,
+    "screenshot": "installed-ui.png"
+  },
+  "extensionHostPid": 37760,
+  "workspaceFolders": [
+    "d:\\Coding\\DSH\\sprint1-runtime\\paired-release\\0.2.1-rc.1\\pair-DWsb1c\\b\\installed-1.133.0-ROPJZb\\workspace"
+  ],
+  "runtimeStartupAndExports": {
+    "status": "PASS",
+    "runtimeVersion": "0.2.1-rc.1",
+    "sessionsCreated": 2,
+    "localProviderResponses": 2,
+    "panelClosedAndReopened": true
+  },
+  "ownedRuntimeStopped": true,
+  "originalProofPath": "D:\\Coding\\DSH\\sprint1-runtime\\paired-release\\0.2.1-rc.1\\pair-DWsb1c\\b\\installed-1.133.0-ROPJZb\\proof.json",
+  "evidenceScreenshot": "installed-0.2.1-rc.1-b.png"
+}

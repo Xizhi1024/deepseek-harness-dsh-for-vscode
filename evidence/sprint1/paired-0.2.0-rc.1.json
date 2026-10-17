@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "runtimeVersion": "0.2.0-rc.1",
+  "vsixSha256": "d106db6fe6002da176503b016a91dc16cbcb64cf0189a165ce265bc3fa91de2e",
+  "scope": "Two installed Code windows; distinct workspace/process/endpoint/Session; B native UI responds after A Code exits",
+  "a": "installed-0.2.0-rc.1-a.json",
+  "b": "installed-0.2.0-rc.1-b.json",
+  "finishedAt": "2026-10-17T10:13:16.489Z",
+  "originalEvidencePath": "D:\\Coding\\DSH\\sprint1-runtime\\paired-release\\0.2.0-rc.1\\pair-0ktHlq\\evidence.json"
+}

@@ -1,7 +1,7 @@
 {
   "runtimeVersion": "0.2.0-rc.1",
-  "integrationVersion": "0.11.0",
-  "extensionVersion": "1.2.1",
+  "integrationVersion": "0.11.1",
+  "extensionVersion": "1.2.2",
   "nodeVersion": "v24.11.1",
   "platform": "win32",
   "arch": "x64",
@@ -114,15 +114,15 @@
     }
   ],
   "integrationFiles": {
-    "package.json": "4be958cd7ef6fb9648414085489319b310626828b0760f56ccaf9a9a86af18f0",
-    "lib/adapters/dsh020.js": "364e1dc1890b39c9705f83a576feea0e6fd0cf80b1b0762fa39ac5508db3ce9a",
+    "package.json": "3f979ff84babfc5a3085f651331908e0f9b9d4d60c433ed5990c208d49241f81",
+    "lib/adapters/dsh020.js": "f2c06a499fb7d27e731f0653c7b46184c4d6b8872187d62709de1e7cf7b4dc96",
     "lib/adapters/dsh020rc1.js": "48ca307c4aa85cd4112ff38629a8a2ce97ed36f9b262798f37687cb2922f7b5f",
     "lib/adapters/dsh020rc2.js": "9486aa8bb6c5c9b0f6fc429132b5d2c4ed131bb5290b6c5b7be4fa1e1d4e6674",
     "lib/adapters/dsh021rc1.js": "464061ca5f3c337c5d939f5273e5c85070dde84c21231fb03fdf6a9b18f5a466",
     "lib/adapters/dsh021rc2.js": "bbb5b2253a42c7f8da40bdda55eb398cbe88dcef2d8f241c1449d8b27c3f25a9",
     "lib/client.dsh020.js": "0c2fd60cd37aa40eb4496ab2502da5ce9d0203381c1cc8e4846609d6cf9185f8",
     "lib/client.js": "a045ed6cab36bbc0d8eecfde5074a462c796ff5e7076a939228b656edca9ef4e",
-    "lib/client.sessionBridge.js": "7ba5b940c6843d3a47ad3631ab1cdb050e8d5e4f70bc131e1ccdb62d87153dff",
+    "lib/client.sessionBridge.js": "9a267a50a93e7cfa7e268d4a2c8e490b27af6464d3f0a00f6a01c1715bc94694",
     "lib/compatSessionRoutes.js": "6488759682c0faff94c0a1861dd4fc280cf37f1acae1d57f13e7201cdc867142",
     "lib/editObserver.js": "d45d2990afd290a054b69503e7c241be2b990113536751be93d4efa73bdf2736",
     "lib/fimRoutes.js": "a01a561e17c1bb5be3d263b1ea992aa596828d9e278ef106fc2c3ad0569ecebe",
@@ -145,7 +145,7 @@
       "content": [
         {
           "kind": "text",
-          "text": "<path>D:\\Coding\\DSH\\sprint1-runtime\\probes\\020rc1\\run-s8sv1I\\workspace\\probe-tool.txt</path>\n<type>file</type>\n<content>\n1: before\n\n(End of file - total 1 lines)\n</content>"
+          "text": "<path>D:\\Coding\\DSH\\sprint1-runtime\\probes-artifact\\020rc1\\run-fs4Sxn\\workspace\\probe-tool.txt</path>\n<type>file</type>\n<content>\n1: before\n\n(End of file - total 1 lines)\n</content>"
         }
       ]
     },
@@ -158,7 +158,7 @@
       "content": [
         {
           "kind": "text",
-          "text": "<path>D:\\Coding\\DSH\\sprint1-runtime\\probes\\020rc1\\run-s8sv1I\\workspace\\probe-tool.txt</path>\n<type>file</type>\n<content>\nUpdated file\n</content>"
+          "text": "<path>D:\\Coding\\DSH\\sprint1-runtime\\probes-artifact\\020rc1\\run-fs4Sxn\\workspace\\probe-tool.txt</path>\n<type>file</type>\n<content>\nUpdated file\n</content>"
         }
       ]
     },
@@ -171,7 +171,7 @@
       "content": [
         {
           "kind": "text",
-          "text": "The file D:\\Coding\\DSH\\sprint1-runtime\\probes\\020rc1\\run-s8sv1I\\workspace\\probe-tool.txt has been updated successfully."
+          "text": "The file D:\\Coding\\DSH\\sprint1-runtime\\probes-artifact\\020rc1\\run-fs4Sxn\\workspace\\probe-tool.txt has been updated successfully."
         }
       ]
     }
@@ -182,6 +182,5 @@
   "limitations": [
     "No installed VSIX or browser UI exercised.",
     "Deterministic local LlmAdapter backend used; no production model, provider network, Changes accept/undo UI or CH1 notification delivery certified."
-  ],
-  "evidenceOrigin": "D:\\Coding\\DSH\\sprint1-runtime\\probes\\020rc1\\run-s8sv1I\\evidence.json"
+  ]
 }
