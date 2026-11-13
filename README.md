@@ -10,7 +10,7 @@ Embeds the full DSH web UI in the VS Code auxiliary sidebar: every window automa
 - **Context attachment**: right-click a file / selection / folder / Problems to append a compact link to the DSH draft — source text is never pasted, nothing is ever auto-sent
 - **DSH Changes review**: workspace edits pushed by DSH land in a dedicated tree with diff / accept / undo; every write needs explicit approval (on by default)
 - **@dsh chat participant**: type `@dsh` in the native VS Code chat to talk to your local DSH session with streaming replies — zero Copilot quota (on by default)
-- **Advanced, opt-in**: Ctrl+K / Ctrl+I inline edit, model routing into the VS Code LM picker, MCP consumption, terminal / UI bridges, FIM tab completion — every capability behind an explicit consent switch
+- **Advanced, opt-in**: Ctrl+K / Ctrl+I inline edit, model routing into the VS Code LM picker, MCP consumption / MCP bridge (other extensions' registered servers reach DSH's native MCP client), terminal / UI bridges, FIM tab completion — every capability behind an explicit consent switch
 
 ## ⚠️ Compatibility
 
@@ -54,6 +54,7 @@ Common commands (palette, `DSH:` prefix): New / Switch Session · Open Session H
 | `dsh.features.ctrl-k` / `ctrl-i` | false | Inline edit commands (Ctrl+K / Ctrl+I) |
 | `dsh.features.lm-route` | false | Expose DSH models in the VS Code LM picker |
 | `dsh.features.mcp-consume` | false | Let DSH consume VS Code-side MCP servers |
+| `dsh.features.mcp-bridge` | false | Bridge MCP servers registered by other extensions (`vscode.lm.mcpServerDefinitions`) into the DSH native MCP client — tools appear as `mcp__<server>__<tool>`; takes effect after the DSH server restarts |
 | `dsh.features.tab-completion` | false | FIM tab completion — needs `dsh.fim.baseUrl` + **DSH: Set FIM API Key**, then restart the DSH server |
 | `dsh.fim.baseUrl` | (empty) | Upstream FIM endpoint (full URL of an OpenAI-compatible completions API) |
 | `dsh.keybindings.ctrlL` | true | Ctrl+L adds the selection to the thread (never sends) |

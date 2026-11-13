@@ -36,6 +36,7 @@
 	},
 	"main": "src/extension.js",
 	"enabledApiProposals": [
+		"mcpServerDefinitions",
 		"terminalDataWriteEvent"
 	],
 	"scripts": {
@@ -597,6 +598,11 @@
 					"type": "boolean",
 					"default": false,
 					"description": "%dsh.cfg.features.mcp-consume%"
+				},
+				"dsh.features.mcp-bridge": {
+					"type": "boolean",
+					"default": false,
+					"description": "%dsh.cfg.features.mcp-bridge%"
 				},
 				"dsh.features.call-export": {
 					"type": "boolean",

@@ -31,3 +31,5 @@ docs/
 # ---- Local orchestration / 本地编排工作区 ----
 # Worktree lanes and deepwork progress files live here; never committed.
 .slim/
+
+.vscode/.checkmarx*

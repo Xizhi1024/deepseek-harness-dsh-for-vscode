@@ -96,12 +96,13 @@ const { createChangeTree, shouldSurfaceEntry } = require("./changeTree");
 const { createLmRoute } = require("./lmRoute");
 const { createMcpManager } = require("./mcp/manager");
 const { createConsentGate } = require("./mcp/consent");
+const { dedupeAgainstFileSources, readRegisteredMcpServers } = require("./mcp/vscodeRegistry");
 const {
   createExtensionBridgeHandlers,
   detectProviderStates,
   diagnosticSnapshot,
 } = require("./providerDetector");
-const { writeCleanOverlay, writeEmbedOverlay } = require("./embedOverlay");
+const { renderEmbedOverlay, writeCleanOverlay, writeEmbedOverlay } = require("./embedOverlay");
 const { startEmbedProxy } = require("./embedProxy");
 const {
   HOME_MODES,
@@ -193,6 +194,8 @@ let changeTree = null; // R14S1 TreeView/command surface (created in L2 changes-
 let lmRoute = null; // R23 model-route provider (created in L2 lm-route)
 let mcpManager = null; // S2b MCP consume aggregator (created in L0, no side effects)
 let mcpConsentGate = null; // S2b per-server consent gate (created in L0)
+let mcpOverlayRefreshTimer = null; // S3 mcp-bridge: debounced registry-change overlay refresh
+let lastMcpOverlayText = null; // S3 mcp-bridge: embed overlay text as last written (change detection)
 let callExportJournalInstance = null; // E-T2b callExport journal (created in L0, wired into v3)
 let embedPatchPath = null; // generated --patch overlay applied to extension-owned DSH children
 let runtimeStorageRoot = null; // managed runtime storage under VS Code global storage
@@ -416,6 +419,72 @@ function notifyDiagnosticsChanged(event) {
   }
 }
 
+/**
+ * S3 mcp-bridge: collect the normalized VS Code-registered MCP servers that
+ * should ride the embed overlay into the DSH native MCP client
+ * (`dsh.features.mcp-bridge`). Duplicates of explicitly configured servers
+ * (settings / `.vscode/mcp.json`) are dropped — those already reach DSH
+ * through the user's own DSH configuration and always win. Fail-soft: any
+ * discovery error degrades to an embed-only overlay.
+ * @param {object} config - hostContext.config() snapshot (unused today, kept
+ *   for signature symmetry with the other prepare-time readers).
+ * @returns {object[]} Normalized server records for the overlay renderer.
+ */
+function computeMcpBridgeServers(config) {
+  try {
+    const enabled = vscode.workspace.getConfiguration('dsh').get('features.mcp-bridge', false) === true;
+    if (!enabled) return [];
+    const fileSources = readMcpSources(vscode);
+    const registered = readRegisteredMcpServers(vscode.lm);
+    if (!registered.available) {
+      for (const diagnostic of registered.diagnostics) {
+        appendDiagnostic(`[mcp-bridge] ${diagnostic.server}: ${diagnostic.message}`);
+      }
+      return [];
+    }
+    for (const diagnostic of registered.diagnostics) {
+      appendDiagnostic(`[mcp-bridge] ${diagnostic.server}: ${diagnostic.message}`);
+    }
+    const deduped = dedupeAgainstFileSources(registered.servers, fileSources);
+    for (const dropped of deduped.dropped) {
+      appendDiagnostic(`[mcp-bridge] ${dropped.server}: skipped — ${dropped.reason}`);
+    }
+    return deduped.servers;
+  } catch (error) {
+    appendDiagnostic(`[mcp-bridge] discovery failed: ${error && error.message ? error.message : String(error)}`);
+    return [];
+  }
+}
+
+/**
+ * S3 mcp-bridge: `vscode.lm.onDidChangeMcpServerDefinitions` fired — other
+ * extensions registered/changed MCP servers. Rewrite the embed overlay when
+ * the rendered content actually changed and offer a restart so the running
+ * DSH instance picks the new server set up through its native MCP client.
+ * @param {object} context - VS Code extension context (for the restart prompt).
+ */
+function scheduleMcpOverlayRefresh(context) {
+  if (mcpOverlayRefreshTimer) clearTimeout(mcpOverlayRefreshTimer);
+  mcpOverlayRefreshTimer = setTimeout(() => {
+    mcpOverlayRefreshTimer = null;
+    try {
+      if (!activeDshHome) return;
+      const servers = computeMcpBridgeServers(hostContext.config());
+      const text = renderEmbedOverlay(servers);
+      if (lastMcpOverlayText !== null && text === lastMcpOverlayText) return;
+      lastMcpOverlayText = text;
+      embedPatchPath = writeEmbedOverlay(activeDshHome, { mcpServers: servers });
+      appendDiagnostic('[mcp-bridge] VS Code MCP server set changed; embed overlay updated');
+      if (manager && typeof manager.hasOwnedChild === 'function' && manager.hasOwnedChild()) {
+        scheduleRestartPrompt(context);
+      }
+    } catch (error) {
+      appendDiagnostic(`[mcp-bridge] overlay refresh failed: ${error && error.message ? error.message : String(error)}`);
+    }
+  }, 300);
+  if (mcpOverlayRefreshTimer && typeof mcpOverlayRefreshTimer.unref === 'function') mcpOverlayRefreshTimer.unref();
+}
+
 function prepareDshHome(config, context) {
   const resolved = resolveDshHome({
     mode: config.homeMode,
@@ -440,7 +509,12 @@ function prepareDshHome(config, context) {
     integrationNodeModulesPath: integration.nodeModulesPath,
   };
   activeDshHomeInfo = info;
-  embedPatchPath = writeEmbedOverlay(activeDshHome);
+  // S3 mcp-bridge: the embed overlay carries the VS Code-registered MCP
+  // servers (as dsh-mcp-client rows) when the feature is on, so every
+  // (re)connect picks up the current registry snapshot.
+  const mcpServers = computeMcpBridgeServers(config);
+  embedPatchPath = writeEmbedOverlay(activeDshHome, { mcpServers });
+  lastMcpOverlayText = renderEmbedOverlay(mcpServers);
   manager?.setEmbedPatchPath?.(embedPatchPath);
   return info;
 }
@@ -1488,6 +1562,7 @@ const FEATURE_CATALOG = [
   { id: 'ctrl-k', label: 'Edit with DSH (Ctrl+K)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCtrlK },
   { id: 'lm-route', label: 'DSH model routing', layer: 'L2', defaultEnabled: false, core: false, setup: setupLmRoute },
   { id: 'mcp-consume', label: 'MCP servers', layer: 'L2', defaultEnabled: false, core: false, setup: setupMcpConsume },
+  { id: 'mcp-bridge', label: 'MCP bridge (VS Code servers → DSH MCP client)', layer: 'L2', defaultEnabled: false, core: false, setup: setupMcpBridge },
   { id: 'call-export', label: 'Call extension exports (vscode/extensions/callExport)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCallExport },
   { id: 'ctrl-i', label: 'Edit with DSH files (Ctrl+I, keybinding not bound)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCtrlI },
   { id: 'exports', label: 'Programmatic exports API (activate() return face)', layer: 'L2', defaultEnabled: false, core: false, setup: setupExports },
@@ -1868,6 +1943,7 @@ const RESTART_PROMPT_SETTINGS = Object.freeze([
   'dsh.bridge.terminal',
   'dsh.bridge.editorRead',
   'dsh.bridge.ui',
+  'dsh.features.mcp-bridge', // S3: the embed overlay regenerates on the next connect
 ]);
 
 /**
@@ -2022,7 +2098,29 @@ async function setupCoreSidebar({ context, services }) {
       mcpManager = createMcpManager({
         vscode,
         env: process.env,
-        getSources: () => readMcpSources(vscode),
+        // Sources in merge order (later wins): VS Code-registered servers
+        // (lowest priority, deduped against explicit config) -> user settings
+        // -> remote -> workspace -> folder settings -> `.vscode/mcp.json`.
+        getSources: () => {
+          const fileSources = readMcpSources(vscode);
+          const registered = readRegisteredMcpServers(vscode.lm);
+          if (!registered.available) {
+            for (const diagnostic of registered.diagnostics) {
+              appendDiagnostic(`[mcp] ${diagnostic.server}: ${diagnostic.message}`);
+            }
+            return fileSources;
+          }
+          for (const diagnostic of registered.diagnostics) {
+            appendDiagnostic(`[mcp] ${diagnostic.server}: ${diagnostic.message}`);
+          }
+          const deduped = dedupeAgainstFileSources(registered.servers, fileSources);
+          for (const dropped of deduped.dropped) {
+            appendDiagnostic(`[mcp] ${dropped.server}: skipped — ${dropped.reason}`);
+          }
+          return deduped.servers.length > 0
+            ? [{ source: 'vscode-registered', servers: deduped.servers }, ...fileSources]
+            : fileSources;
+        },
         consentGate: mcpConsentGate,
         spawn,
         logger: (line) => appendDiagnostic(line),
@@ -2540,6 +2638,47 @@ async function setupTabCompletion({ context, services }) {
  */
 async function setupMcpConsume() {
   return () => {};
+}
+
+/**
+ * S3: L2 mcp-bridge (dsh.features.mcp-bridge). VS Code MCP servers registered
+ * by other extensions (`vscode.lm.mcpServerDefinitions`, proposed API
+ * `mcpServerDefinitions`) are rendered into the embed overlay as
+ * `@deepseek-ai/dsh-mcp-client` rows so DSH's own MCP client connects to them
+ * natively and exposes their tools as `mcp__<server>__<tool>`.
+ *
+ * The overlay itself is written by prepareDshHome on every connect; this setup
+ * only subscribes to the registry change feed, refreshes the overlay when the
+ * server set actually changed and offers the debounced restart. Both API
+ * accesses are proposal-gated — VS Code *throws* when the proposal is not
+ * enabled, so every access degrades to a diagnostic instead of a feature
+ * failure warning.
+ */
+async function setupMcpBridge({ context }) {
+  const lm = vscode.lm;
+  if (!lm || typeof lm.onDidChangeMcpServerDefinitions !== 'function') {
+    appendDiagnostic('[mcp-bridge] vscode.lm MCP server-definition API unavailable; the overlay only refreshes on reconnect');
+    return () => {};
+  }
+  let subscription = null;
+  try {
+    subscription = lm.onDidChangeMcpServerDefinitions(() => scheduleMcpOverlayRefresh(context));
+  } catch (error) {
+    appendDiagnostic(`[mcp-bridge] definition change feed unavailable: ${error && error.message ? error.message : String(error)}`);
+    return () => {};
+  }
+  return () => {
+    try {
+      subscription?.dispose?.();
+    } catch {
+      // best-effort teardown
+    }
+    subscription = null;
+    if (mcpOverlayRefreshTimer) {
+      clearTimeout(mcpOverlayRefreshTimer);
+      mcpOverlayRefreshTimer = null;
+    }
+  };
 }
 
 /**
