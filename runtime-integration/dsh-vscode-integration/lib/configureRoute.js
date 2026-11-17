@@ -164,4 +164,4 @@ export function createConfigureRoute({ ctx = null, config = null, log = () => {}
   };
 }
 
-export { MAX_BODY_BYTES, readBearerToken, safeTokenEqual };
+export { MAX_BODY_BYTES, readBearerToken, readRequestBody, respondWithError, safeTokenEqual, writeJson };

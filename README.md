@@ -54,7 +54,7 @@ Common commands (palette, `DSH:` prefix): New / Switch Session · Open Session H
 | `dsh.features.ctrl-k` / `ctrl-i` | false | Inline edit commands (Ctrl+K / Ctrl+I) |
 | `dsh.features.lm-route` | false | Expose DSH models in the VS Code LM picker |
 | `dsh.features.mcp-consume` | false | Let DSH consume VS Code-side MCP servers |
-| `dsh.features.mcp-bridge` | false | Bridge MCP servers registered by other extensions (`vscode.lm.mcpServerDefinitions`) into the DSH native MCP client — tools appear as `mcp__<server>__<tool>`; takes effect after the DSH server restarts |
+| `dsh.features.mcp-bridge` | false | Bridge MCP servers registered by other extensions (`vscode.lm.mcpServerDefinitions`) into the DSH native MCP client — tools appear as `mcp__<server>__<tool>`; new/changed servers are hot-applied to the running DSH instance, so a restart is only needed for instances still running an older integration plugin |
 | `dsh.features.tab-completion` | false | FIM tab completion — needs `dsh.fim.baseUrl` + **DSH: Set FIM API Key**, then restart the DSH server |
 | `dsh.fim.baseUrl` | (empty) | Upstream FIM endpoint (full URL of an OpenAI-compatible completions API) |
 | `dsh.keybindings.ctrlL` | true | Ctrl+L adds the selection to the thread (never sends) |

@@ -54,7 +54,7 @@
 | `dsh.features.ctrl-k` / `ctrl-i` | false | 内联编辑命令（Ctrl+K / Ctrl+I） |
 | `dsh.features.lm-route` | false | DSH 模型进 VS Code 语言模型选择器 |
 | `dsh.features.mcp-consume` | false | DSH 消费 VS Code 侧 MCP 服务器 |
-| `dsh.features.mcp-bridge` | false | 把其他扩展向 VS Code 注册的 MCP 服务器（`vscode.lm.mcpServerDefinitions`）桥接进 DSH 原生 MCP 客户端——工具以 `mcp__<server>__<tool>` 呈现；DSH 服务重启后生效 |
+| `dsh.features.mcp-bridge` | false | 把其他扩展向 VS Code 注册的 MCP 服务器（`vscode.lm.mcpServerDefinitions`）桥接进 DSH 原生 MCP 客户端——工具以 `mcp__<server>__<tool>` 呈现；新增/变更的服务器会热应用到运行中的 DSH 实例，仅旧版集成插件实例需要重启一次 |
 | `dsh.features.tab-completion` | false | FIM Tab 补全——需设置 `dsh.fim.baseUrl` + **DSH: 设置 FIM API Key** 并重启 DSH 服务 |
 | `dsh.fim.baseUrl` | (空) | 上游 FIM 端点（OpenAI 兼容 completions API 完整 URL） |
 | `dsh.keybindings.ctrlL` | true | Ctrl+L 把选区加入对话草稿（绝不发送） |

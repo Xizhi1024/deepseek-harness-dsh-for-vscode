@@ -18,106 +18,49 @@ const EMBED_INTEGRATION_PACKAGE = 'dsh-vscode-integration';
 const CLEAN_OVERLAY_FILENAME = 'vscode-clean.overlay.yml';
 const PROFILE_NAME_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 /**
- * S3 mcp-bridge: DSH package that connects to one MCP server. Each bridged
- * VS Code-registered server becomes one insert row of this package, so DSH's
- * own MCP client (not the extension bridge) owns the connection.
+ * S3 mcp-bridge: DSH package that connects to one MCP server. The integration
+ * plugin mounts these at runtime (one child plugin per server) so a server
+ * registered after DSH boot no longer needs a restart.
  */
 const MCP_BRIDGE_PLUGIN_PACKAGE = '@deepseek-ai/dsh-mcp-client';
 
 /**
- * Comment lines describing the mcp-bridge rows. Emitted as list-item
- * indentation comments directly above the first bridged row so they stay
- * attached to the insert block they document.
- */
-const MCP_BRIDGE_COMMENT_LINES = Object.freeze([
-  '    # VS Code-registered MCP servers, bridged into the DSH native MCP client',
-  '    # (dsh.features.mcp-bridge). Generated from vscode.lm.mcpServerDefinitions;',
-  '    # changes take effect after the DSH service restarts.',
-]);
-
-/**
- * Render one normalized MCP server record (shape of `mcp/config.js`
- * `normalizeServer`) as the body of one `@deepseek-ai/dsh-mcp-client` patch
- * row. All interpolated values are emitted through `JSON.stringify` — JSON is
- * a strict YAML subset, so arbitrary strings/arrays/objects stay safe without
- * a YAML dependency. Empty collections are omitted (the DSH config schema
- * defaults `args` to `[]` and `env`/`headers` to `{}`).
+ * Render the `mcpServers` snapshot as the integration insert row's config.
+ * The plugin reads it at apply time and mounts the clients with `ctx.plugin`;
+ * later changes are pushed over POST /api/vscode/mcp. JSON is a strict YAML
+ * subset, so arbitrary strings/arrays/objects stay safe without a YAML
+ * dependency.
  *
- * @param {object} server - Normalized stdio or http server record.
- * @returns {string[]} Row lines at the `- id:` indentation level.
+ * @param {object[]} servers - Normalized VS Code-registered MCP servers.
+ * @param {string} [windowId] - Window that produced the boot snapshot, so the
+ *   runtime can tell the baseline owner's next push from another window's.
+ * @returns {string[]} Overlay lines (empty for no servers).
  */
-function renderMcpBridgeRow(server) {
-  if (!server || typeof server !== 'object' || typeof server.name !== 'string' || server.name.length === 0) {
-    throw new TypeError('renderMcpBridgeRow requires a server record with a name');
-  }
-  const lines = [
-    `- id: vscode-mcp-${server.name}`,
-    `  name: "${MCP_BRIDGE_PLUGIN_PACKAGE}"`,
-    '  config:',
-    `    serverName: ${JSON.stringify(server.name)}`,
-  ];
-  if (server.type === 'http' || server.type === 'sse') {
-    lines.push(
-      '    transport: "streamable-http"',
-      `    url: ${JSON.stringify(String(server.url))}`
-    );
-    if (server.headers && Object.keys(server.headers).length > 0) {
-      lines.push(`    headers: ${JSON.stringify(server.headers)}`);
-    }
-    return lines;
-  }
-  if (typeof server.command !== 'string' || server.command.length === 0) {
-    throw new TypeError(`renderMcpBridgeRow: stdio server ${server.name} requires a command`);
-  }
-  lines.push('    transport: "stdio"');
-  lines.push(`    command: ${JSON.stringify(server.command)}`);
-  if (Array.isArray(server.args) && server.args.length > 0) {
-    lines.push(`    args: ${JSON.stringify(server.args)}`);
-  }
-  if (server.env && Object.keys(server.env).length > 0) {
-    lines.push(`    env: ${JSON.stringify(server.env)}`);
-  }
-  if (typeof server.cwd === 'string' && server.cwd.length > 0) {
-    lines.push(`    cwd: ${JSON.stringify(server.cwd)}`);
-  }
-  return lines;
-}
-
-/**
- * Render the mcp-bridge rows for a single `- insert:` block of a patch
- * overlay: descriptive comments plus one dsh-mcp-client row per normalized
- * server, at the patch-loader's 4-space list indentation. Empty for no
- * servers. Used by the embed overlay (which owns the one `- insert:` block)
- * and exported for tests and a potential standalone `--patch` file.
- *
- * @param {object[]} servers - Normalized MCP server records.
- * @returns {string[]} Overlay lines (may be empty).
- */
-function renderMcpBridgeOverlay(servers) {
+function renderMcpBridgeConfig(servers, windowId) {
   const rows = Array.isArray(servers) ? servers : [];
   if (rows.length === 0) return [];
-  const lines = [...MCP_BRIDGE_COMMENT_LINES];
-  for (const server of rows) {
-    for (const line of renderMcpBridgeRow(server)) {
-      lines.push('    ' + line);
-    }
+  const lines = ['      config:'];
+  if (typeof windowId === 'string' && windowId.length > 0) {
+    lines.push(`        windowId: ${JSON.stringify(windowId)}`);
   }
+  lines.push(`        mcpServers: ${JSON.stringify(rows)}`);
   return lines;
 }
 
 /**
  * Render the embed overlay document consumed by `dsh --patch <path>`.
  * The disabled-plugin rows and the vscode-integration insert are built
- * exclusively from the frozen constants above; the mcp-bridge rows append
- * their JSON-quoted scalars into the SAME `- insert:` block (the patch loader
- * applies one insert list; every scalar is JSON-safe — see renderMcpBridgeRow).
+ * exclusively from the frozen constants above; the MCP servers ride as the
+ * integration row's `config.mcpServers`, so the integration plugin can mount
+ * (and later hot-reconcile) them without one loader row per server.
  *
  * @param {object[]} [mcpServers] - Normalized VS Code-registered MCP servers
  *   to bridge into the DSH native MCP client (mcp-bridge feature). Empty or
  *   omitted keeps the historical embed-only overlay byte-identical.
+ * @param {string} [windowId] - Owner window recorded with the boot snapshot.
  * @returns {string} overlay YAML terminated by a single `\n`.
  */
-function renderEmbedOverlay(mcpServers = []) {
+function renderEmbedOverlay(mcpServers = [], windowId) {
   const lines = [
     '# VS Code embed overlay, generated by dsh-vs-sidebar.',
     '# Disables DSH plugins that would duplicate the embedded VS Code sidebar/panel.',
@@ -126,10 +69,10 @@ function renderEmbedOverlay(mcpServers = []) {
     lines.push(`- id: ${id}`, '  disabled: true');
   }
   lines.push('- insert:');
-  lines.push(...renderMcpBridgeOverlay(mcpServers));
   lines.push(
     `    - id: ${EMBED_INTEGRATION_PLUGIN_ID}`,
-    `      name: ${EMBED_INTEGRATION_PACKAGE}`
+    `      name: ${EMBED_INTEGRATION_PACKAGE}`,
+    ...renderMcpBridgeConfig(mcpServers, windowId)
   );
   return `${lines.join('\n')}\n`;
 }
@@ -139,9 +82,10 @@ function renderEmbedOverlay(mcpServers = []) {
  * @param {string} dshHome non-empty absolute DSH home; the overlay lands in
  *   `<dshHome>/.integrations/vscode-sidebar/vscode-embed.overlay.yml`; created
  *   recursively when missing.
- * @param {{ mcpServers?: object[], writeFileSync?: typeof fs.writeFileSync, mkdirSync?: typeof fs.mkdirSync }} [options]
+ * @param {{ mcpServers?: object[], windowId?: string, writeFileSync?: typeof fs.writeFileSync, mkdirSync?: typeof fs.mkdirSync }} [options]
  *   `mcpServers` are the normalized VS Code-registered MCP servers to bridge
- *   (mcp-bridge feature); fs operations are injectable for tests.
+ *   (mcp-bridge feature), `windowId` the window that produced the snapshot;
+ *   fs operations are injectable for tests.
  * @returns {string} absolute path of the written overlay file.
  */
 function writeEmbedOverlay(dshHome, options = {}) {
@@ -150,6 +94,7 @@ function writeEmbedOverlay(dshHome, options = {}) {
   }
   const {
     mcpServers = [],
+    windowId,
     writeFileSync = fs.writeFileSync,
     mkdirSync = fs.mkdirSync,
     renameSync = fs.renameSync,
@@ -159,7 +104,7 @@ function writeEmbedOverlay(dshHome, options = {}) {
   mkdirSync(directory, { recursive: true });
   const overlayPath = path.join(directory, 'vscode-embed.overlay.yml');
   const temporaryPath = path.join(directory, `.vscode-embed.overlay.${process.pid}.tmp`);
-  writeFileSync(temporaryPath, renderEmbedOverlay(mcpServers), { encoding: 'utf8', mode: 0o600 });
+  writeFileSync(temporaryPath, renderEmbedOverlay(mcpServers, windowId), { encoding: 'utf8', mode: 0o600 });
   renameSync(temporaryPath, overlayPath);
   try {
     chmodSync(overlayPath, 0o600);
@@ -308,8 +253,7 @@ module.exports = {
   EMBED_INTEGRATION_PLUGIN_ID,
   MCP_BRIDGE_PLUGIN_PACKAGE,
   renderEmbedOverlay,
-  renderMcpBridgeOverlay,
-  renderMcpBridgeRow,
+  renderMcpBridgeConfig,
   writeEmbedOverlay,
   extractPatchEntryIds,
   isEmbedPluginId,

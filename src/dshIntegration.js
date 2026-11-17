@@ -18,6 +18,10 @@ const INTEGRATION_FILES = Object.freeze([
   // /api/vscode/configure route it backs.
   'lib/runtimeConfig.js',
   'lib/configureRoute.js',
+  // 0.9.0 (mcp-bridge restart fix): hot mounting / reconciliation of the
+  // VS Code MCP server snapshot + its /api/vscode/mcp push route.
+  'lib/mcpBridge.js',
+  'lib/mcpRoute.js',
 ]);
 // Records which extension version last owned the synced package directory.
 // See installDshIntegration: several installed/dev versions of this extension

@@ -9,6 +9,8 @@ import { createFimRoutes } from './fimRoutes.js';
 import { createLinkRoutes, editorOpenViaBridge } from './linkRoutes.js';
 import { createConfigureRoute } from './configureRoute.js';
 import { createRuntimeConfig } from './runtimeConfig.js';
+import { createMcpBridge } from './mcpBridge.js';
+import { createMcpRoute } from './mcpRoute.js';
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
@@ -362,7 +364,8 @@ function createWatchdogMonitor({
   return monitor;
 }
 
-function apply(ctx) {
+function apply(ctx, config) {
+  const log = (line) => console.error(`[dsh-vscode-integration] ${line}`);
   ctx.effect(() => {
     // openPath bridge: only meaningful on old-protocol runtimes that still
     // provide the apiProxy host (typert runtimes dropped apiProxy entirely —
@@ -441,6 +444,42 @@ function apply(ctx) {
   // POST /api/vscode/configure, so feature toggles and adopted shared
   // instances no longer depend on spawn-time env alone.
   const runtimeConfig = createRuntimeConfig({ env: process.env });
+
+  // VS Code MCP servers, mounted at runtime instead of boot-time loader rows:
+  // the overlay carries the first snapshot as this plugin's `mcpServers`
+  // config, and POST /api/vscode/mcp replaces it whenever another extension
+  // registers/removes/changes a server. Reconciliation disposes and re-mounts
+  // only the affected clients, so no DSH restart is involved. Creation is
+  // guarded: a runtime without cordis `ctx.plugin` degrades to "restart
+  // required" instead of aborting the whole boot.
+  const initialMcpServers = config && Array.isArray(config.mcpServers) ? config.mcpServers : [];
+  const initialMcpWindowId = config && typeof config.windowId === 'string' ? config.windowId : null;
+  let mcpBridge = null;
+  try {
+    mcpBridge = createMcpBridge({ ctx, log });
+  } catch (error) {
+    log(`mcp bridge unavailable: ${error && error.message ? error.message : String(error)}`);
+  }
+  if (mcpBridge) {
+    ctx.effect(() => {
+      void mcpBridge.apply(initialMcpServers).catch((error) => {
+        log(`mcp bridge initial sync failed: ${error && error.message ? error.message : String(error)}`);
+      });
+      return () => mcpBridge.dispose();
+    }, 'dsh-vscode-integration: VS Code MCP bridge');
+
+    ctx.effect(() => {
+      const route = createMcpRoute({
+        ctx,
+        token: runtimeConfig.configureToken,
+        bridge: mcpBridge,
+        initialServers: initialMcpServers,
+        initialWindowId: initialMcpWindowId,
+        log,
+      });
+      return () => route.dispose();
+    }, 'dsh-vscode-integration: /api/vscode/mcp route');
+  }
 
   ctx.effect(() => {
     const routes = createLmRoutes({ env: process.env, config: runtimeConfig, ctx });

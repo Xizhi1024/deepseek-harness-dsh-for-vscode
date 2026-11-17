@@ -2,7 +2,7 @@
 	"name": "dsh-vs-sidebar",
 	"displayName": "%dsh.displayName%",
 	"description": "%dsh.ext.description%",
-	"version": "1.2.0",
+	"version": "1.2.1",
 	"publisher": "Xizhi1024",
 	"license": "MIT",
 	"pricing": "Free",
@@ -103,7 +103,8 @@
 	"devDependencies": {
 		"@types/vscode": "^1.106.0",
 		"@vscode/test-electron": "3.1.0",
-		"@vscode/vsce": "3.9.2"
+		"@vscode/vsce": "3.9.2",
+		"typescript": "^7.0.2"
 	},
 	"contributes": {
 		"languageModelChatProviders": [

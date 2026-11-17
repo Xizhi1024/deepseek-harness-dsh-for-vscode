@@ -196,6 +196,8 @@ let mcpManager = null; // S2b MCP consume aggregator (created in L0, no side eff
 let mcpConsentGate = null; // S2b per-server consent gate (created in L0)
 let mcpOverlayRefreshTimer = null; // S3 mcp-bridge: debounced registry-change overlay refresh
 let lastMcpOverlayText = null; // S3 mcp-bridge: embed overlay text as last written (change detection)
+let lastMcpBridgeServers = null; // S3 mcp-bridge: servers last written to the overlay / pushed to DSH
+let mcpBridgeChangeSubscription = null; // S3 mcp-bridge: definition-change feed (installed once, independent of feature gating)
 let callExportJournalInstance = null; // E-T2b callExport journal (created in L0, wired into v3)
 let embedPatchPath = null; // generated --patch overlay applied to extension-owned DSH children
 let runtimeStorageRoot = null; // managed runtime storage under VS Code global storage
@@ -433,13 +435,17 @@ function notifyDiagnosticsChanged(event) {
 function computeMcpBridgeServers(config) {
   try {
     const enabled = vscode.workspace.getConfiguration('dsh').get('features.mcp-bridge', false) === true;
-    if (!enabled) return [];
+    if (!enabled) {
+      lastMcpBridgeServers = [];
+      return [];
+    }
     const fileSources = readMcpSources(vscode);
     const registered = readRegisteredMcpServers(vscode.lm);
     if (!registered.available) {
       for (const diagnostic of registered.diagnostics) {
         appendDiagnostic(`[mcp-bridge] ${diagnostic.server}: ${diagnostic.message}`);
       }
+      lastMcpBridgeServers = [];
       return [];
     }
     for (const diagnostic of registered.diagnostics) {
@@ -449,18 +455,24 @@ function computeMcpBridgeServers(config) {
     for (const dropped of deduped.dropped) {
       appendDiagnostic(`[mcp-bridge] ${dropped.server}: skipped — ${dropped.reason}`);
     }
+    lastMcpBridgeServers = deduped.servers;
     return deduped.servers;
   } catch (error) {
     appendDiagnostic(`[mcp-bridge] discovery failed: ${error && error.message ? error.message : String(error)}`);
-    return [];
+    // Discovery failure is not the same as an empty registry: keep the last
+    // good snapshot so a transient read error can neither remove every
+    // running MCP client nor rewrite the overlay with an empty server set.
+    return Array.isArray(lastMcpBridgeServers) ? lastMcpBridgeServers : [];
   }
 }
 
 /**
  * S3 mcp-bridge: `vscode.lm.onDidChangeMcpServerDefinitions` fired — other
- * extensions registered/changed MCP servers. Rewrite the embed overlay when
- * the rendered content actually changed and offer a restart so the running
- * DSH instance picks the new server set up through its native MCP client.
+ * extensions registered/changed MCP servers. Rewrite the embed overlay (so the
+ * next boot is current) and hot-apply the new set to the running DSH instance
+ * over POST /api/vscode/mcp. Only when that push is unavailable (an instance
+ * running an older integration plugin, no configure token, network failure) is
+ * the debounced restart prompt used as the fallback.
  * @param {object} context - VS Code extension context (for the restart prompt).
  */
 function scheduleMcpOverlayRefresh(context) {
@@ -470,14 +482,21 @@ function scheduleMcpOverlayRefresh(context) {
     try {
       if (!activeDshHome) return;
       const servers = computeMcpBridgeServers(hostContext.config());
-      const text = renderEmbedOverlay(servers);
-      if (lastMcpOverlayText !== null && text === lastMcpOverlayText) return;
-      lastMcpOverlayText = text;
-      embedPatchPath = writeEmbedOverlay(activeDshHome, { mcpServers: servers });
-      appendDiagnostic('[mcp-bridge] VS Code MCP server set changed; embed overlay updated');
-      if (manager && typeof manager.hasOwnedChild === 'function' && manager.hasOwnedChild()) {
-        scheduleRestartPrompt(context);
+      const text = renderEmbedOverlay(servers, ownerWindowId);
+      if (lastMcpOverlayText === null || text !== lastMcpOverlayText) {
+        lastMcpOverlayText = text;
+        embedPatchPath = writeEmbedOverlay(activeDshHome, { mcpServers: servers, windowId: ownerWindowId });
+        appendDiagnostic('[mcp-bridge] VS Code MCP server set changed; embed overlay updated');
       }
+      // Push even when the rendered snapshot is unchanged: the previous push
+      // may have failed transiently, and reconciliation is a cheap no-op for
+      // identical configs.
+      void pushMcpServers(null).then((status) => {
+        if (status === 'applied' || status === 'skipped') return;
+        if (manager && typeof manager.hasOwnedChild === 'function' && manager.hasOwnedChild()) {
+          scheduleRestartPrompt(context);
+        }
+      });
     } catch (error) {
       appendDiagnostic(`[mcp-bridge] overlay refresh failed: ${error && error.message ? error.message : String(error)}`);
     }
@@ -510,11 +529,12 @@ function prepareDshHome(config, context) {
   };
   activeDshHomeInfo = info;
   // S3 mcp-bridge: the embed overlay carries the VS Code-registered MCP
-  // servers (as dsh-mcp-client rows) when the feature is on, so every
-  // (re)connect picks up the current registry snapshot.
+  // servers as the integration row's `config.mcpServers` when the feature is
+  // on, so every (re)connect picks up the current registry snapshot and the
+  // plugin mounts them with ctx.plugin.
   const mcpServers = computeMcpBridgeServers(config);
-  embedPatchPath = writeEmbedOverlay(activeDshHome, { mcpServers });
-  lastMcpOverlayText = renderEmbedOverlay(mcpServers);
+  embedPatchPath = writeEmbedOverlay(activeDshHome, { mcpServers, windowId: ownerWindowId });
+  lastMcpOverlayText = renderEmbedOverlay(mcpServers, ownerWindowId);
   manager?.setEmbedPatchPath?.(embedPatchPath);
   return info;
 }
@@ -1068,6 +1088,71 @@ async function pushBridgeConfigure(server) {
 }
 
 /**
+ * S3 mcp-bridge: push the current VS Code MCP server snapshot into a RUNNING
+ * DSH instance over POST /api/vscode/mcp (dsh-vscode-integration ≥ 0.9.0).
+ * The plugin mounts one mcp-client child per server with `ctx.plugin` and
+ * reconciles incrementally, so newly registered servers (and refreshed
+ * tokens) become `mcp__<server>__<tool>` tools without a restart.
+ *
+ * Best-effort by design, like pushBridgeConfigure: every failure is
+ * diagnostic-only. 404 means the instance's plugin predates the route (only a
+ * restart can load it); 401 means this window has no configure authority.
+ *
+ * @param {object|null} [server] - Target handle (defaults to currentServer).
+ * @returns {Promise<'applied'|'missing'|'unauthorized'|'failed'|'skipped'>}
+ */
+async function pushMcpServers(server) {
+  const target = server || currentServer;
+  if (!target || typeof target.url !== 'string' || target.url.length === 0) return 'skipped';
+  const enabled = vscode.workspace.getConfiguration('dsh').get('features.mcp-bridge', false) === true;
+  // An enabled window must have a discovered snapshot; a disabled one still
+  // pushes an empty source so its previously mounted servers are released
+  // without touching other windows' contributions on a shared instance.
+  if (enabled && !Array.isArray(lastMcpBridgeServers)) return 'skipped';
+  const servers = Array.isArray(lastMcpBridgeServers) ? lastMcpBridgeServers : [];
+  const configureToken = (typeof target.configureToken === 'string' && target.configureToken.length > 0)
+    ? target.configureToken
+    : (manager && typeof manager.configureToken === 'function' ? manager.configureToken() : null);
+  if (!configureToken) {
+    appendDiagnostic('[mcp-bridge] no configure token for ' + target.url + ' (instance not extension-managed); skip hot apply');
+    return 'unauthorized';
+  }
+  try {
+    const response = await fetch(target.url + '/api/vscode/mcp', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + configureToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        windowId: ownerWindowId || 'default',
+        enabled,
+        servers,
+      }),
+      signal: AbortSignal.timeout ? AbortSignal.timeout(30000) : undefined,
+    });
+    if (response.ok) {
+      appendDiagnostic('[mcp-bridge] hot-applied ' + servers.length + ' server(s) from this window to ' + target.url);
+      return 'applied';
+    }
+    if (response.status === 404) {
+      appendDiagnostic('[mcp-bridge] ' + target.url + ' has no /api/vscode/mcp (older plugin); run DSH: Restart Server to pick up hot MCP mounting');
+      return 'missing';
+    }
+    if (response.status === 401) {
+      appendDiagnostic('[mcp-bridge] ' + target.url + ' rejected the configure token; run DSH: Restart Server so this window can hot-apply MCP servers');
+      return 'unauthorized';
+    }
+    appendDiagnostic('[mcp-bridge] ' + target.url + ' answered HTTP ' + response.status + ' for the MCP push');
+    return 'failed';
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    appendDiagnostic('[mcp-bridge] push to ' + target.url + ' failed: ' + message);
+    return 'failed';
+  }
+}
+
+/**
  * Bind the sidebar to one ready RunningServer handle: record it, optionally
  * auto-bind an owned instance to the current workspace session, externalize
  * its URL for the webview and update the status bar / iframe.
@@ -1079,6 +1164,10 @@ async function bindServer(context, server, cwd) {
   // feature config into the running plugin. Fire-and-forget: a slow or
   // failing push must never delay the sidebar bind.
   void pushBridgeConfigure(server);
+  // S3 mcp-bridge: the overlay already carried this window's snapshot into a
+  // fresh boot; push it again so adopted/reused instances and servers that
+  // registered between prepareDshHome and readiness converge here.
+  void pushMcpServers(server);
   // SM-3: fenced runtimes (dsh 0.1.2+) embed through the extension's
   // authenticating loopback proxy — a webview iframe cannot carry dsh's
   // SameSite=Strict cookie; older servers embed their plain URL directly.
@@ -1744,6 +1833,14 @@ async function setupCoreServer({ context, services }) {
     console.error('dsh-vs-sidebar: could not write embed overlay; starting without --patch:', err);
     embedPatchPath = null;
   }
+  // S3 mcp-bridge: install the definition-change feed for the extension
+  // lifetime (not only while the L2 feature is enabled), so enabling the
+  // feature at runtime starts receiving later registrations immediately.
+  try {
+    await setupMcpBridge({ context });
+  } catch (err) {
+    appendDiagnostic(`[mcp-bridge] change feed setup failed: ${err && err.message ? err.message : String(err)}`);
+  }
   services.bridgeEnv = {};
   const createServerManager = injectedDependencies.createServerManager
     || ((options) => new ServerManager(options));
@@ -1894,6 +1991,26 @@ async function setupCoreServer({ context, services }) {
       scheduleRebind(context);
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
+      // S3 mcp-bridge: the server set is a runtime snapshot, so toggling the
+      // feature can be applied in place. Rewrite the overlay for the next
+      // boot, then push (empty set removes the running clients).
+      if (e.affectsConfiguration("dsh.features.mcp-bridge")) {
+        try {
+          const servers = computeMcpBridgeServers(hostContext.config());
+          if (activeDshHome) {
+            embedPatchPath = writeEmbedOverlay(activeDshHome, { mcpServers: servers, windowId: ownerWindowId });
+            lastMcpOverlayText = renderEmbedOverlay(servers, ownerWindowId);
+            manager?.setEmbedPatchPath?.(embedPatchPath);
+          }
+        } catch (error) {
+          appendDiagnostic(`[mcp-bridge] overlay rewrite failed: ${error && error.message ? error.message : String(error)}`);
+        }
+        void pushMcpServers(null).then((status) => {
+          if (status === 'applied' || status === 'skipped') return;
+          scheduleRestartPrompt(context);
+        });
+        return;
+      }
       // A2/U2: injection-class settings only take effect after the DSH
       // service restarts — surface that with an explicit Restart prompt
       // instead of silently keeping the old behavior.
@@ -1943,7 +2060,6 @@ const RESTART_PROMPT_SETTINGS = Object.freeze([
   'dsh.bridge.terminal',
   'dsh.bridge.editorRead',
   'dsh.bridge.ui',
-  'dsh.features.mcp-bridge', // S3: the embed overlay regenerates on the next connect
 ]);
 
 /**
@@ -2655,6 +2771,12 @@ async function setupMcpConsume() {
  * failure warning.
  */
 async function setupMcpBridge({ context }) {
+  // Installed once and unconditionally (setupCoreServer calls it too): the
+  // change feed must survive a feature toggle, otherwise enabling
+  // dsh.features.mcp-bridge at runtime would hot-apply the current snapshot
+  // but never see the next registration until the window reloaded. The
+  // callback itself is a no-op while the feature is off.
+  if (mcpBridgeChangeSubscription) return () => {};
   const lm = vscode.lm;
   if (!lm || typeof lm.onDidChangeMcpServerDefinitions !== 'function') {
     appendDiagnostic('[mcp-bridge] vscode.lm MCP server-definition API unavailable; the overlay only refreshes on reconnect');
@@ -2667,18 +2789,25 @@ async function setupMcpBridge({ context }) {
     appendDiagnostic(`[mcp-bridge] definition change feed unavailable: ${error && error.message ? error.message : String(error)}`);
     return () => {};
   }
-  return () => {
+  mcpBridgeChangeSubscription = subscription;
+  const teardown = () => {
+    if (mcpBridgeChangeSubscription === subscription) mcpBridgeChangeSubscription = null;
     try {
       subscription?.dispose?.();
     } catch {
       // best-effort teardown
     }
-    subscription = null;
     if (mcpOverlayRefreshTimer) {
       clearTimeout(mcpOverlayRefreshTimer);
       mcpOverlayRefreshTimer = null;
     }
   };
+  // The feed is lifetime-scoped, not feature-scoped; VS Code disposes it on
+  // deactivate even when the L2 feature never ran.
+  if (context && Array.isArray(context.subscriptions)) {
+    context.subscriptions.push({ dispose: teardown });
+  }
+  return teardown;
 }
 
 /**
@@ -3567,6 +3696,7 @@ async function deactivate() {
     currentServer = null;
     resetEmbeddedServerUrls();
     currentSessionId = null;
+    mcpBridgeChangeSubscription = null;
     // C2.5: stop the edit-event projection subscription (if any).
     try {
       editEventProjector?.dispose?.();

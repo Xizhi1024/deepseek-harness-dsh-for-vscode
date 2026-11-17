@@ -7,7 +7,6 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
-  DSH_MCP_CLIENT_PACKAGE,
   SERVER_NAME_MAX,
   SERVER_NAME_PATTERN,
   definitionsToServers,
@@ -182,7 +181,7 @@ test('readRegisteredMcpServers maps a live getter snapshot', () => {
   assert.deepStrictEqual(result.diagnostics.map((entry) => entry.server), ['Auth']);
 });
 
-test('embed overlay embeds dsh-mcp-client insert rows for bridged servers', () => {
+test('embed overlay carries the server snapshot as the integration row config', () => {
   const servers = [
     { name: 'github-mcp', type: 'stdio', command: 'docker', args: ['run', '-i'], env: { TOKEN: 'a"b' } },
     { name: 'web', type: 'http', url: 'https://mcp.example.com/mcp', headers: {} },
@@ -190,26 +189,15 @@ test('embed overlay embeds dsh-mcp-client insert rows for bridged servers', () =
   ];
   const text = renderEmbedOverlay(servers);
   assert.ok(text.includes('- insert:'));
-  for (const expected of [
-    '    - id: vscode-mcp-github-mcp',
-    `      name: "${DSH_MCP_CLIENT_PACKAGE}"`,
-    '      config:',
-    '        serverName: "github-mcp"',
-    '        transport: "stdio"',
-    '        command: "docker"',
-    '        args: ["run","-i"]',
-    '        env: {"TOKEN":"a\\"b"}',
-    '        transport: "streamable-http"',
-    '        url: "https://mcp.example.com/mcp"',
-    '        command: "node"',
-  ]) {
-    assert.ok(text.includes(expected), `overlay must contain ${expected}`);
-  }
-  // empty collections are omitted (schema defaults apply)
-  assert.ok(!text.includes('args: []'));
-  assert.ok(!text.includes('env: {}'));
-  assert.ok(!text.includes('headers: {}'));
-  assert.ok(!text.includes('cwd:'));
+  assert.ok(text.includes('    - id: vscode-integration'));
+  assert.ok(text.includes('      config:'));
+  const line = text.split('\n').find((entry) => entry.trim().startsWith('mcpServers:'));
+  assert.ok(line, 'the integration row must carry mcpServers');
+  const parsed = JSON.parse(line.slice(line.indexOf('mcpServers:') + 'mcpServers:'.length).trim());
+  assert.deepStrictEqual(parsed, servers);
+  // no per-server loader rows anymore: the plugin mounts at runtime
+  assert.ok(!text.includes('vscode-mcp-'));
+  assert.ok(!text.includes('name: "@deepseek-ai/dsh-mcp-client"'));
   // single trailing newline
   assert.strictEqual(text.endsWith('\n'), true);
   assert.strictEqual(text.endsWith('\n\n'), false);
@@ -230,34 +218,32 @@ const OVERLAY_DOC = yaml ? (() => {
   return renderEmbedOverlay(servers);
 })() : null;
 
-test('generated overlay is a parseable YAML document whose insert rows match the servers', { skip: !yaml && 'js-yaml unavailable' }, () => {
+test('generated overlay is a parseable YAML document whose integration config matches the servers', { skip: !yaml && 'js-yaml unavailable' }, () => {
   const doc = yaml.load(OVERLAY_DOC);
   assert.ok(Array.isArray(doc), 'the overlay must parse as a YAML array of patch entries');
   const inserts = doc.filter((entry) => entry && entry.insert);
-  assert.strictEqual(inserts.length, 1, 'exactly one insert block (integration + mcp rows)');
+  assert.strictEqual(inserts.length, 1, 'exactly one insert block (integration row)');
   const rows = inserts[0].insert;
-  const integration = rows.find((row) => row.id === 'vscode-integration');
-  assert.ok(integration, 'the vscode-integration insert row survives');
-  const github = rows.find((row) => row.id === 'vscode-mcp-github-mcp');
-  assert.deepStrictEqual(github, {
-    id: 'vscode-mcp-github-mcp',
-    name: DSH_MCP_CLIENT_PACKAGE,
-    config: {
-      serverName: 'github-mcp',
-      transport: 'stdio',
+  assert.strictEqual(rows.length, 1, 'only the integration row is inserted');
+  const integration = rows[0];
+  assert.strictEqual(integration.id, 'vscode-integration');
+  assert.strictEqual(integration.name, 'dsh-vscode-integration');
+  assert.deepStrictEqual(integration.config.mcpServers, [
+    {
+      name: 'github-mcp',
+      type: 'stdio',
       command: 'docker',
       args: ['run', '-i'],
       env: { TOKEN: 'a"b\\c', UNI: '令牌' },
       cwd: '/tmp/x y',
     },
-  });
-  const web = rows.find((row) => row.id === 'vscode-mcp-web');
-  assert.deepStrictEqual(web.config, {
-    serverName: 'web',
-    transport: 'streamable-http',
-    url: 'https://mcp.example.com/mcp?q=1',
-    headers: { Authorization: 'Bearer t' },
-  });
+    {
+      name: 'web',
+      type: 'http',
+      url: 'https://mcp.example.com/mcp?q=1',
+      headers: { Authorization: 'Bearer t' },
+    },
+  ]);
 });
 
 test('writeEmbedOverlay persists bridged servers to the overlay file', (t) => {
@@ -267,16 +253,29 @@ test('writeEmbedOverlay persists bridged servers to the overlay file', (t) => {
     mcpServers: [{ name: 'local', type: 'stdio', command: 'node', args: ['server.js'] }],
   });
   const written = fs.readFileSync(overlayPath, 'utf8');
-  assert.ok(written.includes('- id: vscode-mcp-local'));
+  assert.ok(written.includes('mcpServers:'));
+  assert.ok(!written.includes('vscode-mcp-local'));
   if (yaml) {
     const doc = yaml.load(written);
-    const rows = doc.find((entry) => entry.insert).insert;
-    assert.ok(rows.some((row) => row.config && row.config.serverName === 'local'));
+    const row = doc.find((entry) => entry.insert).insert[0];
+    assert.strictEqual(row.id, 'vscode-integration');
+    assert.deepStrictEqual(row.config.mcpServers, [
+      { name: 'local', type: 'stdio', command: 'node', args: ['server.js'] },
+    ]);
   }
 });
 
-test('renderMcpBridgeRow rejects records without a usable shape', () => {
-  const { renderMcpBridgeRow } = require('../../src/embedOverlay');
-  assert.throws(() => renderMcpBridgeRow(null), /requires a server record/);
-  assert.throws(() => renderMcpBridgeRow({ name: 'x', type: 'stdio' }), /requires a command/);
+test('renderMcpBridgeConfig omits the config block for an empty server set', () => {
+  const { renderMcpBridgeConfig } = require('../../src/embedOverlay');
+  assert.deepStrictEqual(renderMcpBridgeConfig([]), []);
+  assert.deepStrictEqual(renderMcpBridgeConfig(null), []);
+  assert.deepStrictEqual(renderMcpBridgeConfig([{ name: 'x' }]), [
+    '      config:',
+    '        mcpServers: [{"name":"x"}]',
+  ]);
+  assert.deepStrictEqual(renderMcpBridgeConfig([{ name: 'x' }], 'w-1'), [
+    '      config:',
+    '        windowId: "w-1"',
+    '        mcpServers: [{"name":"x"}]',
+  ]);
 });
