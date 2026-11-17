@@ -19,6 +19,8 @@ const DSH_THEME_CHANGED = 'dshThemeChanged';
  * @param {Function} [handlers.interaction]
  * @param {Function} [handlers.threadResult]
  * @param {Function} [handlers.handshakeError]
+ * @param {Function} [handlers.frameLoadError] - Receives `{ reason }` when the
+ *   embedded iframe times out or errors; used for OutputChannel diagnostics.
  * @param {Function} [handlers.sessionChanged] - Receives the sessionId of an
  *   in-iframe conversation switch (dshSessionChanged relay).
  * @returns {(message: unknown) => boolean} true when a known message was routed.
@@ -29,6 +31,7 @@ function createWebviewMessageHandler({
   interaction = undefined,
   threadResult = undefined,
   handshakeError = undefined,
+  frameLoadError = undefined,
   sessionChanged = undefined,
 }) {
   if (typeof openBrowser !== 'function' || typeof retry !== 'function') {
@@ -42,6 +45,10 @@ function createWebviewMessageHandler({
     }
     if (message.type === 'retry') {
       retry();
+      return true;
+    }
+    if (message.type === 'frameLoadFailed' && typeof frameLoadError === 'function') {
+      frameLoadError(message);
       return true;
     }
     if (message.type === MESSAGE_TYPES.HELLO && typeof handshakeError === 'function') {

@@ -819,8 +819,8 @@ test('a fenced runtime embeds through the loopback proxy while the browser link 
   assert.strictEqual(proxyCalls.length, 1, 'a fenced runtime must be proxied exactly once');
   assert.strictEqual(proxyCalls[0].upstreamUrl, 'http://127.0.0.1:3080');
   assert.strictEqual(proxyCalls[0].token, 'SECRET-TOKEN');
-  const frameSrc = /<iframe id="frame" src="([^"]+)"/.exec(viewHtml);
-  assert.ok(frameSrc, 'the frame page must embed an iframe');
+  const frameSrc = /const FRAME_URL = "([^"]+)"/.exec(viewHtml);
+  assert.ok(frameSrc, 'the frame page must embed an iframe URL');
   assert.ok(
     frameSrc[1].startsWith('http://127.0.0.1:4999/'),
     `the iframe must load the proxy origin, got ${frameSrc[1]}`

@@ -32,7 +32,11 @@ function runFramePage(url = 'http://127.0.0.1:3080') {
   const postedToFrame = [];
   const frameListeners = {};
   const windowListeners = {};
+  const fallbackClasses = new Set();
+  const timers = [];
+  let frameSrc = null;
   let removed = false;
+  let retryClick = null;
   let contentWindow = {
     postMessage(message, origin) {
       postedToFrame.push({ message, origin, target: contentWindow });
@@ -45,18 +49,32 @@ function runFramePage(url = 'http://127.0.0.1:3080') {
     set contentWindow(value) {
       contentWindow = value;
     },
+    style: { display: "", cssText: "" },
+    setAttribute() {},
     addEventListener(type, callback) {
       frameListeners[type] = callback;
+    },
+    set src(value) {
+      frameSrc = value;
+    },
+    get src() {
+      return frameSrc;
     },
     remove() {
       removed = true;
     },
   };
   const fallback = {
-    classList: { add() {} },
+    classList: {
+      add(name) { fallbackClasses.add(name); },
+      remove(name) { fallbackClasses.delete(name); },
+      contains(name) { return fallbackClasses.has(name); },
+    },
   };
   const retry = {
-    addEventListener() {},
+    addEventListener(type, callback) {
+      if (type === 'click') retryClick = callback;
+    },
   };
   const sandbox = {
     acquireVsCodeApi: () => ({
@@ -65,6 +83,16 @@ function runFramePage(url = 'http://127.0.0.1:3080') {
       },
     }),
     document: {
+      createElement(tag) {
+        assert.strictEqual(tag, 'iframe');
+        return frame;
+      },
+      body: {
+        insertBefore(element, before) {
+          assert.strictEqual(element, frame);
+          assert.strictEqual(before, fallback);
+        },
+      },
       getElementById(id) {
         if (id === 'frame') return frame;
         if (id === 'fallback') return fallback;
@@ -78,7 +106,10 @@ function runFramePage(url = 'http://127.0.0.1:3080') {
       },
     },
     location: { reload() {} },
-    setTimeout: () => 0,
+    setTimeout: (callback) => {
+      timers.push(callback);
+      return timers.length;
+    },
     clearTimeout: () => {},
     console,
   };
@@ -86,10 +117,17 @@ function runFramePage(url = 'http://127.0.0.1:3080') {
   return {
     frame,
     frameListeners,
+    fallbackClasses,
+    frameSrc: () => frameSrc,
     origin: new URL(url).origin,
     postedToFrame,
     postedToVscode,
     removed: () => removed,
+    timers,
+    clickRetry() {
+      assert.ok(retryClick, 'retry button must have a click handler');
+      retryClick();
+    },
     setFrameContentWindow(value) {
       frame.contentWindow = value;
     },
@@ -507,7 +545,10 @@ test('B2 QA framePage keeps the existing HTML escaping for XSS-bearing iframe/er
   assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
   assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt;'));
   assert.ok(html.includes('&quot;'));
-  assert.strictEqual((html.match(/<\/iframe>/g) || []).length, 1);
+  // The iframe now carries its URL in an inline script, so a hostile URL must
+  // arrive as \u003c-escaped JSON and can never close the tag it never opens.
+  assert.strictEqual((html.match(/<\/iframe>/g) || []).length, 0);
+  assert.ok(html.includes('%3Cscript%3E'), 'hostile URL characters must be percent-encoded');
 });
 
 test('B2 QA thread coordinator still posts the original thread channel/version message', async () => {

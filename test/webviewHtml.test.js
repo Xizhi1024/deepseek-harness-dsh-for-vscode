@@ -7,7 +7,8 @@ const { statusPage, framePage, withVscodeEmbedMode } = require('../src/webviewHt
 
 test('framePage allows clipboard read and write on the embedded iframe', () => {
   const html = framePage({ url: 'http://127.0.0.1:3080' });
-  assert.match(html, /<iframe[^>]*allow="clipboard-read; clipboard-write"/);
+  assert.match(html, /document\.createElement\("iframe"\)/);
+  assert.ok(html.includes('setAttribute("allow", "clipboard-read; clipboard-write")'));
 });
 
 test('framePage includes a CSP meta that permits inline assets and http(s) frames', () => {
@@ -65,7 +66,7 @@ test('withVscodeEmbedMode maps invalid/non-http(s) URLs to about:blank', () => {
 
 test('framePage fallback link and iframe become about:blank for unsafe URLs', () => {
   const html = framePage({ url: 'javascript:alert(1)', openBrowserLabel: 'Open' });
-  assert.match(html, /<iframe[^>]*src="about:blank"/);
+  assert.ok(html.includes('const FRAME_URL = "about:blank";'));
   assert.match(html, /<a id="fallback-link"[^>]*href="about:blank"/);
 });
 
@@ -110,7 +111,10 @@ test('framePage sends the open-in-browser entry to browserUrl while embedding ur
     url: 'http://127.0.0.1:4999/',
     browserUrl: 'http://127.0.0.1:3080/?token=abc',
   });
-  assert.ok(html.includes('src="http://127.0.0.1:4999/?dsh_embed=vscode"'), 'iframe embeds the proxy URL');
+  assert.ok(
+    html.includes('const FRAME_URL = "http://127.0.0.1:4999/?dsh_embed=vscode";'),
+    'iframe embeds the proxy URL'
+  );
   assert.ok(
     html.includes('href="http://127.0.0.1:3080/?token=abc"'),
     'a real browser gets the direct tokened DSH URL'

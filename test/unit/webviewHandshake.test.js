@@ -29,25 +29,47 @@ function runFramePage(url) {
   const postedToFrame = [];
   const frameListeners = {};
   const windowListeners = {};
+  const timers = [];
+  const fallbackClasses = new Set();
+  const events = [];
+  let frameSrc = null;
+  let inserted = false;
   let removed = false;
+  let retryClick = null;
   const frame = {
     contentWindow: {
       postMessage(message, origin) {
         postedToFrame.push({ message, origin });
       },
     },
+    style: { display: "", cssText: "" },
+    setAttribute() {},
     addEventListener(type, callback) {
       frameListeners[type] = callback;
+      events.push('on:' + type);
+    },
+    set src(value) {
+      frameSrc = value;
+      events.push('src');
+    },
+    get src() {
+      return frameSrc;
     },
     remove() {
       removed = true;
     },
   };
   const fallback = {
-    classList: { add() {} },
+    classList: {
+      add(name) { fallbackClasses.add(name); },
+      remove(name) { fallbackClasses.delete(name); },
+      contains(name) { return fallbackClasses.has(name); },
+    },
   };
   const retry = {
-    addEventListener() {},
+    addEventListener(type, callback) {
+      if (type === 'click') retryClick = callback;
+    },
   };
   const sandbox = {
     acquireVsCodeApi: () => ({
@@ -56,6 +78,17 @@ function runFramePage(url) {
       },
     }),
     document: {
+      createElement(tag) {
+        assert.strictEqual(tag, 'iframe');
+        return frame;
+      },
+      body: {
+        insertBefore(element, before) {
+          assert.strictEqual(element, frame);
+          assert.strictEqual(before, fallback);
+          inserted = true;
+        },
+      },
       getElementById(id) {
         if (id === 'frame') return frame;
         if (id === 'fallback') return fallback;
@@ -69,7 +102,10 @@ function runFramePage(url) {
       },
     },
     location: { reload() {} },
-    setTimeout: () => 0,
+    setTimeout: (callback) => {
+      timers.push(callback);
+      return timers.length;
+    },
     clearTimeout: () => {},
     console,
   };
@@ -77,10 +113,19 @@ function runFramePage(url) {
   return {
     frame,
     frameListeners,
+    fallbackClasses,
+    frameSrc: () => frameSrc,
+    events: () => events.slice(),
+    inserted: () => inserted,
     origin: new URL(url).origin,
     postedToFrame,
     postedToVscode,
     removed: () => removed,
+    timers,
+    clickRetry() {
+      assert.ok(retryClick, 'retry button must have a click handler');
+      retryClick();
+    },
     windowListeners,
   };
 }
@@ -398,4 +443,54 @@ test('client does not install the paste bridge on non-mac platforms', () => {
 
   assert.strictEqual(harness.documentListeners.keydown, undefined, 'paste shortcut bridge is macOS-only');
   assert.strictEqual(harness.execCommands.length, 0);
+});
+
+test('framePage attaches load/error handlers before navigating the iframe', () => {
+  const page = runFramePage('http://127.0.0.1:3080');
+  const events = page.events();
+  const loadIndex = events.indexOf('on:load');
+  const errorIndex = events.indexOf('on:error');
+  const srcIndex = events.indexOf('src');
+  assert.ok(loadIndex >= 0 && errorIndex >= 0, 'both frame handlers must be installed');
+  assert.ok(srcIndex >= 0, 'the frame must be navigated');
+  assert.ok(loadIndex < srcIndex, 'the load handler must exist before src is set');
+  assert.ok(errorIndex < srcIndex, 'the error handler must exist before src is set');
+});
+
+test('framePage timeout keeps the iframe and a late load heals the fallback', () => {
+  const page = runFramePage('http://127.0.0.1:3080');
+  assert.strictEqual(page.fallbackClasses.has('show'), false);
+
+  page.timers[0]();
+
+  assert.ok(page.fallbackClasses.has('show'), 'timeout must show the fallback');
+  assert.strictEqual(page.frame.style.display, 'none', 'the iframe is hidden, not destroyed');
+  assert.strictEqual(page.removed(), false, 'a timeout must never remove the iframe');
+  assert.ok(
+    page.postedToVscode.some((message) => message.type === 'frameLoadFailed' && message.reason === 'timeout'),
+    'the shell must report the failure to the host for diagnostics'
+  );
+
+  page.frameListeners.load();
+
+  assert.strictEqual(page.fallbackClasses.has('show'), false, 'a late load must hide the fallback');
+  assert.strictEqual(page.frame.style.display, '', 'the iframe must become visible again');
+  assert.ok(
+    page.postedToFrame.some((entry) => entry.message.type === 'dshWebviewReady'),
+    'a healed frame still receives READY'
+  );
+});
+
+test('framePage retry re-navigates the same iframe and arms a fresh timer', () => {
+  const page = runFramePage('http://127.0.0.1:3080');
+  page.timers[0]();
+  const originalSrc = page.frameSrc();
+  assert.ok(originalSrc, 'the frame must have a URL');
+
+  page.clickRetry();
+
+  assert.strictEqual(page.fallbackClasses.has('show'), false, 'retry must hide the fallback');
+  assert.strictEqual(page.frame.style.display, '', 'retry must show the iframe');
+  assert.strictEqual(page.frameSrc(), originalSrc, 'retry must reuse the memoized embed URL');
+  assert.strictEqual(page.timers.length, 2, 'retry must arm another load timeout');
 });

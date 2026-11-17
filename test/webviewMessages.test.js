@@ -50,3 +50,18 @@ test('Webview messages route DSH thread acknowledgements when configured', () =>
 test('Webview messages expose the dshThemeChanged protocol constant', () => {
   assert.strictEqual(DSH_THEME_CHANGED, 'dshThemeChanged');
 });
+
+test('Webview messages route frame load failures to the diagnostic sink', () => {
+  const calls = [];
+  const handle = createWebviewMessageHandler({
+    openBrowser() {},
+    retry() {},
+    frameLoadError(message) { calls.push(message); },
+  });
+  const message = { type: 'frameLoadFailed', reason: 'timeout' };
+  assert.strictEqual(handle(message), true);
+  assert.deepStrictEqual(calls, [message]);
+
+  const bare = createWebviewMessageHandler({ openBrowser() {}, retry() {} });
+  assert.strictEqual(bare(message), false, 'no sink means the message is not consumed');
+});

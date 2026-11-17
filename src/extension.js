@@ -324,6 +324,9 @@ async function openInstancePanel({
       const detail = message && message.error ? message.error : loc("Webview 桥版本不匹配");
       setStatusBar("$(error) " + loc("Webview 桥版本不匹配"), detail);
     },
+    frameLoadError: (message) => {
+      appendDiagnostic(`[frame] iframe ${message && message.reason ? message.reason : "load failed"}; the shell keeps the iframe and auto-heals if a late load lands`);
+    },
   }));
   panel.onDidChangeViewState((event) => {
     if (event.webviewPanel.active) lastFocusedInstanceId = id;
@@ -2345,6 +2348,9 @@ async function setupCoreSidebar({ context, services }) {
           handshakeError: (message) => {
             const detail = message && message.error ? message.error : loc("Webview 桥版本不匹配");
             setStatusBar("$(error) " + loc("Webview 桥版本不匹配"), detail);
+          },
+          frameLoadError: (message) => {
+            appendDiagnostic(`[frame] iframe ${message && message.reason ? message.reason : "load failed"}; the shell keeps the iframe and auto-heals if a late load lands`);
           },
         }));
         view.onDidDispose(() => {

@@ -219,12 +219,15 @@ ${WEBVIEW_CSP_META}
  * Renders a full HTML document that embeds the DSH web UI in a full-screen
  * iframe inside the sidebar webview.
  *
- * The iframe is replaced by a fallback message when it fails to load, either
- * on the iframe's "error" event or when no "load" event fires within
- * LOAD_TIMEOUT_MS (about 10 seconds). The fallback shows:
+ * The iframe is created from the inline script (listeners attached before
+ * navigation) so a fast/warm document can never finish loading before the
+ * "load" handler exists. If it still does not load, a fallback message appears
+ * either on the iframe's "error" event or when no "load" event fires within
+ * LOAD_TIMEOUT_MS (15 seconds). The fallback shows:
  *   - an "open in browser" link (href = url, target = _blank), and
- *   - a "retry" button that reloads the whole page via location.reload(),
- *     which re-creates the iframe and restarts the load timer.
+ *   - a "retry" button that re-navigates the same iframe and restarts the
+ *     timer; a slow load that lands after the timeout hides the fallback
+ *     automatically, because the iframe is only hidden, never removed.
  *
  * The shell performs an optional Webview handshake: after the iframe loads,
  * the shell sends dshWebviewReady. A modern DSH client answers with
@@ -255,7 +258,8 @@ function framePage({
   retryLabel = "Retry",
   lang = "en",
 } = {}) {
-  const safeFrameUrl = escapeHtml(withVscodeEmbedMode(url, sessionId, theme));
+  const frameUrl = withVscodeEmbedMode(url, sessionId, theme);
+  const safeFrameUrlScript = safeScriptJson(frameUrl);
   const safeBrowserUrl = escapeHtml(safeHttpUrl(browserUrl || url));
   let frameOrigin = 'null';
   try { frameOrigin = new URL(safeHttpUrl(url)).origin; } catch { /* null sentinel */ }
@@ -296,7 +300,6 @@ ${WEBVIEW_CSP_META}
 </style>
 </head>
 <body>
-  <iframe id="frame" src="${safeFrameUrl}" allow="clipboard-read; clipboard-write" style="position:fixed;inset:0;width:100%;height:100%;border:none"></iframe>
   <div id="fallback">
     <p>${escapeHtml(failText)}</p>
     <div>
@@ -306,8 +309,8 @@ ${WEBVIEW_CSP_META}
   </div>
   <script>
     const vscode = acquireVsCodeApi();
-    const frame = document.getElementById("frame");
     const fallback = document.getElementById("fallback");
+    const FRAME_URL = ${safeFrameUrlScript};
     const CHANNELS = ${channelsScript};
     const VERSIONS = ${versionsScript};
     const MESSAGE_TYPES = ${messageTypesScript};
@@ -318,8 +321,11 @@ ${WEBVIEW_CSP_META}
     const BRIDGE_VERSION = VERSIONS.INTERACTION;
     const THREAD_CHANNEL = CHANNELS.THREAD;
     const THREAD_VERSION = VERSIONS.THREAD;
-    const LOAD_TIMEOUT_MS = 10000;
+    const LOAD_TIMEOUT_MS = 15000;
+    let frame = null;
+    let loadTimer = null;
     let loaded = false;
+    let fallbackShown = false;
     let helloReceived = false;
     let handshakeMismatch = false;
     const pendingThreadAttachments = new Map();
@@ -329,20 +335,35 @@ ${WEBVIEW_CSP_META}
     }
 
     function forwardThreadAttachments() {
-      if (!loaded || !frame.contentWindow) return;
+      if (!loaded || !frame || !frame.contentWindow) return;
       for (const message of pendingThreadAttachments.values()) {
         frame.contentWindow.postMessage(message, DSH_ORIGIN);
       }
     }
 
-    function showFallback() {
-      if (loaded) { return; }
-      frame.remove();
+    function hideFallback() {
+      fallbackShown = false;
+      fallback.classList.remove("show");
+      if (frame) frame.style.display = "";
+    }
+
+    function showFallback(reason) {
+      if (loaded || fallbackShown) { return; }
+      fallbackShown = true;
+      if (loadTimer !== null) {
+        clearTimeout(loadTimer);
+        loadTimer = null;
+      }
+      // Keep the iframe alive: a slow first paint can still land after the
+      // timeout, and a later "load" must be able to heal the fallback without
+      // a full document reload. Only its visibility changes.
+      if (frame) frame.style.display = "none";
       fallback.classList.add("show");
+      vscode.postMessage({ type: "frameLoadFailed", reason: reason || "timeout" });
     }
 
     function postReady() {
-      if (!frame.contentWindow) return;
+      if (!frame || !frame.contentWindow) return;
       frame.contentWindow.postMessage({
         type: MESSAGE_TYPES.READY,
         channel: CHANNELS.INTERACTION,
@@ -351,13 +372,44 @@ ${WEBVIEW_CSP_META}
       }, DSH_ORIGIN);
     }
 
-    frame.addEventListener("load", () => {
+    function onFrameLoad() {
       loaded = true;
+      if (loadTimer !== null) {
+        clearTimeout(loadTimer);
+        loadTimer = null;
+      }
+      hideFallback();
       postReady();
       forwardThreadAttachments();
-    });
-    frame.addEventListener("error", showFallback);
-    setTimeout(showFallback, LOAD_TIMEOUT_MS);
+    }
+
+    function armLoadTimer() {
+      if (loadTimer !== null) clearTimeout(loadTimer);
+      loadTimer = setTimeout(() => {
+        loadTimer = null;
+        if (!loaded) showFallback("timeout");
+      }, LOAD_TIMEOUT_MS);
+    }
+
+    function createFrame() {
+      const el = document.createElement("iframe");
+      el.id = "frame";
+      el.setAttribute("allow", "clipboard-read; clipboard-write");
+      el.style.cssText = "position:fixed;inset:0;width:100%;height:100%;border:none";
+      // Listeners MUST exist before navigation starts. Attaching them to an
+      // iframe that already carries a src attribute races the local server:
+      // a warm cache can deliver the document before the parser reaches this
+      // script, the "load" event is lost, and the shell later declares a
+      // perfectly healthy UI "unreachable".
+      el.addEventListener("load", onFrameLoad);
+      el.addEventListener("error", () => showFallback("error"));
+      el.src = FRAME_URL;
+      document.body.insertBefore(el, fallback);
+      return el;
+    }
+
+    frame = createFrame();
+    armLoadTimer();
 
     window.addEventListener("message", (event) => {
       const message = event.data;
@@ -460,7 +512,18 @@ ${WEBVIEW_CSP_META}
     });
 
     document.getElementById("fallback-retry").addEventListener("click", () => {
-      location.reload();
+      // Retry the SAME embed URL in place instead of reloading the whole
+      // webview document: the shell keeps its handshake/thread state, and a
+      // merely slow (or just-reported) load gets a fresh 15s window without
+      // asking the extension host to reconnect a healthy server.
+      loaded = false;
+      hideFallback();
+      if (frame) {
+        frame.src = FRAME_URL;
+      } else {
+        frame = createFrame();
+      }
+      armLoadTimer();
     });
   </script>
 </body>

@@ -3,6 +3,13 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed / 修复
+
+- **侧栏启动时偶发「Failed to load: DSH service unreachable」，点 Retry 又恢复正常（2026-11-17 用户报告）**：该页来自 Webview shell 的 iframe 加载兜底，并非扩展连不上 DSH；判定逻辑里有两个确定的误报路径。① iframe 直接写在 HTML 里、`src` 先于内联脚本生效，`load` 监听器后挂——本地/缓存命中时文档可能在内联脚本执行前就加载完，事件被丢掉，10 秒后便被判超时；② 超时后 `frame.remove()` 且只等待一次，晚到的 `load` 无法自愈，Retry 也只是 `location.reload()` 重载整个 shell。现在 iframe 改由脚本创建（先挂 `load`/`error` 再设 `src`），超时预算放宽到 15 秒；超时只隐藏 iframe 并显示兜底，晚到的 `load` 会自动恢复界面；Retry 改为原地重导航同一 iframe（保留握手/附件状态并重新计时）；失败原因经 `frameLoadFailed` 写入 DSH OutputChannel（`[frame] …`），便于下次现场定位。回归：`webviewHandshake.test.js` 新增三例（监听器先于导航、超时保留 iframe 且晚到 `load` 自愈、Retry 原地重导航并重新计时），`webviewMessages.test.js` 覆盖失败消息路由，`webviewHtml.test.js` 与 XSS 断言随新结构更新，全套测试通过。
+  The sidebar occasionally showed "Failed to load: DSH service unreachable" at startup, and Retry fixed it (user report 2026-11-17). That page is the Webview shell's iframe fallback, not a signal that the extension lost the DSH connection; the load decision had two definite false-positive paths. (1) The iframe lived in the HTML with its `src` active before the inline script ran, so the `load` listener was attached late — a warm/local document could finish first, the event was lost, and the shell declared a timeout at 10s. (2) On timeout the shell called `frame.remove()` and waited only once, so a late `load` could never heal it, and Retry merely reloaded the whole shell via `location.reload()`. The iframe is now created by the script (handlers attached before `src`), the timeout budget is 15s, a timeout only hides the iframe and shows the fallback, and a late `load` restores the UI automatically; Retry re-navigates the same iframe in place (keeping handshake/thread state and re-arming the timer), and `frameLoadFailed` reports the reason to the DSH OutputChannel (`[frame] …`) for future diagnosis. Regression: three `webviewHandshake.test.js` cases (handlers before navigation, timeout keeps the iframe and a late load heals it, Retry re-navigates and re-arms the timer), `frameLoadFailed` routing in `webviewMessages.test.js`, and updated `webviewHtml.test.js`/XSS assertions for the new structure; the full suite passes.
+
 ## [1.2.1] - 2026-11-17
 
 1.2.0 未单独建条目；本条目合并记录 1.1.3 以来的全部用户可见变更。
