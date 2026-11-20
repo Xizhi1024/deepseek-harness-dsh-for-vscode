@@ -54,3 +54,24 @@ test('shutdown skips queued and future work but waits for running work', async (
   await Promise.all([running, queued, queue.wait()]);
   assert.deepStrictEqual(events, ['running']);
 });
+
+test('event bursts keep one running operation and at most one follow-up', async () => {
+  const queue = new LifecycleQueue();
+  const events = [];
+  let release;
+  let latest = 0;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const schedule = () => queue.enqueueCoalesced('workspace', async () => {
+    events.push(latest);
+    await gate;
+  }, { followUp: true });
+  const active = schedule();
+  await new Promise((resolve) => setImmediate(resolve));
+  const pending = schedule();
+  for (latest = 1; latest <= 10_000; latest += 1) assert.equal(schedule(), pending);
+  assert.notEqual(active, pending);
+  assert.deepEqual(events, [0]);
+  release();
+  await pending;
+  assert.deepEqual(events, [0, 10001]);
+});

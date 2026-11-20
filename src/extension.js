@@ -22,6 +22,7 @@ const crypto = require("node:crypto");
 const { execFileSync, spawn } = require("node:child_process");
 const {
   ServerManager,
+  ServerError,
   CLOSE_POLICIES,
   killProcessTree,
   normalizeClosePolicy,
@@ -30,17 +31,16 @@ const {
 } = require("./serverManager");
 const { ensureManagedRuntime } = require("./runtimeProvisioner");
 const { resolveLocalDshRuntime } = require("./localRuntimeResolver");
+const { installNpmRuntime, resolveNpmRuntime } = require("./npmRuntime");
 const { normalizeLaunchMethod, resolveCommandRuntime } = require("./launchMethodResolver");
 const { discoverDshWebPorts: defaultDiscoverDshWebPorts } = require("./processDiscovery");
-const { isRetryableStartupError, renderStartupError } = require("./startupErrors");
+const { STARTUP_ERRORS, isRetryableStartupError, renderStartupError } = require("./startupErrors");
 const { deriveVscodeCapabilities } = require("./vscodeCapabilities");
 const { deriveFeatureFlags, deriveRuntimeIssues } = require("./dshCompat");
 const { framePage, statusPage, safeHttpUrl } = require("./webviewHtml");
 const {
   listSessions,
   createSession,
-  renameSession,
-  ensureWorkspaceSession,
   rootSessionItems,
   reuseBlankSession,
   buildQuickPickItems,
@@ -75,24 +75,12 @@ const {
   createAddFolderToThreadCommand,
 } = require('./commands/addFileToThread');
 const { createCleanupOrphansCommand } = require('./commands/cleanupOrphans');
-const { createCtrlIEditCommand } = require('./commands/ctrlIEdit');
-const { createCtrlKEditCommand } = require('./commands/ctrlKEdit');
-const { createDshChatClient } = require('./dshChatClient');
-const { createChatParticipantModule } = require('./chatParticipant');
-const { createSessionTitler } = require('./sessionTitler');
 const { buildDiagnoseReport, showDiagnoseQuickPick } = require('./diagnose/report');
-const { createInlineCompletionProvider } = require('./inlineCompletion');
-const { createExportsFace } = require('./exportsFace');
 const { createWorkspaceContext } = require("./workspaceContext");
 const { createWorkspaceBinding, BINDING_STATES } = require("./context/workspaceBinding");
 const { createEditorContext } = require("./editorContext");
 const { createV3Handlers } = require("./bridge/v3");
-const { createChangeTracker, normalizeToolEditPath } = require("./changeTracker");
-const { createEditEventProjector } = require("./editEventProjector");
-const { createChangeWatcher } = require("./changeWatcher");
 const callExportJournal = require("./callExportJournal");
-const { createChangeTree, shouldSurfaceEntry } = require("./changeTree");
-const { createLmRoute } = require("./lmRoute");
 const { createMcpManager } = require("./mcp/manager");
 const { createConsentGate } = require("./mcp/consent");
 const {
@@ -109,7 +97,6 @@ const {
 } = require('./dshHome');
 const { LifecycleQueue } = require("./lifecycle");
 const { createFeatureRegistry } = require("./featureRegistry");
-const { maybeOnboard, runOnboardingWizard } = require("./onboarding");
 
 // Startup/connect retry semantics are centralized in src/startupErrors.js:
 // classified codes decide Retry enablement, unknown codes stay retryable.
@@ -119,10 +106,15 @@ let hostContext = null; // workspace/config facade bound during activation
 let manager = null; // ServerManager instance (created in activate)
 let currentServer = null; // RunningServer | null
 // Shared auth-aware fetch for every DSH /api consumer (session create/list/
-// rename, chat prompt + SSE, workspace binding, LM route). On dsh 0.1.2+
+// and workspace binding). On dsh 0.1.2+
 // the server's auth fence requires a Cookie minted from the launch token;
 // on older runtimes tokenProvider yields null and this is a pass-through.
 const dshApiFetch = createAuthedFetch({
+  fetchImpl(input, init = {}) {
+    const signals = [AbortSignal.timeout(15_000), runtimeAbort.signal];
+    if (init.signal) signals.push(init.signal);
+    return fetch(input, { ...init, signal: AbortSignal.any(signals) });
+  },
   tokenProvider: () => (currentServer && typeof currentServer.authToken === 'string' ? currentServer.authToken : null),
 });
 let currentExternalUrl = null; // client-reachable URL (forwarded in remote workspaces)
@@ -134,38 +126,16 @@ let boundCwd = null; // workspace root the current server is bound to (null = no
 let lastConfig = null; // last config snapshot used for change detection (reconciler)
 let restartPromptTimer = null; // A2/U2: debounced "Restart now?" prompt for injection-class settings
 let lifecycle = null; // the one queue for every lifecycle transition
-let viewGeneration = 0; // invalidates delayed connects for disposed/replaced views
+let automaticStartBlocked = false; // a failed or stopped window needs an explicit retry
+let connecting = false;
+let lastSidebarPage = null;
 
-/**
- * C2.5 anchor: every currentSessionId transition re-points the edit-event
- * projector at the now-current session (or stops following on null).
- * Best-effort only — a projector failure must never disturb session flow.
- */
-function followEditProjection(sessionId) {
-  try {
-    if (sessionId) {
-      editEventProjector?.followSession(sessionId);
-    } else {
-      editEventProjector?.unfollow();
-    }
-  } catch (_) {
-    /* projection is advisory attribution, never load-bearing */
-  }
-}
-/**
- * In-iframe conversation switch (dshSessionChanged relay): the user clicked
- * another session inside the DSH web UI. Follow it WITHOUT reloading the
- * iframe — re-point the changes tree, the workspace binding and the edit
- * projector at the now-current session (live bug 2026-09-04: "switching
- * conversations did not switch the changes view").
- */
+/** Track DSH session switches without reloading the iframe. */
 function handleSessionChangedFromWeb(sessionId) {
   const next = sessionIdFromValue(sessionId);
   if (!next || next === currentSessionId) return;
   currentSessionId = next;
-  try { changeTree?.setActiveSession?.(currentSessionId); } catch { /* advisory */ }
   try { workspaceBinding?.setActiveSession?.(next); } catch { /* advisory */ }
-  followEditProjection(next);
 }
 
 let textDocumentBridge = null; // per-window authenticated DSH -> vscode.window bridge
@@ -173,11 +143,6 @@ let versionedBridge = null; // per-window versioned JSON-RPC bridge
 let notificationNotifier = null; // CH1 v2 metadata notification coalescer
 let notificationSubscriptions = []; // selection/diagnostics event disposables
 let editorContext = null; // per-window approved editor attachments backing vscode/editor methods
-let changeTracker = null; // R14S1 journal for applied changes (created in L0, no UI)
-let changeWatcher = null; // C1 L3 FileSystemWatcher fallback for source:'external' changes
-let editEventProjector = null; // C2.5 projects edit/write tool calls from the session event stream into the journal
-let changeTree = null; // R14S1 TreeView/command surface (created in L2 changes-review)
-let lmRoute = null; // R23 model-route provider (created in L2 lm-route)
 let mcpManager = null; // S2b MCP consume aggregator (created in L0, no side effects)
 let mcpConsentGate = null; // S2b per-server consent gate (created in L0)
 let callExportJournalInstance = null; // E-T2b callExport journal (created in L0, wired into v3)
@@ -187,15 +152,12 @@ let activeDshHome = null; // effective shared/isolated DSH user-data home
 let activeDshHomeInfo = null; // effective mode/path/source for diagnostics
 let ensureRuntime = null; // resolves/verifies (and optionally provisions) the managed runtime
 let discoverRunningDshWebPorts = null; // process-scan fallback for silent ports (injectable)
-let ensureWorkspaceSessionFn = null; // retained injection seam; defaults to workspaceBinding.resolve
 let workspaceBinding = null; // SM-2 workspace registry binding (created in activate)
-let sessionTitleFn = null; // B2 shared one-shot session titler (chat participant + exports face)
 let runtimeAbort = new AbortController(); // cancels in-flight runtime provisioning on deactivate
 let threadAttachmentCoordinator = null; // owning-window request/ack bridge into the DSH composer
 let injectedDependencies = {}; // activation seams shared with the feature setups (deps stays { context, services })
 let registry = null; // R25 feature registry (created in activateWithDependencies)
 let featureFailures = []; // R25 [{ id, error, at }] folded into dsh.diagnose
-let exportsFaceInstance = null; // E-asm-1 activate() return face (always shaped; feature off => methods throw)
 const instancePanels = new Map(); // R16: instanceId -> { panel, server } (shared child, per-panel session)
 let instanceSeq = 0; // R16: monotonically increasing instance counter
 let lastFocusedInstanceId = null; // R16: most recently focused DSH surface (null = sidebar)
@@ -203,7 +165,7 @@ let interactionHandlers = []; // webview interaction routers registered by L1/L2
 let cleanMode = false; // D1 clean-restart mode: spawns with vscode-clean.overlay.yml
 let cleanPatchPath = null; // absolute clean overlay currently in effect
 let pendingCleanRestart = false; // status-page Retry maps to Restart-Clean on HEALTH_TIMEOUT/SPAWN_EXITED_EARLY
-let selfHealEvents = []; // Diagnose records successful patch-drop self-heal retries here
+let selfHealCount = 0;
 // C1 watchdog / diagnostics:
 let outputChannel = null; // vscode.window.createOutputChannel("DSH"); last link of the §3 degradation chain
 let ownerWindowId = null; // stable window identity (vscode.env.windowId or derived)
@@ -700,8 +662,9 @@ function setStatusBar(text, tooltip) {
   statusBar.show();
 }
 
-/** Push an HTML page into the sidebar webview, if one is open. */
+/** Keep the latest page so re-opening the sidebar does not start DSH again. */
 function render(page) {
+  lastSidebarPage = page;
   if (currentView) {
     currentView.webview.html = page;
   }
@@ -714,10 +677,6 @@ function render(page) {
  */
 function renderFrame(context) {
   if (!currentExternalUrl) return;
-  // Session-following change tree: every frame render follows a session
-  // change (bind / new / switch), so this is the single setActiveSession
-  // anchor; the tree tolerates being absent (L0) via optional chaining.
-  try { changeTree?.setActiveSession?.(currentSessionId); } catch (_) { /* advisory */ }
   render(framePage({
     url: currentExternalUrl,
     lang: vscode.env.language,
@@ -794,26 +753,36 @@ async function bindServer(context, server, cwd) {
     // instances.
     sessionId = await workspaceBinding.resolve(server, cwd);
     currentSessionId = sessionId ? sessionIdFromValue(sessionId) : null;
-    followEditProjection(currentSessionId);
-    const bindingState = workspaceBinding.state();
-    if (bindingState.state === BINDING_STATES.ERROR) {
-      render(statusPage({
-        title: loc("DSH workspace binding failed"),
-        detail: bindingState.error || loc("Unknown workspace binding error"),
-        showRetry: true,
-        retryLabel: loc("Retry"),
-        lang: vscode.env.language,
-      }));
-      return;
-    }
+    if (showBindingError()) return;
   } else {
     currentSessionId = null;
-    followEditProjection(null);
   }
   renderFrame(context);
 }
 
+/** Modern DSH handles workspace and session selection inside the embedded page. */
+function showBindingError() {
+  const state = workspaceBinding.state();
+  if (state.state !== BINDING_STATES.ERROR) return false;
+  if (/^DSH session API unavailable: HTTP (404|405)$/.test(state.error)) {
+    appendDiagnostic('[workspace] Legacy workspace API unavailable; using the DSH web workspace UI');
+    return false;
+  }
+  render(statusPage({
+    title: loc("DSH workspace binding failed"),
+    detail: state.error || loc("Unknown workspace binding error"),
+    showRetry: true,
+    retryLabel: loc("Retry"),
+    lang: vscode.env.language,
+  }));
+  return true;
+}
+
 async function connectNow(context) {
+  if (lifecycle.stopped) return;
+  if (runtimeAbort.signal.aborted) runtimeAbort = new AbortController();
+  const signal = runtimeAbort.signal;
+  connecting = true;
   try {
     // The Restart-Clean entry only applies to the next failed startup.
     pendingCleanRestart = false;
@@ -833,27 +802,28 @@ async function connectNow(context) {
     render(statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail: "", lang: vscode.env.language }));
 
     let server = null;
-    // autoStart uses the locally installed official DSH package by default and
-    // an explicitly configured verified release manifest as an opt-in path.
-    // Both launch with the independently selected shared/isolated home and the configured dsh.profile.
-    // One exception: when no managed runtime can be provided but a DSH
-    // instance is already serving the configured endpoint, adopt that
-    // instance as a reused external server instead of stranding the sidebar.
     if (cfg.autoStart) {
       render(statusPage({
         title: loc("Connecting to DeepSeek Harness…"),
         detail: loc("Resolving official DSH runtime…"),
         lang: vscode.env.language,
       }));
-      // dsh.launch.method selects how DSH is launched: 'managed' resolves the
-      // installed official package (default), 'command' runs the dsh CLI from
-      // PATH via dsh.launch.command, and 'auto' tries managed first and falls
-      // back to command mode when no local package can be resolved. The
-      // fallback keeps GUI-launched VS Code working on exotic Windows setups
-      // (pnpm/yarn/scoop/custom npm prefixes) where static layout probing may
-      // still miss the install.
       const launchMethod = normalizeLaunchMethod(cfg.launchMethod);
       const hasExplicitRuntimeConfig = Boolean(cfg.localPackageRoot || cfg.localNodePath || cfg.executablePath);
+      const canInstall = !cfg.runtimeManifestUrl && !hasExplicitRuntimeConfig
+        && (launchMethod === 'managed' || (launchMethod === 'auto' && cfg.launchCommand === 'dsh'));
+      const runtimeOptions = {
+        storageRoot: runtimeStorageRoot,
+        platform: process.platform,
+        arch: process.arch,
+        manifestUrl: cfg.runtimeManifestUrl,
+        version: cfg.runtimeVersion,
+        dshHome: activeDshHome,
+        packageRoot: cfg.localPackageRoot,
+        nodePath: cfg.localNodePath,
+        executablePath: cfg.executablePath,
+        signal,
+      };
       let resolvedRuntime;
       try {
         if (launchMethod === 'command') {
@@ -869,18 +839,7 @@ async function connectNow(context) {
           }
         } else {
           try {
-            resolvedRuntime = await ensureRuntime({
-              storageRoot: runtimeStorageRoot,
-              platform: process.platform,
-              arch: process.arch,
-              manifestUrl: cfg.runtimeManifestUrl,
-              version: cfg.runtimeVersion,
-              dshHome: activeDshHome,
-              packageRoot: cfg.localPackageRoot,
-              nodePath: cfg.localNodePath,
-              executablePath: cfg.executablePath,
-              signal: runtimeAbort.signal,
-            });
+            resolvedRuntime = await ensureRuntime(runtimeOptions);
           } catch (managedError) {
             const fallbackEligible = launchMethod === 'auto'
               && !hasExplicitRuntimeConfig
@@ -900,34 +859,45 @@ async function connectNow(context) {
           }
         }
       } catch (runtimeError) {
-        let adopted = typeof manager.adoptRunningDsh === 'function'
-          ? await manager.adoptRunningDsh(cfg.host, cfg.port).catch(() => null)
-          : null;
-        if (!adopted) {
-          // Process-discovery fallback (credited to DM010727/dsh-cline): the
-          // configured port is silent but a `dsh web` may be running on a
-          // different port of this machine (leftover instance, a port override
-          // in another window, a manual terminal session). Scan process
-          // command lines, then probe each discovered port before giving up.
+        signal.throwIfAborted();
+        const missing = canInstall && runtimeError?.code === 'RUNTIME_NOT_INSTALLED';
+        let installError;
+        if (missing) {
           try {
-            const ports = await discoverRunningDshWebPorts({ platform: process.platform });
-            for (const port of ports) {
-              if (port === cfg.port) continue;
-              adopted = await manager.adoptRunningDsh(cfg.host, port);
-              if (adopted) break;
-            }
-          } catch {
-            // best-effort only: the original runtime error still stands
+            const resolveInstalled = injectedDependencies.resolveNpmRuntime || resolveNpmRuntime;
+            resolvedRuntime = await resolveInstalled(runtimeOptions);
+          } catch (error) {
+            installError = error;
           }
         }
-        if (!adopted) throw runtimeError;
-        manager.setResolvedRuntime(null);
-        console.warn(
-          'dsh-vs-sidebar: configured runtime unavailable; reusing running DSH instance:',
-          runtimeError && runtimeError.message ? runtimeError.message : runtimeError
-        );
-        server = adopted;
+        if (!resolvedRuntime) {
+          server = await findRunningDsh(cfg.host, cfg.port, signal);
+          signal.throwIfAborted();
+          if (server) {
+            manager.setResolvedRuntime(null);
+            console.warn('dsh-vs-sidebar: configured runtime unavailable; reusing running DSH instance:', runtimeError.message);
+          } else if (missing) {
+            try {
+              if (installError) throw installError;
+              setStatusBar("$(sync~spin) " + loc("Installing official DSH…"));
+              render(statusPage({
+                title: loc("Installing official DSH…"),
+                detail: loc("DSH and its Node.js runtime are being installed in VS Code’s extension storage."),
+                lang: vscode.env.language,
+              }));
+              const install = injectedDependencies.installNpmRuntime || installNpmRuntime;
+              resolvedRuntime = await install(runtimeOptions);
+            } catch (error) {
+              throw new ServerError(STARTUP_ERRORS.RUNTIME_INSTALL_FAILED.template, {
+                reason: error.message,
+              }, 'RUNTIME_INSTALL_FAILED');
+            }
+          } else {
+            throw runtimeError;
+          }
+        }
       }
+      signal.throwIfAborted();
       if (server === null) {
         resolvedRuntime = bindRuntimeHome(resolvedRuntime, activeDshHome, cfg.profile);
         manager.setResolvedRuntime(resolvedRuntime);
@@ -943,11 +913,14 @@ async function connectNow(context) {
         registryFile: hostContext.registryFilePath(),
       });
     }
+    signal.throwIfAborted();
     await bindServer(context, server, cwd);
+    if (!signal.aborted) automaticStartBlocked = false;
   } catch (err) {
+    automaticStartBlocked = true;
     currentServer = null;
     boundCwd = null;
-    if (lifecycle.stopped) return;
+    if (signal.aborted || lifecycle.stopped) return;
     setStatusBar("$(error) " + loc("DSH: unavailable"));
     const cfg = hostContext.config();
     const url = "http://" + cfg.host + ":" + cfg.port;
@@ -967,18 +940,33 @@ async function connectNow(context) {
         lang: vscode.env.language,
       }));
     } catch (_) { /* never throw out of connect() */ }
+  } finally {
+    connecting = false;
   }
 }
 
-/** Queue an ensure operation, optionally tied to one resolved view instance. */
-function scheduleConnect(context, expectedViewGeneration = null) {
-  return lifecycle.enqueue("connect", async () => {
-    if (
-      expectedViewGeneration !== null
-      && (expectedViewGeneration !== viewGeneration || !currentView)
-    ) {
-      return;
+async function findRunningDsh(host, port, signal) {
+  if (typeof manager.adoptRunningDsh !== 'function') return null;
+  const configured = await manager.adoptRunningDsh(host, port).catch(() => null);
+  if (configured) return configured;
+  try {
+    const ports = await discoverRunningDshWebPorts({ platform: process.platform });
+    for (const discoveredPort of ports.slice(0, 50)) {
+      if (signal.aborted) break;
+      if (discoveredPort === port) continue;
+      const server = await manager.adoptRunningDsh(host, discoveredPort);
+      if (server) return server;
     }
+  } catch {
+    // Process discovery is best effort.
+  }
+  return null;
+}
+
+/** Passive events share one attempt and respect a previous failure or Stop. */
+function scheduleConnect(context) {
+  return lifecycle.enqueueCoalesced("connect", async () => {
+    if (automaticStartBlocked || currentServer) return;
     await connectNow(context);
   });
 }
@@ -1002,7 +990,6 @@ async function reconnectNow(context) {
   currentServer = null;
   currentExternalUrl = null;
   currentSessionId = null;
-  followEditProjection(null);
   await connectNow(context);
 }
 
@@ -1065,6 +1052,7 @@ async function restartNormalNow(context) {
  * not effectively change.
  */
 async function rebindToWorkspace(context) {
+  if (automaticStartBlocked && !currentServer) return;
   const cwd = hostContext.workspaceCwd();
   if (hostContext.sameRoot(cwd, boundCwd)) return; // no effective workspace change
 
@@ -1084,7 +1072,6 @@ async function rebindToWorkspace(context) {
     currentServer = null;
     currentExternalUrl = null;
     currentSessionId = null;
-    followEditProjection(null);
     await connectNow(context);
     return;
   }
@@ -1093,18 +1080,7 @@ async function rebindToWorkspace(context) {
   // to the new workspace through the workspace registry.
   const sessionId = await workspaceBinding.resolve(currentServer, cwd);
   currentSessionId = sessionId ? sessionIdFromValue(sessionId) : null;
-  followEditProjection(currentSessionId);
-  const bindingState = workspaceBinding.state();
-  if (bindingState.state === BINDING_STATES.ERROR) {
-    render(statusPage({
-      title: loc("DSH workspace binding failed"),
-      detail: bindingState.error || loc("Unknown workspace binding error"),
-      showRetry: true,
-      retryLabel: loc("Retry"),
-      lang: vscode.env.language,
-    }));
-    return;
-  }
+  if (showBindingError()) return;
   renderFrame(context);
 }
 
@@ -1113,7 +1089,7 @@ async function rebindToWorkspace(context) {
  * processed one after another instead of racing each other.
  */
 function scheduleRebind(context) {
-  return lifecycle.enqueue("workspace rebind", () => rebindToWorkspace(context));
+  return lifecycle.enqueueCoalesced("workspace rebind", () => rebindToWorkspace(context), { followUp: true });
 }
 
 /**
@@ -1133,18 +1109,17 @@ function scheduleRebind(context) {
  * inputs take effect; they never touch a reused external instance.
  */
 function scheduleConfigReconcile(context) {
-  return lifecycle.enqueue("config reconcile", async () => {
+  return lifecycle.enqueueCoalesced("config reconcile", async () => {
     const prev = lastConfig || hostContext.config();
     const next = hostContext.config();
-      // Record the incoming snapshot regardless, so rapid toggles coalesce
-      // onto the latest value before the next queued reconcile runs.
+    // Record the incoming snapshot so the next reconcile sees the latest value.
     lastConfig = next;
 
     const decision = reconcileConfigChange(
-        prev,
-        next,
-        Boolean(currentServer),
-        Boolean(manager && manager.hasOwnedChild())
+      prev,
+      next,
+      Boolean(currentServer),
+      Boolean(manager && manager.hasOwnedChild())
     );
 
     const runtimeChanged = next.autoStart && (
@@ -1164,7 +1139,7 @@ function scheduleConfigReconcile(context) {
     if (decision.shouldReconnect || runtimeChanged) {
       await reconnectNow(context);
     }
-  });
+  }, { followUp: true });
 }
 
 /**
@@ -1198,66 +1173,9 @@ const FEATURE_CATALOG = [
   { id: 'editor-links', label: 'Editor links (Read…)', layer: 'L1', defaultEnabled: true, core: false, setup: setupEditorLinks },
   { id: 'statusbar-basic', label: 'Status bar indicator', layer: 'L1', defaultEnabled: true, core: false, setup: setupStatusbarBasic },
   { id: 'theme-follow', label: 'Theme follow (dark/light)', layer: 'L1', defaultEnabled: true, core: false, setup: setupThemeFollow },
-  { id: 'changes-review', label: 'Changes review (DSH workspace edits)', layer: 'L2', defaultEnabled: true, core: false, setup: setupChangesReview },
-  { id: 'ctrl-k', label: 'Edit with DSH (Ctrl+K)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCtrlK },
-  { id: 'lm-route', label: 'DSH model routing', layer: 'L2', defaultEnabled: false, core: false, setup: setupLmRoute },
   { id: 'mcp-consume', label: 'MCP servers', layer: 'L2', defaultEnabled: false, core: false, setup: setupMcpConsume },
   { id: 'call-export', label: 'Call extension exports (vscode/extensions/callExport)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCallExport },
-  { id: 'ctrl-i', label: 'Edit with DSH files (Ctrl+I, keybinding not bound)', layer: 'L2', defaultEnabled: false, core: false, setup: setupCtrlI },
-  { id: 'exports', label: 'Programmatic exports API (activate() return face)', layer: 'L2', defaultEnabled: false, core: false, setup: setupExports },
-  { id: 'chat-participant', label: 'Chat participant @dsh', layer: 'L2', defaultEnabled: true, core: false, setup: setupChatParticipant },
-  { id: 'tab-completion', label: 'Tab completion (FIM POC)', layer: 'L2', defaultEnabled: false, core: false, setup: setupTabCompletion },
 ];
-
-/**
- * C2 onboarding: the implemented feature switches the wizard can toggle.
- * L0 features are never configurable; every L1/L2 `dsh.features.*` switch is
- * offered, pre-picked from the catalog's defaultEnabled (the recommended
- * preset: changes-review and chat-participant default to on).
- */
-const ONBOARDING_FEATURE_SWITCHES = FEATURE_CATALOG
-  .filter((feature) => feature.layer !== 'L0')
-  .map((feature) => ({ id: feature.id, label: feature.label, defaultEnabled: feature.defaultEnabled }));
-
-/**
- * C2 onboarding: the workspace adapter passed to runOnboardingWizard. It
- * injects the VS Code facade, the localization function, the dsh.* read/write
- * seams, and the implemented feature switch list so src/onboarding.js stays a
- * pure module (no top-level require('vscode')).
- */
-function createOnboardingWorkspace(vscode, loc, context) {
-  return {
-    vscode,
-    loc,
-    featureSwitches: ONBOARDING_FEATURE_SWITCHES,
-    getSetting(key, fallback) {
-      return vscode.workspace.getConfiguration('dsh').get(key, fallback);
-    },
-    async updateSetting(key, value) {
-      // Global target: the wizard's choices apply to the user, not one folder.
-      return vscode.workspace.getConfiguration('dsh').update(key, value, true);
-    },
-    // D3: existing-profile detection (zero typing) + the FIM secret seam.
-    // Both degrade silently when the DSH home or secretStorage is absent.
-    listProfiles() {
-      try {
-        const homePath = activeDshHomeInfo && typeof activeDshHomeInfo.path === 'string' ? activeDshHomeInfo.path : '';
-        if (!homePath) return [];
-        const profilesRoot = path.join(homePath, 'profiles');
-        return fs.readdirSync(profilesRoot, { withFileTypes: true })
-          .filter((entry) => entry.isDirectory())
-          .map((entry) => entry.name)
-          .filter((name) => fs.existsSync(path.join(profilesRoot, name, 'package.json')));
-      } catch {
-        return [];
-      }
-    },
-    async storeFimKey(key) {
-      if (!context || !context.secrets || typeof context.secrets.store !== 'function') return;
-      await context.secrets.store('dsh.fim.apiKey', key);
-    },
-  };
-}
 
 function normalizeServersValue(value) {
   if (Array.isArray(value)) return value;
@@ -1324,6 +1242,8 @@ function readMcpSources(vscode, fsApi = fs) {
  */
 async function setupCoreServer({ context, services }) {
   lifecycle = new LifecycleQueue();
+  automaticStartBlocked = false;
+  lastSidebarPage = null;
   workspaceBinding = (injectedDependencies.createWorkspaceBinding || createWorkspaceBinding)({
     vscode,
     baseUrlProvider: () => currentServer && currentServer.url,
@@ -1364,19 +1284,6 @@ async function setupCoreServer({ context, services }) {
   // is asserted without racing a real `ps`/`powershell` scan of this machine.
   discoverRunningDshWebPorts = injectedDependencies.discoverDshWebPorts
     || ((options) => defaultDiscoverDshWebPorts(options));
-  ensureWorkspaceSessionFn = injectedDependencies.ensureWorkspaceSession || ((baseUrl, cwd, options) => {
-    const server = currentServer || { url: baseUrl, owned: true };
-    return workspaceBinding.resolve(server, cwd);
-  });
-  // B2: shared one-shot session titler. Both the @dsh participant and the
-  // exports face derive a readable session title from the first prompt
-  // (sessions created through the API otherwise keep bare-UUID titles);
-  // createSessionTitler memoizes per session id so at most one
-  // session.rename is issued per session per extension lifetime.
-  sessionTitleFn = (injectedDependencies.createSessionTitler || createSessionTitler)((sessionId, title) => renameSession(
-    currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
-    { sessionId, title, fetchImpl: dshApiFetch }
-  ));
   try {
     prepareDshHome(hostContext.config(), context);
   } catch (err) {
@@ -1409,6 +1316,11 @@ async function setupCoreServer({ context, services }) {
     }),
     onStatus: (s) => {
       if (s.state === "lost") {
+        automaticStartBlocked = true;
+        currentServer = null;
+        currentExternalUrl = null;
+        currentSessionId = null;
+        boundCwd = null;
         // Post-ready health watchdog detected the service stopped answering
         // (killed from outside, sleep/resume, port hijack). Surface it so the
         // sidebar does not silently show a dead iframe; the user can Retry.
@@ -1426,7 +1338,7 @@ async function setupCoreServer({ context, services }) {
       if (s.state === "selfheal") {
         // Successful patch-drop self-heal: transparent for the user, kept
         // for Diagnose and appended to the OutputChannel.
-        selfHealEvents.push(s);
+        selfHealCount += 1;
         appendDiagnostic(`[selfheal] ${s.message ? loc(s.message, s.params) : 'DSH self-healed'}`);
         return;
       }
@@ -1446,11 +1358,11 @@ async function setupCoreServer({ context, services }) {
         } catch (_) { /* non-fatal */ }
       }
       if (s.state === "error") {
+        automaticStartBlocked = true;
         setStatusBar("$(error) " + (s.message ? loc(s.message, s.params) : loc("DSH: unavailable")));
         currentServer = null;
         currentExternalUrl = null;
         currentSessionId = null;
-        followEditProjection(null);
         boundCwd = null;
         pendingCleanRestart = false;
         appendDiagnostic(`[server] ${s.message ? loc(s.message, s.params) : loc("DSH: unavailable")}`);
@@ -1556,14 +1468,10 @@ async function setupCoreServer({ context, services }) {
 
 /**
  * A2/U2: settings that only apply to a freshly started DSH service (the
- * server-side FIM plugin config and the bridge consent gates negotiated at
- * bridge initialization). Changing any of them triggers a debounced
+ * bridge consent gates negotiated at initialization). Changing any of them triggers a debounced
  * "Restart now?" prompt; confirming runs dsh.restartServer.
  */
 const RESTART_PROMPT_SETTINGS = Object.freeze([
-  'dsh.fim.baseUrl',
-  'dsh.fim.model',
-  'dsh.features.tab-completion',
   'dsh.bridge.terminal',
   'dsh.bridge.editorRead',
   'dsh.bridge.ui',
@@ -1613,109 +1521,6 @@ async function setupCoreSidebar({ context, services }) {
     },
   });
   services.editorContext = editorContext;
-  // R14S1 guard: `dsh.changes` is declared unconditionally in package.json
-  // (gated by a `when` visibility clause), but the real provider is only
-  // mounted by the L2 changes-review feature. Always register an empty
-  // fallback provider at L0 so a partially failed activation — or a window
-  // where the when-clause lags behind the config — never renders VS Code's
-  // "no registered data provider" placeholder. When changes-review is on,
-  // createChangeTree re-registers the real provider for the same view id and
-  // this fallback is superseded (re-registration replaces).
-  try {
-    const fallbackChangesProvider = vscode.window.registerTreeDataProvider('dsh.changes', {
-      getChildren: () => [],
-      getTreeItem: () => null,
-    });
-    context.subscriptions.push(fallbackChangesProvider);
-  } catch {
-    // older facades without registerTreeDataProvider simply skip the guard
-  }
-  const rawChangeTracker = injectedDependencies.changeTracker
-    || createChangeTracker({ storageUri: context.globalStorageUri, vscode });
-  // Wrap record so a later L2 change tree can reveal newly arrived entries
-  // without the L0 handler depending on L2 UI. The wrapper reuses the frozen
-  // tracker's methods, which close over the journal state, so no bind is needed.
-  changeTracker = {
-    ...rawChangeTracker,
-    async record(options) {
-      const entry = await rawChangeTracker.record(options);
-      try {
-        services.changesReview?.onEntry?.(entry);
-      } catch (_) {
-        // reveal is best-effort; the journal record already succeeded
-      }
-      return entry;
-    },
-    async recordToolEdit(payload) {
-      // DSH tool arguments carry session-cwd-relative paths; the journal,
-      // watcher dedup, openDiff and undo key on absolute host paths. Resolve
-      // against the bound cwd plus every workspace-folder root (existence
-      // preferred) before the payload enters the journal.
-      let roots = [];
-      try {
-        const folders = vscode.workspace && Array.isArray(vscode.workspace.workspaceFolders)
-          ? vscode.workspace.workspaceFolders
-          : [];
-        roots = folders.map((folder) => (folder && folder.uri && typeof folder.uri.fsPath === 'string'
-          ? folder.uri.fsPath : null)).filter(Boolean);
-      } catch { roots = []; }
-      if (typeof boundCwd === 'string' && boundCwd.length > 0) roots.unshift(boundCwd);
-      const entry = await rawChangeTracker.recordToolEdit(normalizeToolEditPath(payload, roots));
-      if (entry && entry.merged !== true) {
-        // True before snapshot (2026-09-04): the pre-execute observer now
-        // sends the before TEXT; persist it exactly like watcher snapshots so
-        // openDiff shows a real before/after diff and undo restores the true
-        // pre-change state.
-        if (typeof payload.beforeText === 'string'
-          && Buffer.byteLength(payload.beforeText, 'utf8') <= 1024 * 1024) {
-          try {
-            const snapshotDir = path.join(context.globalStorageUri.fsPath, 'changes', 'snapshots');
-            fs.mkdirSync(snapshotDir, { recursive: true });
-            const snapshotPath = path.join(snapshotDir, entry.id);
-            fs.writeFileSync(snapshotPath, payload.beforeText, 'utf8');
-            await rawChangeTracker.updateEntry(entry.id, { beforeSnapshotPath: snapshotPath });
-          } catch {
-            // snapshot persistence is best-effort; attribution stands alone
-          }
-        }
-        try {
-          services.changesReview?.onEntry?.(entry);
-        } catch (_) {
-          // reveal is best-effort; the journal record already succeeded
-        }
-      }
-      return entry;
-    },
-    async recordBatch(payloads) {
-      // Storm path: one journal write for the whole slice; the tree refreshes
-      // once per batch instead of once per file (2026-09-05).
-      const created = await rawChangeTracker.recordBatch(payloads);
-      if (Array.isArray(created) && created.length > 0) {
-        try {
-          services.changesReview?.onEntryBatch?.(created);
-        } catch (_) {
-          // refresh is advisory; the journal write already succeeded
-        }
-      }
-      return created;
-    },
-  };
-  services.changeTracker = changeTracker;
-  // C2.5 event-flow attribution: project edit/write tool calls from the DSH
-  // session event stream (bounded export back-scan + live events.mux
-  // subscription) into the change journal. Zero interception: the journal's
-  // (path, sessionId, ±2s) idempotent merge folds duplicates with C2 bridge
-  // notifications. Every projector failure only logs via appendDiagnostic.
-  try {
-    editEventProjector = createEditEventProjector({
-      recordToolEdit: (payload) => changeTracker?.recordToolEdit?.(payload),
-      log: (line) => appendDiagnostic(line),
-      baseUrl: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
-    });
-    services.editEventProjector = editEventProjector;
-  } catch (err) {
-    appendDiagnostic('edit-event projector degraded: ' + (err && err.message ? err.message : String(err)));
-  }
   mcpConsentGate = createConsentGate({
     globalState: context.globalState || { get: () => [], update: () => {} },
     vscode,
@@ -1762,14 +1567,11 @@ async function setupCoreSidebar({ context, services }) {
       vscode,
       getFlag: (key) => vscode.workspace.getConfiguration("dsh").get(key, false),
       appendOutputLine: appendDiagnostic,
-      changeTracker,
       getMcpManager: () => mcpManager,
       callExportJournal: callExportJournalInstance,
     })
     : injectedDependencies.v3Handlers;
   versionedBridge = await versionedBridgeStarter({
-    // C1/C2 contract: route vscode/dshEditObserved notifications into the journal.
-    onDshEditObserved: (payload) => changeTracker?.recordToolEdit?.(payload),
     handlers: injectedDependencies.vscodeBridgeHandlers === undefined
       ? { ...editorContext.handlers, ...extensionBridgeHandlers, ...v3Handlers }
       : injectedDependencies.vscodeBridgeHandlers,
@@ -1801,14 +1603,13 @@ async function setupCoreSidebar({ context, services }) {
       // VS Code shows "Error restoring view: <id>" whenever this function
       // throws or rejects, so it must never propagate an exception.
       try {
-        const resolvedViewGeneration = ++viewGeneration;
         currentView = view;
         view.webview.options = { enableScripts: true };
         // Synchronous first paint: the webview always has content, even if
         // the async connect below fails later.
-        view.webview.html = statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail: "", lang: vscode.env.language });
+        view.webview.html = lastSidebarPage || statusPage({ title: loc("Connecting to DeepSeek Harness…"), detail: "", lang: vscode.env.language });
         // NOTE: onDidReceiveMessage lives on the Webview, not the WebviewView.
-        view.webview.onDidReceiveMessage(createWebviewMessageHandler({
+        const messages = view.webview.onDidReceiveMessage(createWebviewMessageHandler({
           openBrowser: () => {
             // The status page also renders after a failed connect; in that
             // state currentServer is null but currentExternalUrl points at
@@ -1819,14 +1620,13 @@ async function setupCoreSidebar({ context, services }) {
             }
           },
           retry: () => {
-            if (pendingCleanRestart) {
-              pendingCleanRestart = false;
-              return lifecycle.enqueue("restart clean", () => restartCleanNow(context)).catch(() => {});
-            }
-            if (cleanMode && manager?.isCleanMode?.()) {
-              return lifecycle.enqueue("restart server", () => restartNormalNow(context)).catch(() => {});
-            }
-            return scheduleConnect(context, resolvedViewGeneration).catch(() => {});
+            if (currentView !== view || connecting) return;
+            void lifecycle.enqueueCoalesced("retry connection", async () => {
+              if (currentView !== view) return;
+              if (pendingCleanRestart) return restartCleanNow(context);
+              if (cleanMode && manager?.isCleanMode?.()) return restartNormalNow(context);
+              await connectNow(context);
+            });
           },
           interaction: (message) => {
             // Route to the feature-registered interaction handlers
@@ -1842,24 +1642,20 @@ async function setupCoreSidebar({ context, services }) {
           },
         }));
         view.onDidDispose(() => {
+          messages?.dispose?.();
           if (currentView !== view) return;
           currentView = null;
-          viewGeneration += 1; // cancel a delayed connect tied to this view
-          lifecycle.enqueue("view-close policy", async () => {
-              if (currentView) return; // view re-resolved: never stop under the reopened view
-              if (!shouldStopOnViewClose(hostContext.config().closePolicy)) return;
-              if (await stopOwnedServer()) {
-                currentServer = null;
-                currentExternalUrl = null;
-                boundCwd = null;
-              }
-            }).catch(() => {});
+          void lifecycle.enqueueCoalesced("view-close policy", async () => {
+            if (currentView) return; // view re-resolved: never stop under the reopened view
+            if (!shouldStopOnViewClose(hostContext.config().closePolicy)) return;
+            if (await stopOwnedServer()) {
+              currentServer = null;
+              currentExternalUrl = null;
+              boundCwd = null;
+            }
+          });
         });
-        // Run the asynchronous ensure outside the synchronous resolve call.
-        // its own errors and only mutates view.webview.html via render().
-        setImmediate(() => {
-          scheduleConnect(context, resolvedViewGeneration).catch(() => {});
-        });
+        void scheduleConnect(context);
       } catch (err) {
         console.error("dsh-vs-sidebar: resolveWebviewView failed:", err);
       }
@@ -2030,206 +1826,6 @@ async function setupThemeFollow({ context }) {
 }
 
 /**
- * D8: L2 ctrl-k (dsh.features.ctrl-k). The command itself is registered in
- * registerFeatureCommands; this setup only marks the feature as healthy.
- */
-async function setupCtrlK() {
-  return () => {};
-}
-
-/**
- * E-asm-1: L2 ctrl-i (dsh.features.ctrl-i). The command itself is registered
- * in registerFeatureCommands; this setup only marks the feature as healthy.
- */
-async function setupCtrlI() {
-  return () => {};
-}
-
-/**
- * E-asm-1: L2 exports (dsh.features.exports). Build the frozen activate()
- * return face from the real chatClient + workspace-session seams and store it
- * in exportsFaceInstance. The face always exists after activation: with the
- * feature off every method exists and throws DSH_EXPORT_DISABLED at call time.
- */
-function buildExportsFace(context) {
-  const ensureConnected = async () => {
-    if (!currentServer) await scheduleConnect(context);
-    return Boolean(currentServer);
-  };
-  return createExportsFace({
-    isEnabled: () => vscode.workspace.getConfiguration('dsh').get('features.exports', false),
-    titleSession: sessionTitleFn || undefined,
-    chatClient: createDshChatClient({
-      baseUrlProvider: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
-      ensureConnected,
-      fetchImpl: dshApiFetch,
-    }),
-    resolveSessionId: async () => {
-      if (typeof ensureWorkspaceSessionFn !== 'function') {
-        throw new Error('DSH workspace session seam is unavailable');
-      }
-      return ensureWorkspaceSessionFn(
-        currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
-        hostContext.workspaceCwd()
-      );
-    },
-    listSessionsFn: ({ signal }) => listSessions(
-      currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
-      { signal, fetchImpl: dshApiFetch }
-    ),
-    getBaseUrl: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
-    editorContext,
-    loc,
-    vscode: { Uri: vscode.Uri },
-  });
-}
-
-function setupExports({ context, services }) {
-  exportsFaceInstance = buildExportsFace(context);
-  if (services) services.exportsFace = exportsFaceInstance;
-  return () => {
-    if (services) services.exportsFace = undefined;
-    exportsFaceInstance = null;
-  };
-}
-
-/**
- * E-asm-2: L2 chat-participant (dsh.features.chat-participant). Registers the
- * `dsh` chat participant with the asm-1 chatClient + workspace-session seams
- * (same factory shape as buildExportsFace; asm-1 did not publish a
- * services.chatClient handle, so a same-factory instance is created here).
- * Missing vscode.chat API degrades to a diagnostic — an L2 feature never
- * breaks the L0 lifeline.
- */
-async function setupChatParticipant({ context, services }) {
-  if (!services.vscode || typeof services.vscode.chat?.createChatParticipant !== 'function') {
-    appendDiagnostic('chat-participant support degraded: vscode.chat.createChatParticipant is unavailable');
-    return () => {};
-  }
-  const ensureConnected = async () => {
-    if (!currentServer) await scheduleConnect(context);
-    return Boolean(currentServer);
-  };
-  const chatClient = createDshChatClient({
-    baseUrlProvider: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
-    ensureConnected,
-    fetchImpl: dshApiFetch,
-  });
-  const participantModule = createChatParticipantModule({
-    chatClient,
-    titleSession: sessionTitleFn || undefined,
-    resolveSessionId: async () => {
-      if (typeof ensureWorkspaceSessionFn !== 'function') {
-        throw new Error('DSH workspace session seam is unavailable');
-      }
-      return ensureWorkspaceSessionFn(
-        currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
-        hostContext.workspaceCwd()
-      );
-    },
-    isEnabled: () => vscode.workspace.getConfiguration('dsh').get('features.chat-participant', false),
-    listSessionsFn: ({ signal }) => listSessions(
-      currentServer && typeof currentServer.url === 'string' ? currentServer.url : null,
-      { signal, fetchImpl: dshApiFetch }
-    ),
-    loc,
-  });
-  const participant = services.vscode.chat.createChatParticipant('dsh', participantModule.handleRequest);
-  participant.followupProvider = { provideFollowups: participantModule.provideFollowups };
-  const dispose = () => {
-    try {
-      participant.dispose();
-    } catch (_) {
-      /* participant disposal is best-effort */
-    }
-  };
-  context.subscriptions.push({ dispose });
-  return dispose;
-}
-
-/**
- * E-asm-2: L2 tab-completion (dsh.features.tab-completion). Generates a
- * per-window FIM bridge token, injects it through the R23 setSpawnEnv shape
- * (object merge, cleared with an empty string on teardown), and registers the
- * inline completion provider for file documents.
- */
-async function setupTabCompletion({ context, services }) {
-  const token = crypto.randomBytes(32).toString('hex');
-  // Upstream FIM endpoint + key: baseUrl from settings (machine scope), key
-  // from VS Code secretStorage. The DSH-side /api/fim route needs both;
-  // missing values simply leave the route unconfigured (503 with guidance).
-  // F-i: the values are RE-READ and re-injected on every fim config/secret
-  // change, because ServerManager snapshots spawnEnv at setSpawnEnv time — a
-  // one-shot activation read meant "dsh.restartServer" kept spawning with
-  // stale values until a full window reload. Writing each key on every
-  // refresh (empty string when unset) also overwrites stale merges.
-  async function readFimSpawnEnv() {
-    // Both keys are always written (empty string = unconfigured on the DSH
-    // side) so a refresh overwrites stale merged values after a change or
-    // deletion instead of leaving the previous value in place.
-    const env = { DSH_FIM_BRIDGE_TOKEN: token, DSH_FIM_BASE_URL: '', DSH_FIM_API_KEY: '' };
-    try {
-      const baseUrl = vscode.workspace.getConfiguration('dsh').get('fim.baseUrl', '');
-      if (typeof baseUrl === 'string') env.DSH_FIM_BASE_URL = baseUrl;
-      const apiKey = await context.secrets.get('dsh.fim.apiKey');
-      if (typeof apiKey === 'string') env.DSH_FIM_API_KEY = apiKey;
-    } catch {
-      // secrets unavailable in stripped hosts: the route reports its own 503
-    }
-    return env;
-  }
-  const refreshFimSpawnEnv = async () => {
-    services.manager?.setSpawnEnv?.(await readFimSpawnEnv());
-  };
-  await refreshFimSpawnEnv();
-  if (typeof vscode.workspace.onDidChangeConfiguration === 'function') {
-    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
-      if (typeof event?.affectsConfiguration !== 'function') return;
-      if (event.affectsConfiguration('dsh.fim.baseUrl')) void refreshFimSpawnEnv();
-    }));
-  }
-  if (context.secrets && typeof context.secrets.onDidChangeSecrets === 'function') {
-    context.subscriptions.push(context.secrets.onDidChangeSecrets((event) => {
-      if (!event || event.key !== 'dsh.fim.apiKey') return;
-      void refreshFimSpawnEnv();
-    }));
-  }
-  const provider = createInlineCompletionProvider({
-    getServerUrl: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : null),
-    tokenProvider: () => token,
-    getModel: () => vscode.workspace.getConfiguration('dsh').get('fim.model', ''),
-    fetchImpl: globalThis.fetch,
-    log: (line) => appendDiagnostic(line),
-    // F-e: inlineCompletion dedupes to once per session; surface the 503
-    // guidance as a visible warning plus a full diagnostic entry.
-    onFimUnavailable: (guidance) => {
-      appendDiagnostic(`[inlineCompletion] FIM service unavailable: ${guidance}`);
-      try {
-        vscode.window.showWarningMessage(loc('DSH tab completion is unavailable: {guidance}', { guidance }));
-      } catch {
-        // stripped hosts without window.showWarningMessage: diagnostic only
-      }
-    },
-  });
-  const registration = vscode.languages.registerInlineCompletionItemProvider({ scheme: 'file' }, provider.provider);
-  context.subscriptions.push(registration);
-  return () => {
-    try {
-      registration?.dispose?.();
-    } catch (_) {
-      /* registration disposal is best-effort */
-    }
-    provider.dispose();
-    services.manager?.setSpawnEnv?.({ DSH_FIM_BRIDGE_TOKEN: '', DSH_FIM_BASE_URL: '', DSH_FIM_API_KEY: '' });
-  };
-}
-
-/**
- * R23: L2 lm-route (dsh.features.lm-route + dsh.lm.route). Registers the
- * `dsh` language-model chat provider and injects a per-window bridge token so
- * the DSH-side `/api/lm/*` routes only answer this extension host.
- */
-/**
  * S2b-3: L2 mcp-consume (dsh.features.mcp-consume). The aggregator is created
  * in L0 without side effects; this setup only marks the feature healthy and
  * lets registerFeatureCommands add dsh.mcp.refresh / dsh.mcp.forgetConsent.
@@ -2238,43 +1834,12 @@ async function setupMcpConsume() {
   return () => {};
 }
 
-/**
- * E-T2b: L2 call-export (dsh.features.call-export). The journal is created
- * and injected on the L0 path (setupCoreSidebar) so the v3 handler assembly
- * always receives it; this L2 setup is a synchronous idempotent marker that
- * publishes the same instance into services. It registers no commands —
- * callExport is a passive bridge method.
- */
 function setupCallExport({ context, services }) {
   callExportJournalInstance = injectedDependencies.callExportJournal
     || callExportJournal.createCallExportJournal({
       storageDirProvider: () => context.globalStorageUri || null,
     });
   services.callExportJournal = callExportJournalInstance;
-}
-
-async function setupLmRoute({ context, services }) {
-  const featureEnabled = vscode.workspace.getConfiguration('dsh').get('features.lm-route', false);
-  const mode = vscode.workspace.getConfiguration('dsh').get('lm.route', 'off');
-  if (!featureEnabled || mode === 'off') return () => {};
-  if (!vscode.lm || typeof vscode.lm.registerLanguageModelChatProvider !== 'function') {
-    throw new Error('vscode.lm.registerLanguageModelChatProvider is unavailable');
-  }
-  const token = crypto.randomBytes(32).toString('hex');
-  lmRoute = createLmRoute({
-    vscode,
-    baseUrlProvider: () => (currentServer && typeof currentServer.url === 'string' ? currentServer.url : ''),
-    token,
-    mode,
-    fetchImpl: dshApiFetch,
-  });
-  services.manager?.setSpawnEnv?.({ DSH_LM_BRIDGE_TOKEN: token });
-  context.subscriptions.push(lmRoute.disposable);
-  return () => {
-    lmRoute?.disposable?.dispose?.();
-    lmRoute = null;
-    services.manager?.setSpawnEnv?.({ DSH_LM_BRIDGE_TOKEN: '' });
-  };
 }
 
 /**
@@ -2296,96 +1861,6 @@ async function setupStatusbarBasic() {
     }
     statusBar = null;
   };
-}
-
-/**
- * R14S1: L2 changes-review (dsh.features.changes-review). Registers the
- * dsh.changes TreeView and publishes the command actions into services for
- * registerFeatureCommands. When disabled, neither the view nor the
- * vscode/changes/push handler is mounted.
- */
-async function setupChangesReview({ context, services }) {
-  changeTree = createChangeTree({
-    vscode,
-    tracker: changeTracker,
-    storageUri: context.globalStorageUri,
-    loc,
-    // Session-following default: the tree shows only the sidebar's active
-    // session; dsh.changes.toggleScope flips to the global 'all' view.
-    scope: "session",
-    // Cross-window resolution base for session-cwd-relative entry paths
-    // (bug 2026-09-04: openDiff misreported existing files as deleted when
-    // the workspace folders did not contain the DSH instance cwd).
-    additionalRoots: () => (typeof boundCwd === 'string' && boundCwd.length > 0 ? [boundCwd] : []),
-  });
-  changeTree.setActiveSession(currentSessionId);
-  services.changesTree = changeTree;
-  // Wire the L0 tracker wrapper to the L2 tree: only approval-pending
-  // bridge entries surface in place (selected row, never focus-stealing —
-  // the pending badge on the view carries the reminder); tool-attributed
-  // and external edits (every on-disk save) refresh silently. Surfacing
-  // all of them stole editor focus mid-typing (2026-09-04 user report).
-  services.changesReview = {
-    onEntry: (entry) => {
-      try {
-        if (shouldSurfaceEntry(entry)) {
-          void changeTree?.reveal(entry);
-        } else {
-          void changeTree?.refresh?.();
-        }
-      } catch (_) {
-        // reveal is advisory; the view still refreshes on next expansion
-      }
-    },
-    // Storm path: the watcher flush records whole slices in one journal
-    // write; one refresh per batch keeps the tree off the hot path.
-    onEntryBatch: (entries) => {
-      try {
-        void changeTree?.refresh?.();
-      } catch (_) {
-        // refresh is advisory
-      }
-    },
-  };
-  context.subscriptions.push({ dispose() { changeTree?.dispose(); } });
-  // C1 L3: the FileSystemWatcher fallback rides the changes-review feature —
-  // same tracker, same storage, disposed together (startWatcher/stopWatcher).
-  startChangeWatcher(context);
-  return () => {
-    services.changesReview = undefined;
-    services.changesTree = undefined;
-    stopChangeWatcher();
-    changeTree?.dispose();
-    changeTree = null;
-  };
-}
-
-/** C1 L3: start the changes watcher fallback (idempotent, best-effort). */
-function startChangeWatcher(context) {
-  if (changeWatcher) return;
-  try {
-    changeWatcher = createChangeWatcher({
-      vscode,
-      tracker: changeTracker,
-      storageUri: context.globalStorageUri,
-      loc,
-      onDiagnostic: (line) => appendDiagnostic(line),
-    });
-    context.subscriptions.push({ dispose() { stopChangeWatcher(); } });
-  } catch (error) {
-    changeWatcher = null;
-    appendDiagnostic(`changes watcher unavailable: ${error && error.message ? error.message : error}`);
-  }
-}
-
-/** C1 L3: stop the changes watcher fallback (idempotent). */
-function stopChangeWatcher() {
-  try {
-    changeWatcher?.dispose?.();
-  } catch {
-    // best-effort
-  }
-  changeWatcher = null;
 }
 
 /**
@@ -2433,26 +1908,10 @@ function registerFeatureCommands(context, featureOk) {
 
   const registered = [];
 
-  function registerFimSetApiKeyCommand() {
-    return vscode.commands.registerCommand("dsh.fim.setApiKey", async () => {
-      const value = await vscode.window.showInputBox({
-        password: true,
-        prompt: loc('dsh.fim.setApiKey.prompt'),
-      });
-      if (typeof value === 'string' && value.length > 0) {
-        await context.secrets.store('dsh.fim.apiKey', value);
-        vscode.window.showInformationMessage(loc("DSH FIM API key stored"));
-      } else {
-        await context.secrets.delete('dsh.fim.apiKey');
-        vscode.window.showInformationMessage(loc("DSH FIM API key deleted"));
-      }
-    });
-  }
-
   if (featureOk.has('core-sidebar')) {
     registered.push(
     vscode.commands.registerCommand("dsh.openInBrowser", async () => {
-      return lifecycle.enqueue("open in browser", async () => {
+      return lifecycle.enqueueCoalesced("open in browser", async () => {
         if (!currentServer) await connectNow(context);
         if (!currentServer) {
           vscode.window.showErrorMessage(loc("DSH: unavailable"));
@@ -2468,7 +1927,7 @@ function registerFeatureCommands(context, featureOk) {
 
   if (featureOk.has('core-server')) {
     registered.push(
-    vscode.commands.registerCommand("dsh.restartServer", () => lifecycle.enqueue("restart server", async () => {
+    vscode.commands.registerCommand("dsh.restartServer", () => lifecycle.enqueueCoalesced("restart server", async () => {
       if (currentServer && currentServer.owned !== true && !manager.hasOwnedChild()) {
         vscode.window.showInformationMessage(loc("The running DSH server is reused and cannot be restarted by this extension"));
         return;
@@ -2476,22 +1935,26 @@ function registerFeatureCommands(context, featureOk) {
       clearCleanMode(); // Restart-normal clears any clean-restart flag
       await reconnectNow(context);
     })),
-    vscode.commands.registerCommand("dsh.stopServer", () => lifecycle.enqueue("stop server", async () => {
-      // Stops ONLY a process this extension instance spawned and owns. A
-      // reused external server (found already running and adopted) is never
-      // killed — the pure decision function is self-tested in serverManager.js.
-        if (!manager.hasOwnedChild()) {
+    vscode.commands.registerCommand("dsh.stopServer", () => {
+      const interrupted = connecting;
+      automaticStartBlocked = true;
+      if (interrupted) {
+        runtimeAbort.abort();
+        manager.cancelPending();
+      }
+      return lifecycle.enqueueCoalesced("stop server", async () => {
+        if (!manager.hasOwnedChild() && !interrupted) {
           vscode.window.showInformationMessage(loc("No DSH server is owned by this extension"));
           return;
         }
-        await stopOwnedServer();
+        await manager.stop();
         currentServer = null;
         currentExternalUrl = null;
         currentSessionId = null;
-        followEditProjection(null);
         boundCwd = null;
         vscode.window.showInformationMessage(loc("DSH server stopped"));
-      })),
+      });
+    }),
     );
   }
 
@@ -2598,7 +2061,6 @@ function registerFeatureCommands(context, featureOk) {
         // B2: an explicit New Session must move the cached binding too,
         // otherwise @dsh prompts keep targeting the previous session.
         workspaceBinding?.setActiveSession?.(sessionId);
-        followEditProjection(currentSessionId);
         renderFrame(context);
         // A4/U5: a successful session switch must also reveal the sidebar —
         // it may still be collapsed, and the toast alone hides the result.
@@ -2640,10 +2102,7 @@ function registerFeatureCommands(context, featureOk) {
         });
         if (selected && selected.sessionId) {
           currentSessionId = sessionIdFromValue(selected.sessionId);
-          // B2: the sidebar switch must move the cached binding so @dsh
-          // prompts follow the session the user is looking at.
           workspaceBinding?.setActiveSession?.(selected.sessionId);
-          followEditProjection(currentSessionId);
           renderFrame(context);
           vscode.commands.executeCommand("dsh.focusSidebar").catch(() => {});
           vscode.window.showInformationMessage(loc("Session switched: {sessionId}", {
@@ -2656,45 +2115,6 @@ function registerFeatureCommands(context, featureOk) {
         }));
       }
     })),
-    ...(featureOk.has('chat-participant')
-      ? [vscode.commands.registerCommand("dsh.openSessionHistory", () => lifecycle.enqueue("open session history", async () => {
-          try {
-            if (!currentServer) await connectNow(context);
-            if (!currentServer) {
-              vscode.window.showWarningMessage(loc("DSH: unavailable"));
-              return;
-            }
-            const baseUrl = currentServer.url;
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 6000);
-            let items;
-            try {
-              items = await listSessions(baseUrl, { signal: controller.signal });
-            } finally {
-              clearTimeout(timer);
-            }
-            const rows = rootSessionItems(items);
-            if (rows.length === 0) {
-              vscode.window.showWarningMessage(loc("No sessions available"));
-              return;
-            }
-            const selected = await showSessionQuickPick(vscode, rows, {
-              placeholder: loc("Open Session History"),
-            });
-            if (selected && selected.sessionId) {
-              currentSessionId = sessionIdFromValue(selected.sessionId);
-              renderFrame(context);
-              vscode.window.showInformationMessage(loc("Session switched: {sessionId}", {
-                sessionId: selected.sessionId,
-              }));
-            }
-          } catch (err) {
-            vscode.window.showErrorMessage(loc("Session command failed: {message}", {
-              message: err && err.message ? err.message : String(err),
-            }));
-          }
-        }))]
-      : []),
     vscode.commands.registerCommand("dsh.focusSidebar", async () => {
       await vscode.commands.executeCommand("workbench.view.extension." + CONTAINER_ID);
       await vscode.commands.executeCommand(VIEW_ID + ".focus");
@@ -2741,7 +2161,7 @@ function registerFeatureCommands(context, featureOk) {
           },
           runtimeIssues,
           featureFailures: featureFailures.slice(),
-          selfHealCount: selfHealEvents.length,
+          selfHealCount,
           defaultTerminalProfile: readDefaultTerminalProfile(),
           platform: process.platform,
           loc,
@@ -2777,86 +2197,13 @@ function registerFeatureCommands(context, featureOk) {
 
   if (featureOk.has('core-server')) {
     registered.push(
-    vscode.commands.registerCommand("dsh.restartClean", () => lifecycle.enqueue("restart clean", async () => {
+    vscode.commands.registerCommand("dsh.restartClean", () => lifecycle.enqueueCoalesced("restart clean", async () => {
       if (currentServer && currentServer.owned !== true && !manager.hasOwnedChild()) {
         vscode.window.showInformationMessage(loc("The running DSH server is reused and cannot be restarted by this extension"));
         return;
       }
       await restartCleanNow(context);
     }))
-    );
-  }
-
-  if (featureOk.has('changes-review') && changeTree) {
-    registered.push(
-      vscode.commands.registerCommand("dsh.changes.openDiff", async (entry) => {
-        try {
-          await changeTree.openDiff(entry || {});
-        } catch (error) {
-          vscode.window.showErrorMessage(loc("Change diff failed: {message}", {
-            message: error && error.message ? error.message : String(error),
-          }));
-        }
-      }),
-      // B1: Accept applies the edits (only disk-writing path); Undo discards
-      // pending entries or snapshot-restores accepted ones. Both surface
-      // applyEdit failures instead of failing silently.
-      vscode.commands.registerCommand("dsh.changes.accept", async (entry) => {
-        try {
-          return await changeTree.accept(entry || {});
-        } catch (error) {
-          vscode.window.showErrorMessage(loc("Change accept failed: {message}", {
-            message: error && error.message ? error.message : String(error),
-          }));
-        }
-      }),
-      vscode.commands.registerCommand("dsh.changes.undo", async (entry) => {
-        try {
-          return await changeTree.undo(entry || {});
-        } catch (error) {
-          vscode.window.showErrorMessage(loc("Change undo failed: {message}", {
-            message: error && error.message ? error.message : String(error),
-          }));
-        }
-      }),
-      vscode.commands.registerCommand("dsh.changes.refresh", () => changeTree.refresh()),
-      vscode.commands.registerCommand("dsh.changes.toggleScope", () => changeTree.toggleScope())
-    );
-  }
-
-  if (featureOk.has('ctrl-i')) {
-    registered.push(
-      vscode.commands.registerCommand("dsh.ctrlIEdit", createCtrlIEditCommand({
-        vscode,
-        editorContext,
-        coordinator: threadAttachmentCoordinator,
-        formatFileAttachment,
-        waitForResolvedView,
-        ensureConnected: async () => {
-          if (!currentServer) await scheduleConnect(context);
-          return Boolean(currentServer);
-        },
-        loc,
-        focusedComposerWebview,
-      }))
-    );
-  }
-
-  if (featureOk.has('ctrl-k')) {
-    registered.push(
-      vscode.commands.registerCommand("dsh.ctrlKEdit", createCtrlKEditCommand({
-        vscode,
-        editorContext,
-        coordinator: threadAttachmentCoordinator,
-        formatSelectionAttachment,
-        waitForResolvedView,
-        ensureConnected: async () => {
-          if (!currentServer) await scheduleConnect(context);
-          return Boolean(currentServer);
-        },
-        loc,
-        focusedComposerWebview,
-      }))
     );
   }
 
@@ -2867,9 +2214,6 @@ function registerFeatureCommands(context, featureOk) {
         vscode.window.showInformationMessage(loc("MCP servers refreshed"));
       })
     );
-    if (featureOk.has('tab-completion')) {
-      registered.push(registerFimSetApiKeyCommand());
-    }
     registered.push(
       vscode.commands.registerCommand("dsh.mcp.forgetConsent", async () => {
         // A3/U4: pick from the remembered consents instead of hand-typing
@@ -2892,8 +2236,6 @@ function registerFeatureCommands(context, featureOk) {
         }
       })
     );
-  } else if (featureOk.has('tab-completion')) {
-    registered.push(registerFimSetApiKeyCommand());
   }
 
   context.subscriptions.push(...registered);
@@ -2929,27 +2271,10 @@ async function activateWithDependencies(context, dependencies = {}) {
     console.error('dsh-vs-sidebar: owner-marked orphan sweep failed:', err && err.message ? err.message : err);
   }
 
-  // Display-only host capability matrix. This warning is intentionally not a
-  // behavior gate: the extension keeps its engines floor and does not use
-  // these booleans to enable/disable any API path.
-  const hostCapabilities = deriveVscodeCapabilities(vscode.version);
-  if (typeof vscode.version === 'string' && vscode.version.length > 0) {
-    const missing = [];
-    if (!hostCapabilities.chatParticipant) missing.push('chatParticipant');
-    if (!hostCapabilities.lmProvider) missing.push('lmProvider');
-    if (!hostCapabilities.mcpServerDefinitions) missing.push('mcpServerDefinitions');
-    if (missing.length > 0) {
-      console.warn(
-        `dsh-vs-sidebar: VS Code ${vscode.version} does not expose optional DSH integration APIs (${missing.join(', ')}); upgrade to VS Code 1.105+ for the full capability set.`
-      );
-    }
-  }
-
   const services = {};
   services.vscode = vscode;
   featureFailures = [];
-  selfHealEvents = [];
-  exportsFaceInstance = null;
+  selfHealCount = 0;
   cleanMode = false;
   cleanPatchPath = null;
   pendingCleanRestart = false;
@@ -2990,19 +2315,6 @@ async function activateWithDependencies(context, dependencies = {}) {
     featureFailures = Array.isArray(registry?.failures) ? registry.failures.slice() : featureFailures;
   }
 
-  // E-asm-1: the activate() return face exists even when dsh.features.exports
-  // is off (the face methods then throw DSH_EXPORT_DISABLED at call time).
-  // setupExports already built it when the feature is enabled.
-  if (!exportsFaceInstance) {
-    try {
-      exportsFaceInstance = buildExportsFace(context);
-    } catch (err) {
-      console.error('dsh-vs-sidebar: exports face assembly failed:', err);
-      exportsFaceInstance = null;
-    }
-  }
-  services.exportsFace = exportsFaceInstance || undefined;
-
   // autoStart at VS Code startup: activate even when the sidebar view is never
   // opened. connectNow() is null-safe — no WebviewView resolved yet is fine, the
   // server is still ensured and the view (resolved later) shows it via a fresh
@@ -3010,21 +2322,11 @@ async function activateWithDependencies(context, dependencies = {}) {
   // reuse is available only when autoStart is explicitly disabled.
   lastConfig = hostContext.config();
   if (lastConfig.autoStart) {
-    setImmediate(() => {
-      scheduleConnect(context).catch(() => {});
-    });
+    void scheduleConnect(context);
   }
 
-  // C2 post-install onboarding command — registered outside the feature
-  // subscription batches: it must be available even when a feature setup
-  // failed, and the QuickPick/InputBox wizard self-manages (contract: no new
-  // context.subscriptions entry).
-  vscode.commands.registerCommand("dsh.onboarding", () =>
-    runOnboardingWizard({ context, workspace: createOnboardingWorkspace(vscode, loc, context) })
-  );
-
   // R16 multi-instance: demand-driven editor-area panels, each with its own
-  // DSH child. Registered outside the feature batches like onboarding (no
+  // DSH child. Registered outside the feature batches (no
   // activation-time subscription; panels and their managers are per-instance).
   vscode.commands.registerCommand("dsh.newInstance", () => {
     openInstancePanel().catch((error) => {
@@ -3034,22 +2336,10 @@ async function activateWithDependencies(context, dependencies = {}) {
     });
   });
 
-  // C2 first-activation prompt: after L0 setup completed successfully, ask once
-  // (globalState gate) whether to run the wizard. Deliberately not awaited —
-  // the wizard must never block activation (contract: dangling promise).
-  maybeOnboard({
-    vscode,
-    context,
-    loc,
-    workspace: createOnboardingWorkspace(vscode, loc, context),
-  }).catch((error) => {
-    console.error("dsh-vs-sidebar: onboarding prompt failed:", error);
-  });
 }
 
 async function activate(context, dependencies) {
   await activateWithDependencies(context, dependencies);
-  return exportsFaceInstance;
 }
 
 async function deactivate() {
@@ -3064,9 +2354,9 @@ async function deactivate() {
   // user-managed operation. Other policies stop our child.
   lifecycle?.stopAccepting?.();
   runtimeAbort?.abort?.(); // cancel only in-flight provisioning; never touches a ready owned child
-  viewGeneration += 1;
   try {
     if (!manager) return undefined;
+    manager.cancelPending();
     if (normalizeClosePolicy(hostContext.config().closePolicy) === CLOSE_POLICIES.NEVER) {
       await lifecycle.wait();
       return undefined;
@@ -3075,7 +2365,6 @@ async function deactivate() {
     // Prevent probe/port-scan work from spawning after shutdown begins. If a
     // child already exists, stopping it also makes an in-flight health wait
     // settle promptly instead of delaying deactivation for the full timeout.
-    manager.cancelPending();
     if (manager.hasOwnedChild()) {
       await manager.stop();
     }
@@ -3095,19 +2384,12 @@ async function deactivate() {
       }
     }
     currentView = null;
+    lastSidebarPage = null;
     currentServer = null;
     currentExternalUrl = null;
     currentSessionId = null;
-    // C2.5: stop the edit-event projection subscription (if any).
-    try {
-      editEventProjector?.dispose?.();
-    } catch (_) {
-      /* projection teardown is best-effort */
-    }
-    editEventProjector = null;
     currentDshTheme = null;
     boundCwd = null;
-    exportsFaceInstance = null;
     stopHeartbeat();
     outputChannel = null;
   }

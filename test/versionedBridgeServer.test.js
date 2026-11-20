@@ -54,8 +54,8 @@ function initializeFrame(server, id = 1, overrides = {}) {
   };
 }
 
-test('protocol v3 advertises the frozen 32-method table including extensions/callExport', () => {
-  assert.strictEqual(METHODS_BY_VERSION[3].length, 32);
+test('protocol v3 advertises the frozen 34-method table including extensions/callExport', () => {
+  assert.strictEqual(METHODS_BY_VERSION[3].length, 34);
   assert.ok(METHODS_BY_VERSION[3].includes('vscode/extensions/callExport'));
 });
 

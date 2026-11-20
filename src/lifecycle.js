@@ -6,6 +6,7 @@ class LifecycleQueue {
   constructor({ onError = (label, error) => console.error(`dsh-vs-sidebar: ${label} failed:`, error) } = {}) {
     this._accepting = true;
     this._chain = Promise.resolve();
+    this._coalesced = new Map();
     this._onError = onError;
   }
 
@@ -27,6 +28,23 @@ class LifecycleQueue {
       return operation();
     });
     this._chain = next.catch((error) => this._onError(label, error));
+    return next;
+  }
+
+  /** Reuse outstanding work. State changes may queue one follow-up while work is running. */
+  enqueueCoalesced(label, operation, { followUp = false } = {}) {
+    if (!this._accepting) return Promise.resolve(undefined);
+    const outstanding = this._coalesced.get(label);
+    if (outstanding) return outstanding;
+    const clear = () => {
+      if (this._coalesced.get(label) === next) this._coalesced.delete(label);
+    };
+    const next = this.enqueue(label, () => {
+      if (followUp) clear();
+      return operation();
+    });
+    this._coalesced.set(label, next);
+    next.then(clear, clear);
     return next;
   }
 

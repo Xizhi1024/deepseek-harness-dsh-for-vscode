@@ -205,9 +205,8 @@ test('toolNameFor: derives snake_case DSH tool names from advertised bridge meth
   assert.strictEqual(toolNameFor('vscode/extensions/callExport'), 'vscode_extensions_call_export');
 });
 
-test('bridgeTimeoutMs: confirm/ask, changes/push, mcp/callTool and callExport get the 120s fail-closed timeout', () => {
+test('bridgeTimeoutMs: confirm/ask, mcp/callTool and callExport get the 120s fail-closed timeout', () => {
   assert.strictEqual(bridgeTimeoutMs('vscode/confirm/ask'), 120000);
-  assert.strictEqual(bridgeTimeoutMs('vscode/changes/push'), 120000);
   assert.strictEqual(bridgeTimeoutMs('vscode/mcp/callTool'), 120000);
   assert.strictEqual(bridgeTimeoutMs('vscode/extensions/callExport'), 120000);
   assert.strictEqual(bridgeTimeoutMs('vscode/tasks/list'), 15000);
@@ -368,6 +367,50 @@ test('createBridgeTools: reconnect re-initializes and swaps the tool generation'
   assert.strictEqual(ctx._registered[1].disposed, false);
   assert.strictEqual(ctx._registered[2].disposed, false);
   started.stop();
+});
+
+test('a flapping bridge exhausts its retry budget and unregisters every tool generation', async (t) => {
+  let attempts = 0;
+  const server = await startBridgeServer(t, (message, socket) => {
+    const init = initializeReply(message, ['vscode/tasks/list']);
+    if (init) {
+      attempts += 1;
+      setTimeout(() => socket.destroy(), 15);
+    }
+    return init;
+  });
+  const ctx = fakeCtx();
+  const logs = [];
+  const started = createBridgeTools({
+    env: { DSH_VSCODE_BRIDGE_PORT: String(server.address().port), DSH_VSCODE_BRIDGE_TOKEN: 'test' }, // allow-secret-scan
+    ctx, net, backoffMs: [5, 5], log: (line) => logs.push(line),
+  }).start();
+  t.after(() => started.stop());
+  await waitFor(() => logs.some((line) => line.includes('reconnect limit reached')));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(attempts, 3);
+  assert.equal(ctx._registered.length, 3);
+  assert.ok(ctx._registered.every((record) => record.disposed));
+});
+
+test('partial tool registration is rolled back on every failed handshake', async (t) => {
+  const server = await startBridgeServer(t, (message) =>
+    initializeReply(message, ['vscode/tasks/list', 'vscode/editor/open']));
+  const ctx = fakeCtx();
+  const register = ctx.tools.register.bind(ctx.tools);
+  ctx.tools.register = (tool) => {
+    if (tool.name === 'vscode_editor_open') throw new Error('registration failed');
+    return register(tool);
+  };
+  const logs = [];
+  const started = createBridgeTools({
+    env: { DSH_VSCODE_BRIDGE_PORT: String(server.address().port), DSH_VSCODE_BRIDGE_TOKEN: 'test' }, // allow-secret-scan
+    ctx, net, backoffMs: [5], log: (line) => logs.push(line),
+  }).start();
+  t.after(() => started.stop());
+  await waitFor(() => logs.some((line) => line.includes('reconnect limit reached')));
+  assert.equal(ctx._registered.length, 2);
+  assert.ok(ctx._registered.every((record) => record.disposed));
 });
 
 test('jsonRpcError carries a machine-readable code', () => {

@@ -20,10 +20,10 @@ function defaultOpenResponse(url, signal, redirects = 3) {
     const request = https.get(url, { signal, headers: { 'user-agent': 'dsh-vs-sidebar-runtime' } }, (response) => {
       const status = response.statusCode || 0;
       if (status >= 300 && status < 400 && response.headers.location) {
-        response.resume();
+        response.destroy();
         if (redirects === 0) return reject(new Error('Runtime download exceeded redirect limit'));
-        const redirected = new URL(response.headers.location, url);
-        if (redirected.protocol !== 'https:') {
+        const redirected = URL.parse(response.headers.location, url);
+        if (redirected?.protocol !== 'https:') {
           return reject(new Error('Runtime download redirect must use HTTPS'));
         }
         defaultOpenResponse(redirected, signal, redirects - 1).then(resolve, reject);
@@ -31,6 +31,7 @@ function defaultOpenResponse(url, signal, redirects = 3) {
       }
       resolve({ statusCode: status, headers: response.headers, body: response });
     });
+    request.setTimeout(30_000, () => request.destroy(new Error('Runtime download stalled')));
     request.on('error', reject);
   });
 }
@@ -69,23 +70,23 @@ class RuntimeDownloader {
 
     const temporary = path.join(downloads, `.${expected}.${crypto.randomUUID()}.part`);
     let handle = null;
+    let body;
     try {
       if (signal?.aborted) throw abortError();
       const response = await this.openResponse(source, signal);
+      body = response.body;
       if (response.statusCode !== 200) {
-        response.body?.resume?.();
         throw new Error(`Runtime download returned HTTP ${response.statusCode}`);
       }
       const declared = Number(response.headers?.['content-length']);
       if (Number.isFinite(declared) && declared > this.maxBytes) {
-        response.body?.resume?.();
         throw new Error('Runtime download exceeds the configured size limit');
       }
 
       handle = await fs.promises.open(temporary, 'wx');
       const hash = crypto.createHash('sha256');
       let received = 0;
-      for await (const chunk of response.body) {
+      for await (const chunk of body) {
         if (signal?.aborted) throw abortError();
         received += chunk.length;
         if (received > this.maxBytes) throw new Error('Runtime download exceeds the configured size limit');
@@ -99,6 +100,7 @@ class RuntimeDownloader {
       await fs.promises.rename(temporary, finalPath);
       return finalPath;
     } finally {
+      body?.destroy?.();
       if (handle) await handle.close().catch(() => {});
       await fs.promises.rm(temporary, { force: true });
     }

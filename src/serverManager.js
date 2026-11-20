@@ -18,7 +18,7 @@
  */
 
 const net = require('node:net');
-const { spawn, execFileSync } = require('node:child_process');
+const { ChildProcess, spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
@@ -48,6 +48,7 @@ const HEALTH_POLL_MS = 700;      // interval between health checks after spawn
 const HEALTH_TIMEOUT_MS = 30000; // overall wait for the spawned service to become ready
 const MAX_BODY_BYTES = 5 * 1024 * 1024; // bound on the probe response body we buffer
 const TASKKILL_TIMEOUT_MS = 5000; // max wait for taskkill /T /F before stop() proceeds
+const CHILD_EXIT_GRACE_MS = 1000;
 const PORT_RELEASE_WAIT_MS = 3000; // F-f: max stop() wait for a killed child's port to refuse
 const PORT_RELEASE_POLL_MS = 100; // F-f: poll cadence for the port-release wait
 
@@ -258,7 +259,7 @@ function reconcileConfigChange(prev, next, connected, owned) {
  * @param {number} [options.timeoutMs] - Override TASKKILL_TIMEOUT_MS.
  * @returns {Promise<void>}
  */
-function killProcessTree(pid, { platform = process.platform, spawnFn = spawn, timeoutMs = TASKKILL_TIMEOUT_MS } = {}) {
+function killProcessTree(pid, { platform = process.platform, spawnFn = spawn, timeoutMs = TASKKILL_TIMEOUT_MS, signal = 'SIGTERM' } = {}) {
   if (platform === 'win32') {
     return new Promise((resolve) => {
       let killer = null;
@@ -309,10 +310,10 @@ function killProcessTree(pid, { platform = process.platform, spawnFn = spawn, ti
     });
   }
   try {
-    process.kill(-pid, 'SIGTERM');
+    process.kill(-pid, signal);
   } catch {
     try {
-      process.kill(pid, 'SIGTERM');
+      process.kill(pid, signal);
     } catch {
       // already dead
     }
@@ -320,8 +321,28 @@ function killProcessTree(pid, { platform = process.platform, spawnFn = spawn, ti
   return Promise.resolve();
 }
 
+function childExited(child) {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
+function waitForChildExit(child) {
+  if (childExited(child)) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const finish = (exited) => {
+      clearTimeout(timer);
+      child.removeListener('exit', onExit);
+      resolve(exited);
+    };
+    const onExit = () => finish(true);
+    const timer = setTimeout(() => finish(false), CHILD_EXIT_GRACE_MS);
+    child.once('exit', onExit);
+  });
+}
+
 class ServerManager {
-  constructor({ onStatus, spawnEnv, resolvedRuntime, embedPatchPath = null, cleanPatchPath = null, spawnFn = spawn, runtimeProfileGuard = null, profileBundleGuard = null } = {}) {
+  constructor({ onStatus, spawnEnv, resolvedRuntime, embedPatchPath = null, cleanPatchPath = null, spawnFn = spawn, runtimeProfileGuard = null, profileBundleGuard = null, startupTimeoutMs = HEALTH_TIMEOUT_MS } = {}) {
+    this._startupTimeoutMs = startupTimeoutMs;
+    this._childTerminations = new WeakMap();
     this.onStatus = typeof onStatus === 'function' ? onStatus : () => {};
     // Optional pre-spawn profile guard (2026-09-04 incident follow-up): the
     // extension injects ensureHmrDisabled so every owned spawn boots a
@@ -467,6 +488,7 @@ class ServerManager {
   /** Invalidate the current ensure/spawn operation without affecting later ones. */
   cancelPending() {
     this._cancelGeneration += 1;
+    this._clearHealthWatch();
   }
 
   /** Environment inherited by this window's managed DSH child. */
@@ -579,6 +601,7 @@ class ServerManager {
       const finish = (result) => {
         if (!done) {
           done = true;
+          clearTimeout(timeout);
           socket.destroy();
           resolve(result);
         }
@@ -586,7 +609,7 @@ class ServerManager {
 
       const socket = net.createConnection({ host, port });
       socket.setEncoding('utf8');
-      socket.setTimeout(PROBE_TIMEOUT_MS);
+      const timeout = setTimeout(() => finish({ reachable: false, reason: 'timeout' }), PROBE_TIMEOUT_MS);
       socket.on('connect', () => {
         socket.write(
           `GET ${requestTarget} HTTP/1.1\r\nHost: ${host}:${port}\r\nConnection: close\r\nAccept: text/html\r\n\r\n`
@@ -615,7 +638,7 @@ class ServerManager {
               || (Number(status[1]) === 303 && token !== null))),
         });
       });
-      socket.on('timeout', () => finish({ reachable: false, reason: 'timeout' }));
+      socket.on('close', () => finish({ reachable: false, reason: 'closed' }));
       socket.on('error', (error) => finish({
         reachable: false,
         reason: error && error.code === 'ECONNREFUSED' ? 'refused' : String(error && error.code || 'error'),
@@ -634,11 +657,11 @@ class ServerManager {
    * when DSH is busy (e.g. streaming a reply) and a single probe would time
    * out.
    */
-  async probeWithRetry(host, port, { attempts = 3, delayMs = 400 } = {}) {
+  async probeWithRetry(host, port, { attempts = 3, delayMs = 400, token = null } = {}) {
     const n = Math.max(1, attempts); // at least one attempt, even for 0/negative input
     let last = null;
     for (let i = 0; i < n; i++) {
-      last = await this.probe(host, port);
+      last = token ? await this.probe(host, port, { token }) : await this.probe(host, port);
       if (last.reachable) return last;
       if (i < n - 1) {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -704,11 +727,16 @@ class ServerManager {
     if (autoStart && this._child && this._ownedServer && this._ownedServer.host === host) {
       const own = this._ownedServer;
       this._emit('probing', 'Probing DSH service: http://{host}:{port}…', { host, port: own.port });
-      const ownProbe = await this.probeWithRetry(host, own.port);
+      const ownProbe = await this.probeWithRetry(host, own.port, { token: own.authToken });
       this._throwIfCancelled(generation);
-      if (ownProbe.isDsh) return this._reuseHandle(host, own.port);
+      if (ownProbe.isDsh) return own;
       // A child that no longer serves DSH must not be left behind while a
       // replacement starts. stop() is ownership-gated and removes only ours.
+      await this.stop();
+      this._throwIfCancelled(generation);
+    }
+
+    if (autoStart && this._child) {
       await this.stop();
       this._throwIfCancelled(generation);
     }
@@ -741,7 +769,7 @@ class ServerManager {
     if (this._lastSpawnPort !== null && scanStart <= this._lastSpawnPort) {
       scanStart = this._lastSpawnPort + 1;
     }
-    const freePort = await this._findFreePort(host, scanStart);
+    const freePort = await this._findFreePort(host, scanStart, generation);
     this._lastSpawnPort = freePort;
     this._throwIfCancelled(generation);
     return this._spawnAndWait(host, freePort, cwd, registryFile, generation);
@@ -754,8 +782,9 @@ class ServerManager {
    * port, so it is skipped conservatively instead of risking an EADDRINUSE
    * spawn and a misleading "process exited early" error.
    */
-  async _findFreePort(host, startPort) {
+  async _findFreePort(host, startPort, generation = this._cancelGeneration) {
     for (let i = 0; i < PORT_SCAN_LIMIT; i++) {
+      this._throwIfCancelled(generation);
       const candidate = startPort + i;
       const probeResult = await this.probe(host, candidate);
       if (!probeResult.reachable && probeResult.reason === 'refused') return candidate;
@@ -1113,17 +1142,40 @@ class ServerManager {
     // POSIX uses a dedicated process group so extension deactivation can stop
     // the whole managed tree. Windows taskkill /T applies the same ownership
     // boundary to the native runtime executable.
-    const child = this.spawnFn(launch.command, launch.args, opts);
-    if (logFd !== null) {
-      try { fs.closeSync(logFd); } catch { /* child holds the duplicated descriptor */ }
+    let child;
+    try {
+      child = this.spawnFn(launch.command, launch.args, opts);
+    } finally {
+      if (logFd !== null) {
+        try { fs.closeSync(logFd); } catch { /* the child owns its duplicate */ }
+      }
     }
 
     this._child = child;
     this._emit('starting', 'Starting DSH web (pid={pid}, port={port})…', { pid: child.pid, port });
 
     return new Promise((resolve, reject) => {
-      const deadline = Date.now() + HEALTH_TIMEOUT_MS;
+      const deadline = Date.now() + this._startupTimeoutMs;
       let settled = false;
+      let pollTimer = null;
+      const settle = () => {
+        settled = true;
+        clearTimeout(pollTimer);
+      };
+      const stopAttempt = async (error) => {
+        settle();
+        child.removeListener('exit', onUnexpectedExit);
+        try {
+          await this._terminateChild(child);
+          if (this._child === child) {
+            this._child = null;
+            this._ownedServer = null;
+          }
+          reject(error);
+        } catch (cleanupError) {
+          reject(cleanupError);
+        }
+      };
 
       // Persistent listener: any exit NOT caused by stop() is unexpected and
       // reported through onStatus (e.g. the service crashed after becoming ready).
@@ -1132,6 +1184,11 @@ class ServerManager {
         if (this._child !== child) return; // already detached (timeout cleanup)
         this._child = null;
         this._ownedServer = null;
+        this._clearHealthWatch();
+        if (this._registryFile) {
+          ServerManager._removeRegistryEntry(this._registryFile, child.pid);
+          this._registryFile = null;
+        }
         // code/signal are null on the opposite exit paths (Windows clean
         // exit has signal=null); the {placeholder} renderer keeps nulls as
         // literal "{signal}", so normalize both to a visible value.
@@ -1147,7 +1204,7 @@ class ServerManager {
 
       child.once('error', (err) => {
         if (settled) return;
-        settled = true;
+        settle();
         if (this._child === child) this._child = null;
         this._ownedServer = null;
         this._emit('error', STARTUP_ERRORS.SPAWN_ERROR.template, { error: err.message, log: logPath });
@@ -1156,7 +1213,7 @@ class ServerManager {
 
       child.once('exit', (code, signal) => {
         if (settled) return;
-        settled = true;
+        settle();
         if (this._stopping) {
           reject(new ServerError('DSH process was stopped'));
           return;
@@ -1175,11 +1232,7 @@ class ServerManager {
       const poll = async () => {
         if (settled) return;
         if (generation !== this._cancelGeneration) {
-          settled = true;
-          if (this._child === child) this._child = null;
-          child.removeListener('exit', onUnexpectedExit);
-          await this._killChild(child);
-          reject(new ServerError('DSH lifecycle operation was cancelled'));
+          await stopAttempt(new ServerError('DSH lifecycle operation was cancelled'));
           return;
         }
         // dsh 0.1.2+ prints its authenticated URL (…/?token=…) to stdout at
@@ -1187,31 +1240,37 @@ class ServerManager {
         const token = this._extractLaunchToken();
         const probeResult = await this.probe(host, port, token === null ? {} : { token });
         if (settled) return;
+        if (generation !== this._cancelGeneration) {
+          await stopAttempt(new ServerError('DSH lifecycle operation was cancelled'));
+          return;
+        }
 
         if (probeResult.reachable && probeResult.isDsh) {
-          settled = true;
-          resolve(this._finalizeReady(host, port, cwd, child.pid, registryFile, logPath, token));
+          const server = this._finalizeReady(host, port, cwd, child.pid, registryFile, logPath, token);
+          settle();
+          resolve(server);
           return;
         }
 
         if (Date.now() >= deadline) {
-          settled = true;
-          this._child = null;
-          this._ownedServer = null;
-          child.removeListener('exit', onUnexpectedExit);
-          await this._killChild(child); // best-effort cleanup of the hung process
-          reject(new ServerError(
+          await stopAttempt(new ServerError(
             STARTUP_ERRORS.HEALTH_TIMEOUT.template,
-            { seconds: HEALTH_TIMEOUT_MS / 1000, pid: child.pid },
+            { seconds: this._startupTimeoutMs / 1000, pid: child.pid },
             'HEALTH_TIMEOUT'
           ));
           return;
         }
 
-        setTimeout(poll, HEALTH_POLL_MS);
+        pollTimer = setTimeout(runPoll, Math.min(HEALTH_POLL_MS, Math.max(0, deadline - Date.now())));
       };
 
-      poll();
+      const runPoll = () => {
+        void poll().catch((error) => {
+          if (!settled) return stopAttempt(error);
+          return undefined;
+        });
+      };
+      runPoll();
     });
   }
 
@@ -1272,6 +1331,32 @@ class ServerManager {
     return killProcessTree(child.pid, options);
   }
 
+  _terminateChild(child) {
+    const existing = this._childTerminations.get(child);
+    if (existing) return existing;
+    const task = (async () => {
+      if (child instanceof ChildProcess && (!child.pid || childExited(child))) return;
+      await this._killChild(child);
+      if (!(child instanceof ChildProcess)) {
+        if (!childExited(child)) {
+          try { child.kill?.(); } catch { /* cleanup for injected child handles */ }
+        }
+        return;
+      }
+      if (await waitForChildExit(child)) return;
+      await this._killChild(child, { signal: 'SIGKILL' });
+      if (!childExited(child)) {
+        try { child.kill('SIGKILL'); } catch { /* exit may be racing */ }
+      }
+      if (!await waitForChildExit(child)) {
+        throw new ServerError('Could not stop the previous DSH process (pid={pid})', { pid: child.pid });
+      }
+    })();
+    this._childTerminations.set(child, task);
+    task.catch(() => this._childTerminations.delete(child));
+    return task;
+  }
+
   /**
    * Stop the instance: kill whatever this instance spawned, remove ONLY this
    * instance's entry from the registry (other windows' entries stay) and
@@ -1293,22 +1378,31 @@ class ServerManager {
       ? this._healthIntervalMs
       : intervalMs;
     this._healthPort = port;
-    this._healthTimer = setInterval(() => {
-      Promise.resolve(this.probe(host, port, token === null ? {} : { token }))
-        .then((result) => {
-          if (this._healthTimer === null) return;
-          if (result && result.reachable && result.isDsh) return;
-          this._clearHealthWatch();
-          this._emit('lost', 'DSH service stopped answering at http://{host}:{port}', { host, port });
-        })
-        .catch(() => { /* probe errors are treated as silent */ });
-    }, cadence);
-    if (typeof this._healthTimer.unref === 'function') this._healthTimer.unref();
+    const schedule = () => {
+      const timer = setTimeout(async () => {
+        let result;
+        try {
+          result = await this.probe(host, port, token === null ? {} : { token });
+        } catch {
+          // A probe failure means this ready instance is no longer available.
+        }
+        if (this._healthTimer !== timer) return;
+        if (result?.reachable && result.isDsh) {
+          schedule();
+          return;
+        }
+        this._clearHealthWatch();
+        this._emit('lost', 'DSH service stopped answering at http://{host}:{port}', { host, port });
+      }, cadence);
+      this._healthTimer = timer;
+      timer.unref();
+    };
+    schedule();
   }
 
   _clearHealthWatch() {
     if (this._healthTimer !== null) {
-      clearInterval(this._healthTimer);
+      clearTimeout(this._healthTimer);
       this._healthTimer = null;
     }
     this._healthPort = null;
@@ -1323,35 +1417,23 @@ class ServerManager {
     // the kill we wait (bounded) for the port to explicitly refuse.
     const releaseHost = this._ownedServer ? this._ownedServer.host : null;
     const releasePort = this._ownedServer ? this._ownedServer.port : null;
-    if (child) {
-      await this._killChild(child);
-      // Fallback: if the child has not exited yet (e.g. taskkill failed),
-      // force-kill it directly.
-      if (child.exitCode === null && child.signalCode === null) {
-        try { child.kill(); } catch { /* ignore */ }
-      }
-    }
-
-    // Remove ONLY our own entry (matched by the pid we spawned); entries of
-    // other VS Code windows must survive.
-    if (this._registryFile && child) {
-      ServerManager._removeRegistryEntry(this._registryFile, child.pid);
-    }
-
-    // F-f (sporadic restart port race): see _waitForPortRefused. Only a
-    // real owned endpoint is waited for; the wait never throws and a
-    // timeout simply hands over to the conservative port scan.
-    if (Number.isInteger(releasePort)) {
-      await this._waitForPortRefused(releaseHost || DEFAULT_HOST, releasePort, PORT_RELEASE_WAIT_MS);
-    }
-
-    this._child = null;
-    this._ownedServer = null;
-    this._registryFile = null;
-    this._stopping = false;
     this._clearHealthWatch();
+    try {
+      if (child) await this._terminateChild(child);
 
-    this._emit('stopped', child ? 'DSH process stopped' : 'No process was started by this instance');
+      if (this._registryFile && child) {
+        ServerManager._removeRegistryEntry(this._registryFile, child.pid);
+      }
+      if (Number.isInteger(releasePort)) {
+        await this._waitForPortRefused(releaseHost || DEFAULT_HOST, releasePort, PORT_RELEASE_WAIT_MS);
+      }
+      this._child = null;
+      this._ownedServer = null;
+      this._registryFile = null;
+      this._emit('stopped', child ? 'DSH process stopped' : 'No process was started by this instance');
+    } finally {
+      this._stopping = false;
+    }
   }
 
   /**

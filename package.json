@@ -2,7 +2,7 @@
 	"name": "dsh-vs-sidebar",
 	"displayName": "%dsh.displayName%",
 	"description": "%dsh.ext.description%",
-	"version": "1.1.3",
+	"version": "2.0.0",
 	"publisher": "Xizhi1024",
 	"license": "MIT",
 	"pricing": "Free",
@@ -35,9 +35,6 @@
 		"vscode": "^1.106.0"
 	},
 	"main": "src/extension.js",
-	"enabledApiProposals": [
-		"terminalDataWriteEvent"
-	],
 	"scripts": {
 		"lint": "node scripts/lint.js",
 		"test": "node --test \"test/*.test.js\" \"test/unit/*.test.js\"",
@@ -67,23 +64,9 @@
 		"onCommand:dsh.diagnose",
 		"onCommand:dsh.cleanupOrphans",
 		"onCommand:dsh.restartClean",
-		"onCommand:dsh.onboarding",
 		"onCommand:dsh.newInstance",
-		"onView:dsh.changes",
-		"onCommand:dsh.changes.openDiff",
-		"onCommand:dsh.changes.accept",
-		"onCommand:dsh.changes.undo",
-		"onCommand:dsh.changes.refresh",
-		"onCommand:dsh.changes.focus",
-		"onCommand:dsh.changes.toggleScope",
-		"onCommand:dsh.ctrlIEdit",
-		"onCommand:dsh.ctrlKEdit",
-		"onLanguageModelChatProvider:dsh",
 		"onCommand:dsh.mcp.refresh",
-		"onCommand:dsh.mcp.forgetConsent",
-		"onChatParticipant:dsh",
-		"onCommand:dsh.openSessionHistory",
-		"onCommand:dsh.fim.setApiKey"
+		"onCommand:dsh.mcp.forgetConsent"
 	],
 	"extensionKind": [
 		"workspace"
@@ -104,19 +87,6 @@
 		"@vscode/vsce": "3.9.2"
 	},
 	"contributes": {
-		"languageModelChatProviders": [
-			{
-				"vendor": "dsh",
-				"displayName": "%dsh.lm.vendor%"
-			}
-		],
-		"chatParticipants": [
-			{
-				"id": "dsh",
-				"name": "%dsh.participant.name%",
-				"description": "%dsh.participant.description%"
-			}
-		],
 		"viewsContainers": {
 			"secondarySidebar": [
 				{
@@ -132,21 +102,9 @@
 					"type": "webview",
 					"id": "dsh.webview",
 					"name": "%dsh.view.name%"
-				},
-				{
-					"type": "tree",
-					"id": "dsh.changes",
-					"name": "%dsh.view.changes%",
-					"when": "config.dsh.features.changes-review"
 				}
 			]
 		},
-		"viewsWelcome": [
-			{
-				"view": "dsh.changes",
-				"contents": "%dsh.view.welcome.changes%"
-			}
-		],
 		"commands": [
 			{
 				"command": "dsh.openInBrowser",
@@ -213,11 +171,6 @@
 				"category": "%dsh.cmd.category%"
 			},
 			{
-				"command": "dsh.openSessionHistory",
-				"title": "%dsh.cmd.openSessionHistory%",
-				"category": "%dsh.cmd.category%"
-			},
-			{
 				"command": "dsh.capabilities",
 				"title": "%dsh.cmd.capabilities%",
 				"category": "%dsh.cmd.category%"
@@ -238,11 +191,6 @@
 				"category": "%dsh.cmd.category%"
 			},
 			{
-				"command": "dsh.onboarding",
-				"title": "%dsh.cmd.onboarding%",
-				"category": "%dsh.cmd.category%"
-			},
-			{
 				"command": "dsh.newInstance",
 				"title": "%dsh.cmd.newInstance%",
 				"category": "%dsh.cmd.category%",
@@ -252,58 +200,8 @@
 				}
 			},
 			{
-				"command": "dsh.changes.openDiff",
-				"title": "%dsh.cmd.changes.openDiff%",
-				"category": "%dsh.cmd.category%"
-			},
-			{
-				"command": "dsh.changes.accept",
-				"title": "%dsh.cmd.changes.accept%",
-				"category": "%dsh.cmd.category%"
-			},
-			{
-				"command": "dsh.changes.undo",
-				"title": "%dsh.cmd.changes.undo%",
-				"category": "%dsh.cmd.category%"
-			},
-			{
-				"command": "dsh.changes.refresh",
-				"title": "%dsh.cmd.changes.refresh%",
-				"category": "%dsh.cmd.category%",
-				"icon": {
-					"light": "media/deepseek-light.svg",
-					"dark": "media/deepseek-dark.svg"
-				}
-			},
-			{
-				"command": "dsh.changes.focus",
-				"title": "%dsh.cmd.changes.focus%",
-				"category": "%dsh.cmd.category%"
-			},
-			{
-				"command": "dsh.changes.toggleScope",
-				"title": "%dsh.cmd.changes.toggleScope%",
-				"category": "%dsh.cmd.category%",
-				"icon": "$(filter)"
-			},
-			{
-				"command": "dsh.ctrlIEdit",
-				"title": "%dsh.cmd.ctrlIEdit%",
-				"category": "%dsh.cmd.category%"
-			},
-			{
-				"command": "dsh.ctrlKEdit",
-				"title": "%dsh.cmd.ctrlKEdit%",
-				"category": "%dsh.cmd.category%"
-			},
-			{
 				"command": "dsh.mcp.refresh",
 				"title": "%dsh.cmd.mcp.refresh%",
-				"category": "%dsh.cmd.category%"
-			},
-			{
-				"command": "dsh.fim.setApiKey",
-				"title": "%dsh.cmd.fim.setApiKey%",
 				"category": "%dsh.cmd.category%"
 			},
 			{
@@ -329,12 +227,6 @@
 				"key": "ctrl+l",
 				"mac": "cmd+l",
 				"when": "config.dsh.keybindings.ctrlL && editorTextFocus"
-			},
-			{
-				"command": "dsh.ctrlKEdit",
-				"key": "ctrl+k",
-				"mac": "cmd+k",
-				"when": "config.dsh.features.ctrl-k && editorTextFocus"
 			}
 		],
 		"menus": {
@@ -343,33 +235,6 @@
 					"command": "dsh.newInstance",
 					"when": "config.dsh.multiInstance.entry && view == dsh.webview",
 					"group": "navigation@10"
-				},
-				{
-					"command": "dsh.changes.refresh",
-					"when": "view == dsh.changes",
-					"group": "navigation@1"
-				},
-				{
-					"command": "dsh.changes.toggleScope",
-					"when": "view == dsh.changes",
-					"group": "navigation@2"
-				}
-			],
-			"view/item/context": [
-				{
-					"command": "dsh.changes.openDiff",
-					"when": "view == dsh.changes && viewItem =~ /^dsh\\.changes\\.entry/",
-					"group": "inline@1"
-				},
-				{
-					"command": "dsh.changes.accept",
-					"when": "view == dsh.changes && viewItem =~ /^dsh\\.changes\\.entry\\.(pending|legacy)$/",
-					"group": "inline@2"
-				},
-				{
-					"command": "dsh.changes.undo",
-					"when": "view == dsh.changes && viewItem =~ /^dsh\\.changes\\.entry\\.(pending|accepted)$/",
-					"group": "inline@3"
 				}
 			],
 			"editor/title": [
@@ -546,42 +411,6 @@
 					"default": true,
 					"description": "%dsh.cfg.features.theme-follow%"
 				},
-				"dsh.features.changes-review": {
-					"type": "boolean",
-					"default": true,
-					"description": "%dsh.cfg.features.changes-review%"
-				},
-				"dsh.changes.observe-tools": {
-					"type": "boolean",
-					"default": true,
-					"description": "%dsh.cfg.changes.observe-tools%"
-				},
-				"dsh.features.ctrl-k": {
-					"type": "boolean",
-					"default": false,
-					"description": "%dsh.cfg.features.ctrl-k%"
-				},
-				"dsh.features.ctrl-i": {
-					"type": "boolean",
-					"default": false,
-					"scope": "machine",
-					"description": "%dsh.cfg.features.ctrl-i%"
-				},
-				"dsh.features.lm-route": {
-					"type": "boolean",
-					"default": false,
-					"description": "%dsh.cfg.features.lm-route%"
-				},
-				"dsh.lm.route": {
-					"type": "string",
-					"enum": [
-						"off",
-						"fixed",
-						"dynamic"
-					],
-					"default": "off",
-					"description": "%dsh.cfg.lm.route%"
-				},
 				"dsh.features.mcp-consume": {
 					"type": "boolean",
 					"default": false,
@@ -592,34 +421,6 @@
 					"default": false,
 					"scope": "machine",
 					"description": "%dsh.cfg.features.call-export%"
-				},
-				"dsh.features.exports": {
-					"type": "boolean",
-					"default": false,
-					"scope": "machine",
-					"description": "%dsh.cfg.features.exports%"
-				},
-				"dsh.features.chat-participant": {
-					"type": "boolean",
-					"default": true,
-					"description": "%dsh.cfg.features.chat-participant%"
-				},
-				"dsh.features.tab-completion": {
-					"type": "boolean",
-					"default": false,
-					"description": "%dsh.cfg.features.tab-completion%"
-				},
-				"dsh.fim.model": {
-					"type": "string",
-					"default": "",
-					"scope": "machine",
-					"description": "%dsh.cfg.fim.model%"
-				},
-				"dsh.fim.baseUrl": {
-					"type": "string",
-					"default": "",
-					"scope": "machine",
-					"description": "%dsh.cfg.fim.baseUrl%"
 				},
 				"dsh.keybindings.ctrlL": {
 					"type": "boolean",

@@ -1,7 +1,6 @@
 "use strict";
 
 const { deepStrictEqual } = require('node:assert');
-const { createChangeTracker, validateWireEdits, assertEditsWithinDocuments, MAX_LABEL_CHARS } = require('../changeTracker');
 
 /**
  * v3a runtime bridge handlers (plan R6, D3 verdict).
@@ -12,7 +11,7 @@ const { createChangeTracker, validateWireEdits, assertEditsWithinDocuments, MAX_
  * setting is enabled; unmounted methods never reach the initialize
  * advertisement, so DSH registers no tool for them.
  *
- * L2 surfaces (changes/push, mcp/*, extensions/callExport) are mounted only
+ * L2 surfaces (mcp/*, extensions/callExport) are mounted only
  * when their dsh.features.* gate is enabled; unmounted methods never reach
  * the initialize advertisement, so DSH registers no tool for them.
  */
@@ -127,7 +126,7 @@ function requireString(value, field) {
  * @param {object} [deps.callExportJournal] - optional { record(entry) } summary sink (E-T2b wires the real journal file; null skips).
  * @returns {object} method name -> handler.
  */
-function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, changeTracker = null, mcpManager = null, getMcpManager = null, callExportJournal = null }) {
+function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, mcpManager = null, getMcpManager = null, callExportJournal = null }) {
   if (!vscode || !vscode.window || !vscode.workspace) {
     throw new TypeError('createV3Handlers requires a vscode facade');
   }
@@ -743,53 +742,6 @@ function createV3Handlers({ vscode, getFlag, appendOutputLine = () => {}, change
         return { approved: false, value: null, reason: 'timeout-or-dismissed' };
       }
       return { approved: true, value: answer };
-    };
-  }
-
-  // ---- changes/push (L2 gate: dsh.features.changes-review) -------------------
-  // F-d (Codex-aligned): this is a DIRECT write channel. The extension adds
-  // no approval gate of its own — permission is single-sourced from the DSH
-  // sandbox that owns the calling agent (read-only / workspace-write /
-  // full-access tiers live there). Safety here = typed-edit validation
-  // before landing (structure + live-document ranges), a before-snapshot in
-  // the journal, and file-level undo in the changes tree (the review
-  // surface). The workspace-boundary restriction is likewise gone: DSH's
-  // sandbox decides which paths are writable, not this handler.
-  if (getFlag('features.changes-review')) {
-    const tracker = changeTracker || createChangeTracker({ storageUri: null, vscode });
-
-    handlers['vscode/changes/push'] = async (params) => {
-      if (!isRecord(params)) throw v3Error('VSCODE_INVALID_PARAMS', 'changes/push params must be an object');
-      if (params.sessionId !== undefined && typeof params.sessionId !== 'string') {
-        throw v3Error('VSCODE_INVALID_PARAMS', 'changes/push sessionId must be a string');
-      }
-      if (params.label !== undefined) {
-        if (typeof params.label !== 'string' || params.label.length > MAX_LABEL_CHARS) {
-          throw v3Error('VSCODE_INVALID_PARAMS', `changes/push label must be a string of at most ${MAX_LABEL_CHARS} characters`);
-        }
-      }
-      if (params.mode !== undefined && params.mode !== 'ask' && params.mode !== 'session') {
-        // Legacy wire field from the 1.0.x approval era: still validated for
-        // shape, ignored otherwise (no approval semantics remain).
-        throw v3Error('VSCODE_INVALID_PARAMS', "changes/push mode must be 'ask' or 'session'");
-      }
-      const sessionId = typeof params.sessionId === 'string' ? params.sessionId : '';
-      const label = typeof params.label === 'string' ? params.label : '';
-      const edits = validateWireEdits(params.edits, vscode);
-      // F-b: reject coordinates outside the live document BEFORE writing —
-      // otherwise zombie entries wedge the tree when applyEdit declines.
-      await assertEditsWithinDocuments(edits, vscode);
-
-      const before = await tracker.snapshotBefore(edits);
-      await tracker.applyEdits(edits);
-      const entry = await tracker.record({
-        sessionId,
-        label,
-        edits: stringifyEdits(edits),
-        before,
-        status: 'accepted',
-      });
-      return { applied: true, changeIds: [entry.id] };
     };
   }
 

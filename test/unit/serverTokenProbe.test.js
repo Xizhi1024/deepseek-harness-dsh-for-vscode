@@ -39,6 +39,13 @@ test('probe: 303 answering a tokened GET identifies dsh 0.1.2+', async (t) => {
   const badToken = await manager.probe('127.0.0.1', port, { token: 'bad' });
   assert.strictEqual(badToken.reachable, true);
   assert.strictEqual(badToken.isDsh, false, 'a rejected token still answers 401');
+
+  const url = `http://127.0.0.1:${port}`;
+  const owned = { url, host: '127.0.0.1', port, pid: 4242, owned: true, authToken: 'good', authUrl: `${url}/?token=good` };
+  manager._child = { pid: owned.pid };
+  manager._ownedServer = owned;
+  manager.stop = async () => assert.fail('an authenticated owned process should be reused');
+  assert.strictEqual(await manager.ensureServer({ port }), owned, 'reuse must retain the iframe authentication URL');
 });
 
 test('probe: 303 without a token is NOT dsh (foreign redirect service)', async (t) => {

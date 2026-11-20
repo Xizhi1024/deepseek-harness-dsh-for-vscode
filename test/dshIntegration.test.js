@@ -39,6 +39,26 @@ test('DSH integration installs into the selected custom profile', (t) => {
   assert.strictEqual(installed.nodeModulesPath, path.join(root, 'home', 'profiles', 'dev', 'node_modules'));
 });
 
+test('DSH integration removes retired files when the asset list changes within a version', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-vscode-integration-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const { extension } = createSourceTree(root);
+  const dshHome = path.join(root, 'home');
+  const version = '1.1.3';
+  fs.writeFileSync(path.join(extension, 'package.json'), JSON.stringify({ version }));
+  const { packageRoot } = installDshIntegration(dshHome, extension);
+  const retired = 'lib/retired.js';
+  fs.writeFileSync(path.join(packageRoot, retired), '');
+  fs.writeFileSync(path.join(packageRoot, '.vscode-sync.json'), JSON.stringify({
+    syncedBy: version, files: [...INTEGRATION_FILES, retired],
+  }));
+
+  const synced = installDshIntegration(dshHome, extension);
+  assert.deepEqual(synced.foreignRemoved, [retired]);
+  assert.equal(synced.versionChanged, false);
+  assert.equal(fs.existsSync(path.join(packageRoot, retired)), false);
+});
+
 test('DSH integration rejects invalid profile names with CONFIG_PROFILE_INVALID', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-vscode-integration-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

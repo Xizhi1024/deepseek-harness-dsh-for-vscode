@@ -17,10 +17,10 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const LONG_TIMEOUT_MS = 120_000;
 const LONG_TIMEOUT_METHODS = new Set([
   'vscode/confirm/ask',
-  'vscode/changes/push',
   'vscode/mcp/callTool',
   'vscode/extensions/callExport',
 ]);
+const STABLE_CONNECTION_MS = 30_000;
 const DEFAULT_BACKOFF_MS = [2_000, 5_000, 15_000, 30_000];
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;
 
@@ -94,7 +94,7 @@ function jsonRpcError(bridgeCode, message) {
 
 // ---------------------------------------------------------------------------
 // Method -> tool schema table. This mirrors METHODS_V3 (35 entries: 6
-// inherited v1/v2 methods + 29 v3 additions incl. E-batch callExport and
+// inherited v1/v2 methods + v3 additions including extension exports and
 // the D1 breakpoint bridge).
 // ---------------------------------------------------------------------------
 
@@ -329,15 +329,6 @@ const METHOD_SCHEMAS = {
       items: { type: 'array', items: { type: 'string' }, description: 'Choices for pick prompts' },
     }, ['prompt']),
   },
-  'vscode/changes/push': {
-    description: 'Apply workspace edits through the VS Code editor. Permission is governed by the DSH sandbox that owns this session - VS Code adds no approval gate. Every batch lands in the changes tree with a before-snapshot and file-level undo (the review surface).',
-    parameters: objectSchema({
-      sessionId: stringProp('DSH session id for journal isolation'),
-      label: stringProp('Change label shown in the tree view (max 200 chars)'),
-      mode: { type: 'string', enum: ['ask', 'session'], description: 'Legacy field from the approval era; accepted, ignored' },
-      edits: { type: 'array', items: editSchema(), description: 'Workspace edits (max 50)' },
-    }, ['edits']),
-  },
   'vscode/mcp/listServers': {
     description: 'List the VS Code MCP servers configured for the extension.',
     parameters: objectSchema(),
@@ -395,28 +386,19 @@ class BridgeGeneration {
     this.socket.write(JSON.stringify(message) + '\n');
   }
 
-  // C2: fire-and-forget JSON-RPC notification (no id). Dropped silently when
-  // the socket is gone or the write fails — notifications are never replayed
-  // on the next reconnect.
-  notify(method, params) {
-    try {
-      if (this.disposed || this.socket.destroyed) return false;
-      this.socket.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n');
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
   request(method, params, { signal = null, timeoutMs = this.timeoutMs } = {}) {
     if (this.disposed || this.socket.destroyed) {
       return Promise.reject(jsonRpcError('VSCODE_DISCONNECTED', 'The VS Code bridge is disconnected'));
+    }
+    if (signal?.aborted) {
+      return Promise.reject(jsonRpcError('VSCODE_ABORTED', `VS Code bridge request cancelled: ${method}`));
     }
     const id = this.nextId;
     this.nextId += 1;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
+        signal?.removeEventListener?.('abort', onAbort);
         reject(jsonRpcError('VSCODE_TIMEOUT', `VS Code bridge request timed out: ${method}`));
       }, timeoutMs);
       if (timer && typeof timer.unref === 'function') timer.unref();
@@ -438,10 +420,6 @@ class BridgeGeneration {
         }
       };
       if (signal && typeof signal.addEventListener === 'function') {
-        if (signal.aborted) {
-          onAbort();
-          return;
-        }
         signal.addEventListener('abort', onAbort, { once: true });
       }
 
@@ -516,6 +494,7 @@ class BridgeGeneration {
       waiter.reject(error);
     }
     this.pending.clear();
+    this.buffer = '';
     try {
       this.socket.destroy();
     } catch {
@@ -573,138 +552,85 @@ function createBridgeTools({
     let currentTools = [];
     let reconnectTimer = null;
     let backoffIndex = 0;
-    let disposed = false;
 
-    function clearReconnect() {
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
+    function disposeTools() {
+      const tools = currentTools;
+      currentTools = [];
+      for (const dispose of tools) {
+        try {
+          dispose?.();
+        } catch (error) {
+          log(`[dsh-vscode-integration] tool dispose failed: ${error instanceof Error ? error.message : error}`);
+        }
       }
     }
 
     function scheduleReconnect() {
-      if (stopped || disposed) return;
-      const delay = backoffMs[Math.min(backoffIndex, backoffMs.length - 1)];
-      backoffIndex += 1;
-      clearReconnect();
+      if (stopped || reconnectTimer) return;
+      if (backoffIndex >= backoffMs.length) {
+        disposeTools();
+        log('[dsh-vscode-integration] bridge reconnect limit reached');
+        return;
+      }
+      const delay = backoffMs[backoffIndex++];
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         void connectAndRegister();
       }, delay);
-      if (reconnectTimer && typeof reconnectTimer.unref === 'function') reconnectTimer.unref();
+      reconnectTimer.unref?.();
     }
 
-    function swapTools(previous, methods) {
-      const descriptors = [];
-      for (const method of methods) {
-        const descriptor = descriptorFor(method);
-        if (descriptor) {
-          descriptors.push({ method, descriptor });
-        } else {
-          log(`[dsh-vscode-integration] skipping unadvertised/unknown bridge method: ${method}`);
+    function swapTools(gen, methods) {
+      disposeTools();
+      try {
+        for (const method of new Set(methods)) {
+          const descriptor = descriptorFor(method);
+          if (!descriptor) continue;
+          const execute = (params, options) => gen.request(method, params, {
+            signal: options?.signal,
+            timeoutMs: bridgeTimeoutMs(method),
+          });
+          const dispose = register(define({ ...descriptor, execute }));
+          currentTools.push(typeof dispose === 'function' ? dispose : null);
         }
+      } catch (error) {
+        disposeTools();
+        throw error;
       }
-      // Phase 1: dispose the previous tool generation.
-      if (previous && Array.isArray(previous.tools)) {
-        for (const record of previous.tools) {
-          try {
-            if (typeof record.dispose === 'function') record.dispose();
-          } catch (error) {
-            log(`[dsh-vscode-integration] tool dispose failed: ${error && error.message ? error.message : error}`);
-          }
-        }
-      }
-      // Phase 2: register the new generation.
-      const tools = [];
-      for (const entry of descriptors) {
-        const descriptor = entry.descriptor;
-        const execute = (params, options) => generation.request(entry.method, params, {
-          signal: options && options.signal,
-          timeoutMs: bridgeTimeoutMs(entry.method),
-        });
-        const tool = define({ ...descriptor, execute });
-        const disposer = register(tool);
-        tools.push({ name: descriptor.name, dispose: typeof disposer === 'function' ? disposer : null });
-      }
-      return tools;
-    }
-
-    function attachSocket(socket) {
-      const gen = new BridgeGeneration({ socket, timeoutMs: DEFAULT_TIMEOUT_MS });
-      generation = gen;
-      gen.socket.on('data', (chunk) => gen.handleData(chunk));
-      gen.socket.on('error', (error) => {
-        log(`[dsh-vscode-integration] bridge socket error: ${error && error.message ? error.message : error}`);
-      });
-      gen.socket.on('close', () => {
-        if (generation !== gen) return;
-        // Keep the generation (and its still-registered tools) as the previous
-        // generation for the two-phase swap on the next successful connect.
-        gen.fail(jsonRpcError('VSCODE_DISCONNECTED', 'The VS Code bridge disconnected'));
-        if (!stopped && !disposed) scheduleReconnect();
-      });
-      return gen;
     }
 
     async function connectAndRegister() {
-      if (stopped || disposed) return;
-      const previous = generation;
-      const socket = net.connect(envState.port, envState.host);
-      const gen = attachSocket(socket);
-      const initId = gen.nextId;
-      gen.nextId += 1;
-
-      const initPromise = new Promise((resolve, reject) => {
-        const waiter = { resolve, reject };
-        gen.pending.set(initId, {
-          ...waiter,
-          timer: setTimeout(() => {
-            gen.pending.delete(initId);
-            reject(jsonRpcError('VSCODE_INIT_TIMEOUT', 'VS Code bridge initialize timed out'));
-          }, DEFAULT_TIMEOUT_MS),
-          signal: null,
-          onAbort: null,
-          method: 'initialize',
-        });
-      });
-
+      if (stopped) return;
+      let gen;
       try {
-        gen.write({
-          jsonrpc: '2.0',
-          id: initId,
-          method: 'initialize',
-          params: {
-            token: envState.token,
-            protocolVersion: Number(envState.protocol),
-            clientInfo: { name: 'dsh-vscode-integration', version },
-          },
-        });
-        const result = await initPromise;
-        const methods = result && Array.isArray(result.methods) ? result.methods : null;
-        if (!methods) {
-          gen.dispose();
-          if (generation === gen) generation = previous;
-          log('[dsh-vscode-integration] initialize returned no methods; keeping the previous tools');
+        const socket = net.connect(envState.port, envState.host);
+        gen = new BridgeGeneration({ socket, timeoutMs: DEFAULT_TIMEOUT_MS });
+        generation = gen;
+        let readyAt = null;
+        socket.on('data', (chunk) => gen.handleData(chunk));
+        socket.on('error', (error) => gen.fail(error));
+        socket.on('close', () => {
+          if (generation !== gen) return;
+          generation = null;
+          gen.fail(jsonRpcError('VSCODE_DISCONNECTED', 'The VS Code bridge disconnected'));
+          if (readyAt !== null && Date.now() - readyAt >= STABLE_CONNECTION_MS) backoffIndex = 0;
           scheduleReconnect();
-          return;
-        }
-        if (generation !== gen || gen.disposed) {
-          log('[dsh-vscode-integration] bridge generation was replaced before registration; keeping the previous tools');
-          gen.dispose();
-          if (generation === gen) generation = previous;
-          return;
-        }
-        const tools = swapTools(previous, methods);
-        if (generation === gen) {
-          gen.tools = tools;
-          currentTools = tools;
-        }
-        backoffIndex = 0;
-        log(`[dsh-vscode-integration] bridge tools registered: ${tools.length}`);
+        });
+        const result = await gen.request('initialize', {
+          token: envState.token,
+          protocolVersion: Number(envState.protocol),
+          clientInfo: { name: 'dsh-vscode-integration', version },
+        });
+        if (stopped || generation !== gen || gen.disposed) return;
+        if (!Array.isArray(result?.methods)) throw new Error('initialize returned no methods');
+        swapTools(gen, result.methods);
+        readyAt = Date.now();
+        log(`[dsh-vscode-integration] bridge tools registered: ${currentTools.length}`);
       } catch (error) {
-        if (generation === gen) generation = previous;
-        gen.dispose();
-        log(`[dsh-vscode-integration] bridge initialize failed: ${error && error.message ? error.message : error}`);
+        if (stopped || (gen && generation !== gen)) return;
+        generation = null;
+        gen?.dispose();
+        log(`[dsh-vscode-integration] bridge initialize failed: ${error instanceof Error ? error.message : error}`);
         scheduleReconnect();
       }
     }
@@ -713,29 +639,15 @@ function createBridgeTools({
 
     return {
       running: true,
-      // C2: outbound notification channel on the live generation (false when
-      // no socket is connected — callers drop the event).
-      notify(method, params) {
-        if (generation) return generation.notify(method, params);
-        return false;
-      },
       stop() {
-        if (disposed) return { stopped: true };
-        disposed = true;
+        if (stopped) return { stopped: true };
         stopped = true;
-        clearReconnect();
-        for (const record of currentTools) {
-          try {
-            if (typeof record.dispose === 'function') record.dispose();
-          } catch {
-            // best-effort cleanup
-          }
-        }
-        currentTools = [];
-        if (generation) {
-          generation.dispose();
-          generation = null;
-        }
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+        disposeTools();
+        const active = generation;
+        generation = null;
+        active?.dispose();
         return { stopped: true };
       },
     };

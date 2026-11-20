@@ -10,10 +10,8 @@ const INTEGRATION_FILES = Object.freeze([
   'lib/index.js',
   'lib/client.js',
   'lib/tools.js',
-  'lib/lmRoute.js',
-  'lib/fimRoutes.js',
   'lib/linkRoutes.js',
-  'lib/editObserver.js',
+  'lib/embedAuth.js',
 ]);
 // Records which extension version last owned the synced package directory.
 // See installDshIntegration: several installed/dev versions of this extension
@@ -120,8 +118,8 @@ function listFilesUnder(root, readdirSync) {
  *
  * Multi-version guard (2026-09-04 follow-up): a `.vscode-sync.json` marker
  * records the extension version that last owned the directory. When another
- * version (installed release, older/newer dev build) owns it — or the marker
- * is missing while files exist — every file NOT in this version's allow-list
+ * version (installed release, older/newer dev build) owns it, or the recorded
+ * file list differs, every file outside this version's allow-list
  * is removed BEFORE the copy, so the directory can never hold a mixed-version
  * byte set. The sweep only ever touches the extension-owned package
  * directory; result.foreignRemoved lists what went.
@@ -158,8 +156,11 @@ function installDshIntegration(dshHome, extensionPath, options = {}) {
         marker = null;
       }
     }
-    if (!marker || marker.syncedBy !== extensionVersion) {
-      versionChanged = true;
+    const previousFiles = marker?.files;
+    const filesChanged = !Array.isArray(previousFiles) || previousFiles.length !== INTEGRATION_FILES.length
+      || INTEGRATION_FILES.some((file, index) => previousFiles[index] !== file);
+    versionChanged = marker?.syncedBy !== extensionVersion;
+    if (versionChanged || filesChanged) {
       for (const file of listFilesUnder(packageRoot, readdirSync)) {
         const relative = toPosix(path.relative(packageRoot, file));
         if (allowedFiles.has(relative) || relative === SYNC_MARKER_NAME) continue;
@@ -190,7 +191,7 @@ function installDshIntegration(dshHome, extensionPath, options = {}) {
   if (extensionVersion) {
     const temporary = `${markerPath}.${process.pid}.tmp`;
     mkdirSync(packageRoot, { recursive: true });
-    writeFileSync(temporary, JSON.stringify({ syncedBy: extensionVersion }, null, 2) + '\n');
+    writeFileSync(temporary, JSON.stringify({ syncedBy: extensionVersion, files: INTEGRATION_FILES }, null, 2) + '\n');
     renameSync(temporary, markerPath);
   }
 

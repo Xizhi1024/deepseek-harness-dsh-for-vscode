@@ -3,20 +3,12 @@ import { execFileSync } from 'node:child_process';
 import net from 'node:net';
 
 import { createBridgeTools } from './tools.js';
-import { createEditObserver } from './editObserver.js';
-import { createLmRoutes } from './lmRoute.js';
-import { createFimRoutes } from './fimRoutes.js';
 import { createLinkRoutes, editorOpenViaBridge } from './linkRoutes.js';
+import { installEmbedAuth } from './embedAuth.js';
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
-// 'webServer' MUST be declared: createLmRoutes touches ctx.webServer at
-// construction time and cordis throws 'cannot get property "webServer"
-// without inject' — which aborts the whole plugin tree at boot (the DSH
-// process exits before the sidebar ever connects). This package is only
-// installed into extension-owned homes, where the web profile always
-// provides the webServer service.
-const inject = ['apiProxy', 'tools', 'llm', 'webServer'];
+const inject = ['tools'];
 const name = 'dsh-vscode-integration';
 
 // ---------------------------------------------------------------------------
@@ -32,20 +24,6 @@ const WATCHDOG_EXPIRY_MS = 60 * 1000;
 const HEARTBEAT_ENV = 'DSH_VSCODE_HEARTBEAT_PATH';
 const WINDOW_ID_ENV = 'DSH_VSCODE_WINDOW_ID';
 const WATCHDOG_ENV = 'DSH_VSCODE_WATCHDOG';
-const OBSERVE_TOOLS_ENV = 'DSH_VSCODE_OBSERVE_TOOLS';
-
-/**
- * C2 gate for the edit/write observer. Defaults to ON; the extension
- * translates the dsh.changes.observe-tools setting into this spawn-env key.
- * @param {object} env
- * @returns {boolean}
- */
-function observeToolsEnabled(env = process.env) {
-  const value = env && env[OBSERVE_TOOLS_ENV];
-  if (typeof value !== 'string') return true;
-  return !['0', 'off', 'false', 'no'].includes(value.trim().toLowerCase());
-}
-
 function failure(request, message) {
   return {
     rpcId: request.rpcId,
@@ -342,35 +320,40 @@ function createWatchdogMonitor({
 }
 
 function apply(ctx) {
-  ctx.effect(() => {
-    const host = ctx.apiProxy.host;
-    const original = host.openPath;
-    host.openPath = async (request, signal) => {
-      const target = request && request.payload && request.payload.path;
-      if (typeof target !== 'string' || target.length === 0) {
-        return failure(request, 'path open failed: a path is required');
-      }
-      try {
-        await openThroughBridge(target, signal);
-        return { rpcId: request.rpcId, result: { ok: true, value: { opened: true } } };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return failure(request, `path open failed: ${message}`);
-      }
-    };
-    // C1 watchdog: if this DSH process is a VS Code-managed child, keep an eye
-    // on its owner window and self-terminate only when the dual condition is
-    // met (heartbeat expired AND owner gone). Inert for standalone DSH (no
-    // DSH_VSCODE_* env) and for closePolicy=never (DSH_VSCODE_WATCHDOG=off).
-    const monitor = createWatchdogMonitor({
-      onExit: () => process.exit(0),
+  if (process.env.DSH_VSCODE_WINDOW_ID) {
+    ctx.inject(['connection'], (scope) => {
+      scope.effect(() => installEmbedAuth(scope.connection), 'dsh-vscode-integration: embedded authentication');
     });
+  }
+
+  ctx.effect(() => {
+    const monitor = createWatchdogMonitor({ onExit: () => process.exit(0) });
     monitor.start();
-    return () => {
-      host.openPath = original;
-      monitor.stop();
-    };
-  }, 'dsh-vscode-integration: host.openPath bridge + C1 watchdog');
+    return () => monitor.stop();
+  }, 'dsh-vscode-integration: owner watchdog');
+
+  // Legacy DSH exposes host.openPath through apiProxy. Modern versions use
+  // the authenticated web link route below. Each service is optional.
+  ctx.inject(['apiProxy'], (scope) => {
+    scope.effect(() => {
+      const host = scope.apiProxy.host;
+      const original = host.openPath;
+      host.openPath = async (request, signal) => {
+        const target = request && request.payload && request.payload.path;
+        if (typeof target !== 'string' || target.length === 0) {
+          return failure(request, 'path open failed: a path is required');
+        }
+        try {
+          await openThroughBridge(target, signal);
+          return { rpcId: request.rpcId, result: { ok: true, value: { opened: true } } };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return failure(request, `path open failed: ${message}`);
+        }
+      };
+      return () => { host.openPath = original; };
+    }, 'dsh-vscode-integration: legacy host.openPath');
+  });
 
   ctx.effect(() => {
     // Descriptors are built register()-shaped (JSON-Schema roots); the
@@ -380,60 +363,30 @@ function apply(ctx) {
       ctx,
       net,
       version: packageJson.version,
+      log: (message) => console.info(message),
     });
     const started = bridge.start();
-    // C2: observe DSH edit/write tool executions (attribution only — never a
-    // gate) and forward metadata-only notifications over the live bridge
-    // generation. Dropped silently while disconnected (never replayed).
-    let observer = null;
-    if (started.running && observeToolsEnabled(process.env)) {
-      observer = createEditObserver({
-        ctx,
-        notify: (params) => started.notify('vscode/dshEditObserved', params),
+    return () => started.stop?.();
+  }, 'dsh-vscode-integration: vscode bridge tools');
+
+  ctx.inject(['webServer'], (scope) => {
+    scope.effect(() => {
+      const links = createLinkRoutes({
+        env: process.env,
+        ctx: scope,
+        net,
+        openImpl: openThroughBridge,
+        editorOpenImpl: ({ params }) => editorOpenViaBridge({ env: process.env, net, params }),
       });
-    }
-    return () => {
-      if (observer) observer.dispose();
-      if (started && typeof started.stop === 'function') started.stop();
-    };
-  }, 'dsh-vscode-integration: vscode bridge tools + edit observer');
-
-  ctx.effect(() => {
-    const routes = createLmRoutes({ env: process.env, ctx });
-    return () => routes.dispose();
-  }, 'dsh-vscode-integration: /api/lm routes');
-
-  // Tab completion: mounts POST /api/fim only when the extension injected
-  // DSH_FIM_BRIDGE_TOKEN (feature off => no route, zero surface).
-  ctx.effect(() => {
-    const fim = createFimRoutes({ env: process.env, ctx });
-    return () => fim.dispose();
-  }, 'dsh-vscode-integration: /api/fim route');
-
-  // B3 (issue #6): same-origin open-link route for reply-path linkify. The
-  // browser client POSTs { path, line, col }; this side resolves relative
-  // paths against the child cwd (the VS Code workspace root) and opens via
-  // the existing channels: openThroughBridge (textDocumentBridge, gated by
-  // the extension's dsh.features.editor-links) or, when a line was clicked,
-  // the v3 vscode/editor/open method for the selection. No route mounts when
-  // the editor-links env is absent (feature off).
-  ctx.effect(() => {
-    const links = createLinkRoutes({
-      env: process.env,
-      ctx,
-      net,
-      openImpl: openThroughBridge,
-      editorOpenImpl: ({ params }) => editorOpenViaBridge({ env: process.env, net, params }),
-    });
-    return () => links.dispose();
-  }, 'dsh-vscode-integration: /api/vscode/open-link route');
+      return () => links.dispose();
+    }, 'dsh-vscode-integration: /api/vscode/open-link route');
+  });
 }
 
 export {
   apply,
   inject,
   name,
-  observeToolsEnabled,
   openThroughBridge,
   parseHeartbeat,
   readHeartbeat,

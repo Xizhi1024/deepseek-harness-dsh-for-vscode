@@ -54,7 +54,6 @@ const METHODS_V3 = Object.freeze([
   'vscode/statusbar/update',
   'vscode/output/append',
   'vscode/confirm/ask',
-  'vscode/changes/push',
   'vscode/mcp/listServers',
   'vscode/mcp/listTools',
   'vscode/mcp/callTool',
@@ -79,17 +78,10 @@ const METHODS_BY_VERSION = Object.freeze({
   3: METHODS_V3,
 });
 
-// v3a froze the request-method surface only (METHODS_V3) and carried the
-// v2 push set unchanged. C2 (1.1.0) adds the client→server edit-observation
-// notification 'vscode/dshEditObserved' on top of it (v3+ only): the DSH
-// plugin fires it after observing an edit/write tool pre-execute; the
-// payload is metadata-only ({tool, path, sessionId, size, truncated}).
-const NOTIFICATIONS_V3 = Object.freeze([...NOTIFICATIONS_V2, 'vscode/dshEditObserved']);
-
 const NOTIFICATIONS_BY_VERSION = Object.freeze({
   1: NOTIFICATIONS_V1,
   2: NOTIFICATIONS_V2,
-  3: NOTIFICATIONS_V3,
+  3: NOTIFICATIONS_V2,
 });
 
 /**

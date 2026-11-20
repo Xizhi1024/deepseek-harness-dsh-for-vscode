@@ -60,6 +60,11 @@ const STARTUP_ERRORS = Object.freeze({
     template: 'Node.js was not found for the installed DSH package. Set dsh.local.nodePath to the absolute Node executable path.',
     diagnoseHint: 'Install Node.js or set dsh.local.nodePath, then retry.',
   }),
+  RUNTIME_INSTALL_FAILED: Object.freeze({
+    retryable: true,
+    template: 'Could not install the official DSH runtime: {reason}',
+    diagnoseHint: 'Check access to nodejs.org and your npm registry, then retry. You can also configure an existing DSH installation.',
+  }),
   NO_FREE_PORT: Object.freeze({
     retryable: true,
     template: 'No free port found within {limit} ports starting from {start}',

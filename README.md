@@ -2,39 +2,37 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-**A Cursor-like AI coding experience inside VS Code — powered by your own DeepSeek Harness (DSH) agent.**
-
-Embeds the full DSH web UI in the VS Code auxiliary sidebar: every window automatically starts and owns a local `dsh web` service (cwd = current workspace), so your modules, skills, MCP servers, credentials and sessions all just work. On top of that it adds the IDE integration layer:
+Embeds the full DSH web UI in the VS Code auxiliary sidebar: every window automatically starts and owns a local `dsh web` service (cwd = current workspace), so your modules, skills, MCP servers, credentials and sessions all just work. It also exposes VS Code tools to DSH:
 
 - **Chat in the sidebar**: `Ctrl+Alt+B` opens it; copy/paste/context menu, file jumps and theme following are all native
+- **VS Code tools**: DSH can open workspace files and diffs, read diagnostics, and inspect editor metadata. Additional capabilities use the settings below.
 - **Context attachment**: right-click a file / selection / folder / Problems to append a compact link to the DSH draft — source text is never pasted, nothing is ever auto-sent
-- **DSH Changes review**: workspace edits pushed by DSH land in a dedicated tree with diff / accept / undo; every write needs explicit approval (on by default)
-- **@dsh chat participant**: type `@dsh` in the native VS Code chat to talk to your local DSH session with streaming replies — zero Copilot quota (on by default)
-- **Advanced, opt-in**: Ctrl+K / Ctrl+I inline edit, model routing into the VS Code LM picker, MCP consumption, terminal / UI bridges, FIM tab completion — every capability behind an explicit consent switch
 
 ## ⚠️ Compatibility
 
 | Item | Requirement |
 |---|---|
 | VS Code | ≥ 1.106, desktop only; remote / virtual / untrusted workspaces not supported |
-| DSH CLI | `npm i -g @deepseek-ai/dsh`, ≥ 0.1.0-rc.7 recommended (older runtimes auto-retry degraded, some features limited) |
-| Node.js | auto-detected; set `dsh.local.nodePath` for non-standard locations |
+| DSH CLI | An existing installation is detected automatically. With default settings, a missing DSH runtime is installed on macOS, Windows, and Linux (x64 and arm64). |
+| Node.js | Automatic DSH installation includes a private Node.js runtime. For a manually installed DSH, set `dsh.local.nodePath` if discovery misses your Node.js. |
 
 ## 📦 Install
 
 - **Marketplace (recommended)**: search **DeepSeek Harness** (publisher Xizhi1024) in the Extensions view, or `code --install-extension Xizhi1024.dsh-vs-sidebar`
 - **VSIX**: download from [Releases](https://github.com/Xizhi1024/deepseek-harness-dsh-for-vscode/releases) → `Extensions: Install from VSIX...`
 
+With `dsh.autoStart` enabled, the extension checks for DSH when VS Code starts. On a first install it downloads Node.js and the official `@deepseek-ai/dsh` package into VS Code’s extension storage, then starts `dsh web`. A failed download can be retried from the sidebar. Set `dsh.runtime.version` to an exact npm version to pin the automatic installation.
+
 ## 🚀 Usage
 
 1. Press `Ctrl+Alt+B` — the extension starts (or reuses) the local `dsh web` and loads the UI
 2. Select code → right-click **Add to DSH Thread**; the draft receives a compact `file:line` link, press Enter to send
-3. Type `@dsh` + your question in the VS Code chat — replies stream from your local DSH session
-4. Let DSH propose an edit through the bridge: it lands in the **DSH Changes** view for diff / accept / undo — nothing is written without approval
+
+Commands include focusing the sidebar, opening DSH in the browser, restarting or stopping the service, and diagnostics.
+
+If startup fails, DSH stays paused while you switch editors or reopen the sidebar. Use **Retry**, **Restart DSH Server**, or change the relevant DSH settings to make another attempt.
 
 ![Add selected VS Code ranges to a DSH conversation as compact links](media/add-to-dsh-thread-example-en.png)
-
-Common commands (palette, `DSH:` prefix): New / Switch Session · Open Session History · Restart / Stop Server · Open in Browser · New DSH Instance (Ctrl+Alt+N) · Diagnose · Restart Cleanly · Set DSH FIM API Key.
 
 ## ⚙️ Configuration
 
@@ -46,16 +44,10 @@ Common commands (palette, `DSH:` prefix): New / Switch Session · Open Session H
 | `dsh.profile` | web | DSH profile directory name |
 | `dsh.executablePath` | (empty) | Explicit DSH executable / package dir / shim; takes precedence over discovery |
 | `dsh.closePolicy` | onVscodeExit | When to stop the owned server |
-| `dsh.features.changes-review` | true | DSH changes review (approval-gated writes) |
-| `dsh.changes.observe-tools` | true | Attribute tool-made edits in the changes tree (tool group) |
-| `dsh.features.chat-participant` | true | @dsh chat participant |
-| `dsh.features.ctrl-k` / `ctrl-i` | false | Inline edit commands (Ctrl+K / Ctrl+I) |
-| `dsh.features.lm-route` | false | Expose DSH models in the VS Code LM picker |
 | `dsh.features.mcp-consume` | false | Let DSH consume VS Code-side MCP servers |
-| `dsh.features.tab-completion` | false | FIM tab completion — needs `dsh.fim.baseUrl` + **DSH: Set FIM API Key**, then restart the DSH server |
-| `dsh.fim.baseUrl` | (empty) | Upstream FIM endpoint (full URL of an OpenAI-compatible completions API) |
 | `dsh.keybindings.ctrlL` | true | Ctrl+L adds the selection to the thread (never sends) |
 | `dsh.bridge.terminal` / `editorRead` / `ui` | false | Terminal / editor-read / UI surface bridges (consent switches) |
+| `dsh.features.call-export` | false | Allow DSH to call a VS Code extension export after confirmation |
 
 Full key list in `package.json`; run **DSH: Diagnose** for a health summary.
 

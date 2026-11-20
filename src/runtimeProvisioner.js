@@ -200,6 +200,8 @@ async function ensureManagedRuntime({
 } = {}) {
   const trimmedManifestUrl = String(manifestUrl || '').trim();
   const trimmedVersion = String(version || '').trim();
+  const deadline = AbortSignal.timeout(10 * 60 * 1000);
+  signal = signal ? AbortSignal.any([signal, deadline]) : deadline;
 
   let currentError = null;
   let current = null;
@@ -255,6 +257,7 @@ async function ensureManagedRuntime({
     archivePath,
     signal,
   });
+  signal.throwIfAborted();
   await installer.promote(candidate);
   try {
     return await resolver.resolveCurrent();

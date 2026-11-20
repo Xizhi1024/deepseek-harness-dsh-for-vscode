@@ -138,8 +138,6 @@ function buildDiagnoseReport({
     });
   }
 
-  const chat = hostCapabilities && hostCapabilities.chatParticipant ? 'yes' : 'no';
-  const lm = hostCapabilities && hostCapabilities.lmProvider ? 'yes' : 'no';
   const mcp = hostCapabilities && hostCapabilities.mcpServerDefinitions ? 'yes' : 'no';
   const dshVersion = compat && typeof compat.dshVersion === 'string' && compat.dshVersion.length > 0 ? compat.dshVersion : 'unknown';
 
@@ -165,7 +163,7 @@ function buildDiagnoseReport({
         },
         {
           label: 'host',
-          detail: 'VS Code ' + String(hostVersion) + ' · chat=' + chat + ', lm=' + lm + ', mcp=' + mcp,
+          detail: 'VS Code ' + String(hostVersion) + ' · mcp=' + mcp,
           severity: 'info',
           hint: '',
           action: null,
@@ -259,7 +257,7 @@ function buildDiagnoseReport({
     json: {
       generatedAt: now(),
       host: String(hostVersion),
-      capabilities: { chatParticipant: chat === 'yes', lmProvider: lm === 'yes', mcpServerDefinitions: mcp === 'yes' },
+      capabilities: { mcpServerDefinitions: mcp === 'yes' },
       compat: {
         dshVersion,
         patchOverlay: Boolean(compat && compat.patchOverlay),

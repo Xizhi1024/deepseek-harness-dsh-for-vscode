@@ -33,6 +33,27 @@ function close(server) {
   });
 }
 
+test('a startup timeout force-stops an owned child that ignores SIGTERM', { skip: process.platform === 'win32' }, async (t) => {
+  let child;
+  const manager = new ServerManager({
+    startupTimeoutMs: 500,
+    spawnFn(command, args, options) { child = spawn(command, args, options); return child; },
+  });
+  t.after(() => {
+    if (child && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  });
+  manager.resolvedRuntime = {};
+  manager._buildLaunchSpec = () => ({
+    command: process.execPath,
+    args: ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"],
+    detached: true,
+  });
+  manager.probe = async () => ({ reachable: false, reason: 'refused' });
+  await assert.rejects(manager._spawnAndWait('127.0.0.1', 42001, null, null), { code: 'HEALTH_TIMEOUT' });
+  assert.equal(child.signalCode, 'SIGKILL');
+  assert.equal(manager.hasOwnedChild(), false);
+});
+
 test('probe recognizes a fragmented boot marker over raw HTTP/TCP', async (t) => {
   const server = net.createServer((socket) => {
     socket.once('data', () => {

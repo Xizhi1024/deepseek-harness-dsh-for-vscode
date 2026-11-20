@@ -17,12 +17,10 @@ test('published sidebar and Webview IDs remain stable across manifest and runtim
   assert.ok(Object.hasOwn(manifest.contributes.views, CONTAINER_ID));
   assert.deepStrictEqual(
     manifest.contributes.views[CONTAINER_ID].map((entry) => entry.id),
-    [VIEW_ID, 'dsh.changes']
+    [VIEW_ID]
   );
   assert.ok(manifest.activationEvents.includes(`onView:${VIEW_ID}`));
-  assert.ok(manifest.activationEvents.includes('onView:dsh.changes'));
   assert.ok(manifest.activationEvents.includes('onCommand:dsh.addFileToThread'));
-  assert.ok(manifest.activationEvents.includes('onCommand:dsh.ctrlIEdit'));
 });
 
 test('editor title exposes one persistent icon and DSH view title exposes only the gated instance entry', () => {
@@ -37,24 +35,9 @@ test('editor title exposes one persistent icon and DSH view title exposes only t
     command: 'dsh.newInstance',
     when: 'config.dsh.multiInstance.entry && view == dsh.webview',
     group: 'navigation@10'
-  }, {
-    command: 'dsh.changes.refresh',
-    when: 'view == dsh.changes',
-    group: 'navigation@1'
   }]);
-  assert.deepStrictEqual(menus['view/item/context'], [{
-    command: 'dsh.changes.openDiff',
-    when: 'view == dsh.changes && viewItem == dsh.changes.entry',
-    group: 'inline@1'
-  }, {
-    command: 'dsh.changes.accept',
-    when: 'view == dsh.changes && viewItem == dsh.changes.entry',
-    group: 'inline@2'
-  }, {
-    command: 'dsh.changes.undo',
-    when: 'view == dsh.changes && viewItem == dsh.changes.entry',
-    group: 'inline@3'
-  }]);
+  assert.equal(menus['view/item/context'], undefined);
+  assert.deepEqual(manifest.contributes.views[CONTAINER_ID].map((view) => view.id), [VIEW_ID]);
   assert.deepStrictEqual(menus['editor/context'], [{
     command: 'dsh.addFileToThread',
     when: 'resourceScheme == file',
@@ -65,32 +48,9 @@ test('editor title exposes one persistent icon and DSH view title exposes only t
     group: 'dsh@10'
   }]);
 
-  assert.deepStrictEqual(manifest.contributes.keybindings, [{
-    command: 'dsh.focusSidebar',
-    key: 'ctrl+alt+b',
-    when: '!terminalFocus'
-  }, {
-    command: 'dsh.addSelectionToThread',
-    key: 'ctrl+l',
-    mac: 'cmd+l',
-    when: 'config.dsh.keybindings.ctrlL && editorTextFocus'
-  }]);
-  assert.ok(
-    !manifest.contributes.keybindings.some((entry) => entry.command === 'dsh.ctrlKEdit'),
-    'D8 final verdict: Ctrl+K must not contribute a default keybinding'
-  );
-  assert.ok(
-    !manifest.contributes.keybindings.some((entry) => entry.command === 'dsh.ctrlIEdit'),
-    'E-asm-1 verdict: Ctrl+I must not contribute a default keybinding'
-  );
-  assert.ok(
-    !manifest.contributes.keybindings.some((entry) => entry.command === 'dsh.openSessionHistory'),
-    'dsh.openSessionHistory must not contribute a default keybinding'
-  );
-  assert.ok(
-    !manifest.contributes.keybindings.some((entry) => entry.command === 'dsh.fim.setApiKey'),
-    'dsh.fim.setApiKey must not contribute a default keybinding'
-  );
+  assert.deepEqual(manifest.contributes.keybindings.map((entry) => entry.command), [
+    'dsh.focusSidebar', 'dsh.newInstance', 'dsh.addSelectionToThread',
+  ]);
   assert.deepStrictEqual(menus['editor/title/context'], [{
     command: 'dsh.addFileToThread',
     group: 'dsh@1',
@@ -139,51 +99,13 @@ test('editor title exposes one persistent icon and DSH view title exposes only t
 test('extension-host smoke expectations cover every contributed command id', () => {
   const contributed = manifest.contributes.commands.map((entry) => entry.command).sort();
   const smokeExpected = [
-    'dsh.addActiveFile',
-    'dsh.addActiveSelection',
-    'dsh.addFileToThread',
-    'dsh.addFolderToThread',
-    'dsh.addProblems',
-    'dsh.addSelectionToThread',
-    'dsh.capabilities',
-    'dsh.changes.accept',
-    'dsh.changes.focus',
-    'dsh.changes.openDiff',
-    'dsh.changes.refresh',
-    'dsh.changes.undo',
-    'dsh.cleanupOrphans',
-    'dsh.ctrlIEdit',
-    'dsh.ctrlKEdit',
-    'dsh.diagnose',
-    'dsh.focusSidebar',
-    'dsh.mcp.forgetConsent',
-    'dsh.mcp.refresh',
-    'dsh.newSession',
-    'dsh.openInBrowser',
-    'dsh.openSessionHistory',
-    'dsh.fim.setApiKey',
-    'dsh.restartServer',
-    'dsh.restartClean',
-    'dsh.stopServer',
-    'dsh.switchSession',
-    'dsh.onboarding',
-    'dsh.newInstance',
+    'dsh.addActiveFile', 'dsh.addActiveSelection', 'dsh.addFileToThread', 'dsh.addFolderToThread',
+    'dsh.addProblems', 'dsh.addSelectionToThread', 'dsh.capabilities', 'dsh.cleanupOrphans',
+    'dsh.diagnose', 'dsh.focusSidebar', 'dsh.mcp.forgetConsent', 'dsh.mcp.refresh', 'dsh.newInstance',
+    'dsh.newSession', 'dsh.openInBrowser', 'dsh.restartClean',
+    'dsh.restartServer', 'dsh.stopServer', 'dsh.switchSession',
   ].sort();
   assert.deepStrictEqual(smokeExpected, contributed);
-  const commandOrder = manifest.contributes.commands.map((entry) => entry.command);
-  assert.ok(
-    commandOrder.indexOf('dsh.ctrlIEdit') >= 0 && commandOrder.indexOf('dsh.ctrlKEdit') >= 0
-      && commandOrder.indexOf('dsh.ctrlIEdit') < commandOrder.indexOf('dsh.ctrlKEdit'),
-    'dsh.ctrlIEdit must be contributed before dsh.ctrlKEdit'
-  );
-  assert.ok(
-    commandOrder.indexOf('dsh.openSessionHistory') === commandOrder.indexOf('dsh.switchSession') + 1,
-    'dsh.openSessionHistory must be contributed immediately after dsh.switchSession'
-  );
-  assert.ok(
-    commandOrder.indexOf('dsh.fim.setApiKey') === commandOrder.indexOf('dsh.mcp.refresh') + 1,
-    'dsh.fim.setApiKey must be contributed immediately after dsh.mcp.refresh'
-  );
 });
 
 test('dsh.features.* configuration keys mirror the featureRegistry catalog (L1/L2 present, L0 has none)', () => {
@@ -216,55 +138,9 @@ test('dsh.features.* configuration keys mirror the featureRegistry catalog (L1/L
     assert.strictEqual(entry.default, feature.defaultEnabled, feature.id + ' default must match defaultEnabled');
   }
   assert.strictEqual(properties['dsh.features.call-export'].scope, 'machine', 'call-export must be machine-scoped');
-  assert.strictEqual(properties['dsh.features.ctrl-i'].scope, 'machine', 'ctrl-i must be machine-scoped');
-  assert.strictEqual(properties['dsh.features.exports'].scope, 'machine', 'exports must be machine-scoped');
 });
 
-test('CH1 v3 method table freezes 32 methods including extensions/callExport', () => {
-  assert.strictEqual(METHODS_V3.length, 32);
+test('CH1 v3 method table freezes 34 methods including extensions/callExport', () => {
+  assert.strictEqual(METHODS_V3.length, 34);
   assert.ok(METHODS_V3.includes('vscode/extensions/callExport'));
-});
-
-test('R23 language-model chat provider contribution and routing config are frozen', () => {
-  const providers = manifest.contributes.languageModelChatProviders;
-  assert.deepStrictEqual(providers, [{ vendor: 'dsh', displayName: '%dsh.lm.vendor%' }]);
-  assert.ok(manifest.activationEvents.includes('onLanguageModelChatProvider:dsh'));
-  const properties = manifest.contributes.configuration.properties;
-  assert.strictEqual(properties['dsh.lm.route'].default, 'off');
-  assert.deepStrictEqual(properties['dsh.lm.route'].enum, ['off', 'fixed', 'dynamic']);
-  assert.strictEqual(properties['dsh.features.lm-route'].default, false);
-  assert.strictEqual(properties['dsh.features.lm-route'].type, 'boolean');
-});
-
-test('E-asm-2 chat participant contribution, activation events, and FIM config are frozen', () => {
-  assert.deepStrictEqual(manifest.contributes.chatParticipants, [{
-    id: 'dsh',
-    name: '%dsh.participant.name%',
-    description: '%dsh.participant.description%',
-  }]);
-  assert.ok(manifest.activationEvents.includes('onChatParticipant:dsh'));
-  assert.ok(manifest.activationEvents.includes('onCommand:dsh.openSessionHistory'));
-  assert.ok(manifest.activationEvents.includes('onCommand:dsh.fim.setApiKey'));
-
-  const properties = manifest.contributes.configuration.properties;
-  assert.strictEqual(properties['dsh.features.chat-participant'].type, 'boolean');
-  assert.strictEqual(properties['dsh.features.chat-participant'].default, true);
-  assert.strictEqual(properties['dsh.features.tab-completion'].type, 'boolean');
-  assert.strictEqual(properties['dsh.features.tab-completion'].default, false);
-  assert.strictEqual(properties['dsh.fim.model'].type, 'string');
-  assert.strictEqual(properties['dsh.fim.model'].default, '');
-  assert.strictEqual(properties['dsh.fim.model'].scope, 'machine');
-  assert.ok(
-    !Object.hasOwn(properties, 'dsh.fim.apiKey'),
-    'dsh.fim.apiKey must never be contributed as a configuration key'
-  );
-  // 1.0.1: the DSH-side /api/fim route is owned by dsh-vscode-integration, so
-  // the upstream endpoint moved into an extension-side machine-scoped setting
-  // (injected into the DSH spawn env as DSH_FIM_BASE_URL). The API key stays
-  // in VS Code secretStorage and must never become a configuration key.
-  assert.ok(Object.hasOwn(properties, 'dsh.fim.baseUrl'), 'dsh.fim.baseUrl must be contributed since 1.0.1');
-  assert.strictEqual(properties['dsh.fim.baseUrl'].type, 'string');
-  assert.strictEqual(properties['dsh.fim.baseUrl'].default, '');
-  assert.strictEqual(properties['dsh.fim.baseUrl'].scope, 'machine');
-  assert.ok(!Object.hasOwn(properties, 'dsh.fim.api'), 'dsh.fim.api must not be contributed');
 });

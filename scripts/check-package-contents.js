@@ -41,6 +41,7 @@ for (const required of [
   'src/extension.js',
   'src/lifecycle.js',
   'src/runtimeArtifact.js',
+  'src/npmRuntime.js',
   'src/runtimeArchive.js',
   'src/runtimeDownloader.js',
   'src/runtimeInstaller.js',
@@ -81,6 +82,9 @@ for (const required of [
   'runtime-integration/dsh-vscode-integration/package.json',
   'runtime-integration/dsh-vscode-integration/lib/index.js',
   'runtime-integration/dsh-vscode-integration/lib/client.js',
+  'runtime-integration/dsh-vscode-integration/lib/tools.js',
+  'runtime-integration/dsh-vscode-integration/lib/linkRoutes.js',
+  'runtime-integration/dsh-vscode-integration/lib/embedAuth.js',
 ]) {
   assert.ok(files.includes(required), `Required package entry is missing: ${required}`);
 }

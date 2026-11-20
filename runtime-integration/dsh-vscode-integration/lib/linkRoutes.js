@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { bridgeEnv } from './tools.js';
 
 // ---------------------------------------------------------------------------
 // B3 (issue #6): DSH-side open-link route. The client plugin linkifies
@@ -162,7 +163,7 @@ function filePathToUri(absolutePath, pathMod = path) {
  */
 function editorOpenViaBridge({ env = process.env, net = null, params, timeoutMs = 5000, bridgeState = null } = {}) {
   if (!net) return Promise.reject(new Error('node:net module is required'));
-  const state = bridgeState;
+  const state = bridgeState ?? bridgeEnv(env);
   const ok = state && state.ok === true
     && Number.isInteger(state.port) && state.port > 0
     && typeof state.token === 'string' && state.token.length > 0;

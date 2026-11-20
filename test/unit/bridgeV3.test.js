@@ -111,10 +111,10 @@ const flags = (map = {}) => (key) => Boolean(map[key]);
 test('protocol v3 freezes the full v3 method table and versions', () => {
   assert.ok(PROTOCOL_VERSIONS.includes(3));
   assert.strictEqual(METHODS_BY_VERSION[3], METHODS_V3);
-  for (const method of ['vscode/terminal/create', 'vscode/tasks/run', 'vscode/git/getStatus', 'vscode/editor/read', 'vscode/confirm/ask', 'vscode/changes/push', 'vscode/mcp/callTool', 'vscode/extensions/callExport']) {
+  for (const method of ['vscode/terminal/create', 'vscode/tasks/run', 'vscode/git/getStatus', 'vscode/editor/read', 'vscode/confirm/ask', 'vscode/mcp/callTool', 'vscode/extensions/callExport']) {
     assert.ok(METHODS_V3.includes(method), method + ' must be frozen in v3');
   }
-  assert.strictEqual(METHODS_V3.length, 32, 'E-T2a freezes the v3 method table at 32 entries');
+  assert.strictEqual(METHODS_V3.length, 34, 'E-T2a freezes the v3 method table at 34 entries');
 });
 
 test('consent gates keep terminal, editor/read and UI surfaces unmounted by default', () => {
@@ -217,72 +217,6 @@ test('progress bridge caps concurrency and confirm fails closed', async () => {
   assert.strictEqual(denied.approved, false, 'no quickpick answer fails closed');
   const typed = await handlers['vscode/confirm/ask']({ kind: 'input', prompt: 'type' });
   assert.deepStrictEqual(typed, { approved: true, value: 'typed' });
-});
-
-test('changes/push is gated by dsh.features.changes-review', () => {
-  const fake = fakeVscode();
-  const off = createV3Handlers({ vscode: fake.api, getFlag: flags() });
-  assert.strictEqual(off['vscode/changes/push'], undefined, 'changes/push is an L2 feature, off by default');
-  const on = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.changes-review': true }) });
-  assert.ok(typeof on['vscode/changes/push'] === 'function', 'changes/push mounts when the feature is enabled');
-});
-
-test('changes/push applies after Allow Once and returns applied:true', async () => {
-  const fake = fakeVscode();
-  fake.api.window.showWarningMessage = async () => 'Allow Once';
-  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.changes-review': true }) });
-  const result = await handlers['vscode/changes/push']({
-    label: 'demo',
-    edits: [{ kind: 'insert', uri: 'file:///ws/a.js', at: { line: 0, character: 0 }, text: 'x' }],
-  });
-  assert.strictEqual(result.applied, true);
-  assert.strictEqual(result.approved, true);
-  assert.strictEqual(result.changeIds.length, 1);
-  assert.strictEqual(fake.appliedEdits.length, 1);
-});
-
-test('changes/push returns model-visible not-approved on rejection', async () => {
-  const fake = fakeVscode();
-  fake.api.window.showWarningMessage = async () => 'Reject';
-  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.changes-review': true }) });
-  const result = await handlers['vscode/changes/push']({
-    edits: [{ kind: 'insert', uri: 'file:///ws/a.js', at: { line: 0, character: 0 }, text: 'x' }],
-  });
-  assert.deepStrictEqual(result, { applied: false, approved: false, reason: 'user-rejected' });
-  assert.strictEqual(fake.appliedEdits.length, 0);
-});
-
-test('changes/push session approval skips the next modal for the same session', async () => {
-  const fake = fakeVscode();
-  let asks = 0;
-  fake.api.window.showWarningMessage = async () => {
-    asks += 1;
-    return asks === 1 ? 'Allow Session' : 'Allow Once';
-  };
-  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.changes-review': true }) });
-  const params = {
-    sessionId: 's-1',
-    mode: 'session',
-    edits: [{ kind: 'insert', uri: 'file:///ws/a.js', at: { line: 0, character: 0 }, text: 'x' }],
-  };
-  const first = await handlers['vscode/changes/push'](params);
-  const second = await handlers['vscode/changes/push'](params);
-  assert.strictEqual(first.approved, true);
-  assert.strictEqual(second.approved, true);
-  assert.strictEqual(asks, 1, 'session approval must skip the second modal');
-  assert.strictEqual(fake.appliedEdits.length, 2);
-});
-
-test('changes/push rejects edits outside the workspace', async () => {
-  const fake = fakeVscode();
-  fake.api.window.showWarningMessage = async () => 'Allow Once';
-  const handlers = createV3Handlers({ vscode: fake.api, getFlag: flags({ 'features.changes-review': true }) });
-  await assert.rejects(
-    handlers['vscode/changes/push']({
-      edits: [{ kind: 'insert', uri: 'file:///outside/a.js', at: { line: 0, character: 0 }, text: 'x' }],
-    }),
-    (error) => error.bridgeCode === 'VSCODE_URI_OUTSIDE_WORKSPACE',
-  );
 });
 
 test('mcp/* handlers are gated by features.mcp-consume; a missing manager degrades to VSCODE_MCP_UNAVAILABLE', async () => {
